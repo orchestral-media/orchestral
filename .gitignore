@@ -1,0 +1,12 @@
+node_modules
+dist
+dts
+out
+coverage
+*.log
+*.tsbuildinfo
+.DS_Store
+
+# api-extractor scratch output. The golden report in each package's etc/ is
+# committed; temp/ is regenerated on every run.
+temp/

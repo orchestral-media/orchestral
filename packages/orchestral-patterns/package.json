@@ -1,0 +1,69 @@
+{
+  "name": "@orchestral/patterns",
+  "version": "0.1.0",
+  "description": "Orchestral first-party Pattern catalog — atomic capabilities + builtin meta/agent pipelines with inlined prompts. Depends on @orchestral/core.",
+  "license": "Apache-2.0",
+  "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
+  "homepage": "https://github.com/orchestral-media/orchestral#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orchestral-media/orchestral.git",
+    "directory": "packages/orchestral-patterns"
+  },
+  "bugs": {
+    "url": "https://github.com/orchestral-media/orchestral/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "orchestration",
+    "patterns",
+    "capability",
+    "media",
+    "typescript"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "files": [
+    "dist",
+    "NOTICE",
+    "CHANGELOG.md",
+    "CREDITS.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.build.json && api-extractor run",
+    "prepack": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "dependencies": {
+    "@orchestral/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "zod": ">=4.3 <5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6",
+    "zod": "^4.3.6"
+  }
+}

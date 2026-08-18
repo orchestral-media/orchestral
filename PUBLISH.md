@@ -1,0 +1,184 @@
+# Publishing Orchestral
+
+Maintainer handbook for pushing the repository and releasing the three packages
+to npm. Everything here is manual on purpose — there is no release automation
+and no publish workflow in CI.
+
+## 0. First push (once)
+
+The repository was assembled with a fresh history; there is nothing to merge
+and nothing to rebase onto.
+
+If it was assembled offline (`SPLIT_NO_INSTALL=1`), there is no `pnpm-lock.yaml`
+and no commit yet — run `pnpm install`, then `git add -A && git commit` before
+pushing. CI installs with `--frozen-lockfile`, so a first commit without the
+lockfile fails on the first run.
+
+```sh
+# create an EMPTY repo at github.com/orchestral-media/orchestral first —
+# no README, no license, no .gitignore
+git remote add origin git@github.com:orchestral-media/orchestral.git
+git push -u origin main
+```
+
+Then, in the repository settings: enable **private vulnerability reporting**
+(Settings → Code security), which is the channel `SECURITY.md` points people
+at.
+
+## 1. Claim the npm scope
+
+`@orchestral` is not a username scope, so it has to exist as an npm
+organization before anything can be published under it. Creating one is free
+for public packages: <https://www.npmjs.com/org/create> → name `orchestral`.
+
+Verify, in this order:
+
+```sh
+npm whoami                        # you are logged in, and as whom
+npm org ls orchestral             # you appear, as owner — proves the scope is yours
+npm access list packages @orchestral   # what already exists under the scope
+npm view @orchestral/core         # 404 until the first publish
+```
+
+`npm view @orchestral/core` returning 404 only means the *package name* is
+unused — it is not evidence that the scope belongs to you. `npm org ls` is the
+check that matters. Publishing into a scope you do not own fails with `E403`
+after the tarball is already built, which is a confusing place to discover it.
+
+> Measured 2026-08-16: `npm view @orchestral/core` → `404`. The scope's
+> ownership was not verified at that point.
+
+## 2. Always `pnpm publish`, never `npm publish`
+
+Each package's top-level `main` / `types` / `exports` point at `./src/index.ts`
+so the workspace and the examples run TypeScript sources directly. The
+published shape lives in `publishConfig`. **pnpm** substitutes those fields (and
+resolves `workspace:*` to a real version) when it packs; **npm** does not — npm
+only honours a handful of `publishConfig` keys (`registry`, `access`, `tag`),
+not `main`/`types`/`exports`.
+
+Publishing with npm therefore ships a package whose entry point is a `.ts` file
+that is not even in the tarball (`files` lists `dist`). It installs and then
+fails at import.
+
+Measured 2026-08-16 (pnpm 10.28.1, npm bundled with Node 24.17.0), unpacking
+the tarball and reading `package/package.json`:
+
+| | `npm pack` | `pnpm pack` |
+| --- | --- | --- |
+| `main` | `./src/index.ts` | `./dist/index.js` |
+| `types` | `./src/index.ts` | `./dist/index.d.ts` |
+| `exports["."]` | `./src/index.ts` | `{ types: ./dist/index.d.ts, import: ./dist/index.js }` |
+| `dependencies["@orchestral/core"]` (patterns) | `workspace:*` | `0.1.0` |
+
+`pnpm pack` also drops the dev-only `./testing` subpath from
+`@orchestral/patterns` (it is absent from `publishConfig.exports`), which is
+intended — there is no dist artifact behind it.
+
+If you ever want to inspect a tarball without triggering the `prepack` build,
+`npm_config_ignore_scripts=true pnpm pack --pack-destination /tmp/x` works;
+`pnpm pack` has no `--ignore-scripts` flag of its own.
+
+## 3. Pre-flight
+
+From a clean tree on `main`, with CI green:
+
+```sh
+pnpm install
+pnpm build
+pnpm test
+pnpm typecheck
+pnpm api:check
+node scripts/smoke-dist.mjs     # or `pnpm smoke:dist`, which rebuilds first
+```
+
+`scripts/smoke-dist.mjs` is the one check that exercises what npm actually
+ships: it imports each package's built `dist/index.js` by file URL, redirects
+the bare `@orchestral/*` specifiers between them to their dist builds (the
+resolution a consumer gets after publish, which no test covers), and runs a
+registry → router → runtime dispatch end to end. Do not skip it — every other
+gate reads either the sources or the `.d.ts`.
+
+If any pattern changed since the last release, regenerate the catalog table in
+`packages/orchestral-patterns/README.md` — it is derived from the built dist and
+ships inside the tarball:
+
+```sh
+pnpm docs:catalog
+git diff --exit-code packages/orchestral-patterns/README.md   # commit if it moved
+```
+
+Version bump, when releasing something other than the current `0.1.0`:
+
+- All three packages move together; keep the version line identical.
+- Update each package's `CHANGELOG.md`.
+- `@orchestral/patterns` and `@orchestral/runtime` depend on core through
+  `workspace:*`, so nothing else needs editing — pnpm resolves it at pack time.
+- Commit the bump before publishing; `pnpm publish` refuses a dirty tree.
+
+## 4. Publish, in dependency order
+
+core → patterns → runtime. Each `pnpm publish` runs that package's `prepack`
+(a full `build`) first, so the dist in the tarball is always freshly built.
+
+```sh
+pnpm --filter @orchestral/core publish --access public
+pnpm --filter @orchestral/patterns publish --access public
+pnpm --filter @orchestral/runtime publish --access public
+```
+
+Order matters because patterns and runtime ship a hard dependency on
+`@orchestral/core@<version>`. Publishing them first leaves a window in which
+`npm install @orchestral/runtime` cannot resolve.
+
+- With 2FA enabled, append `--otp=<code>` (the code expires fast — publish one
+  package per code if needed).
+- `pnpm publish` enforces a clean tree and the `main` branch by default. Fix
+  the tree rather than reaching for `--no-git-checks`.
+- `pnpm -r publish --access public` publishes every non-private package in
+  topological order in one shot. It is correct, but the three explicit commands
+  fail more legibly, and `examples/*` being `private: true` is the only thing
+  keeping them out of it.
+- A mistaken publish can be undone within 72 hours (`npm unpublish
+  @orchestral/core@0.1.0`). After that, the version is permanent — publish a
+  new patch instead.
+
+## 5. Tag and release
+
+```sh
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+gh release create v0.1.0 --title "v0.1.0" --notes-file <notes>
+```
+
+Notes are assembled by hand from the three `CHANGELOG.md` files. One tag and
+one GitHub Release per version line, since the packages move together.
+
+## 6. Verify what consumers get
+
+Install from the registry into a throwaway directory — not a workspace, so
+nothing resolves to a local path:
+
+```sh
+mkdir /tmp/orchestral-verify && cd /tmp/orchestral-verify
+npm init -y
+npm install @orchestral/core@0.1.0 @orchestral/patterns@0.1.0 @orchestral/runtime@0.1.0 zod
+node --input-type=module -e "
+  import { PatternRegistry, InMemoryJobStore } from '@orchestral/core'
+  import { InlineRuntime } from '@orchestral/runtime'
+  import { createTextToImagePattern } from '@orchestral/patterns'
+  console.log(typeof PatternRegistry, typeof InMemoryJobStore, typeof InlineRuntime, typeof createTextToImagePattern)
+"
+```
+
+Four `function`s means the published entry points, the type surface and the
+cross-package resolution all landed. Also check the package pages render the
+README and show the Apache-2.0 license.
+
+## Not set up (deliberate)
+
+- **npm provenance.** `--provenance` requires publishing from a CI workflow
+  with `id-token: write`; releases are manual, so there is no attestation.
+- **Automated releases.** No changesets, no release-please, no publish job.
+- **Prereleases / dist-tags.** Everything goes to `latest`. If that changes,
+  `--tag next` on all three at once.

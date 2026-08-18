@@ -1,0 +1,72 @@
+# CI gate — build, tests, typecheck, API surface and lint on every PR and on
+# pushes to main.
+#
+# One job, not five: api:check runs api-extractor against the rolled-up
+# dist/index.d.ts and smoke:dist executes the built dist/index.js, so both need
+# the build anyway. Splitting them would repeat the install and the build for
+# no gain on a repo this size.
+#
+# Node 22: satisfies engines.node >=20.18, and Node 20 is being removed from
+# GitHub-hosted runners (2026-09-16). v6 actions run on Node 24.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same ref supersedes any in-flight run for it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Build, test, API surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        # package.json has no `packageManager` field, so pin pnpm here. If a
+        # `packageManager` field is added later, drop this `version:` —
+        # action-setup errors when both are set.
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Builds the three packages in dependency order (core first). Each
+      # package's build is tsdown + tsc declarations + api-extractor rollup.
+      - run: pnpm build
+
+      # The Pattern catalog table in packages/orchestral-patterns/README.md is
+      # generated from the built dist and ships inside the published tarball.
+      # Regenerating it here and diffing catches a Pattern change whose docs
+      # were never regenerated. Fix with `pnpm docs:catalog` and commit.
+      - run: pnpm docs:catalog
+      - run: git diff --exit-code packages/orchestral-patterns/README.md
+
+      - run: pnpm test
+
+      - run: pnpm typecheck
+
+      # Fails when the public type surface drifts from the committed
+      # etc/*.api.md report. Regenerate with `pnpm api:update` and commit.
+      - run: pnpm api:check
+
+      # api:check only validates the .d.ts surface. The tests all import each
+      # package's src (main points at ./src until publish), so the built
+      # dist/index.js is otherwise never executed. Reuse the build above.
+      - run: node scripts/smoke-dist.mjs
+
+      - run: pnpm lint

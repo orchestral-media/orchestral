@@ -1,0 +1,204 @@
+// Publish-artifact smoke test for @orchestral/core, @orchestral/patterns, and
+// @orchestral/runtime.
+//
+// Why this exists: every unit test and the atomic-hello-world example resolve
+// the three packages through `workspace:*`, and each package's top-level
+// `main`/`exports` points at `./src/index.ts` (publishConfig.main → ./dist is
+// only applied by npm at publish time). So the tsdown-built `dist/index.js` —
+// the code npm actually ships — is never imported or executed by any test.
+// api-surface CI only builds + api-extractor-checks the `.d.ts` type surface,
+// not the runtime JS. This script closes that gap: it imports the built
+// dist/index.js directly by file URL and runs the hello-world flow end to end
+// (register atomic Pattern → InlineRuntime dispatch → validate output).
+//
+// The catch: patterns' and runtime's dist externalize `@orchestral/core` as a
+// bare `import ... from "@orchestral/core"`. In this workspace that specifier
+// resolves to core's src/index.ts (unrunnable TS) — the exact "dist links to
+// dist" path a consumer of the published packages relies on is untested. A
+// module resolve hook (below) redirects the three `@orchestral/*` specifiers to
+// their dist builds, simulating the post-publish resolution without touching
+// any package.json.
+//
+// Run `pnpm smoke:dist` (builds first) or `node scripts/smoke-dist.mjs` against
+// an already-built tree (CI reuses the api-surface build).
+
+import { existsSync } from 'node:fs'
+import { register } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+// The three published packages and their single published entry (`.`). Each
+// package's publishConfig.exports declares only `.` → ./dist/index.js; the
+// dev-only `./testing` subpath on @orchestral/patterns is intentionally absent
+// from publishConfig and has no dist artifact, so it is not exercised here.
+const PACKAGES = [
+  { name: '@orchestral/core', dir: 'orchestral-core' },
+  { name: '@orchestral/patterns', dir: 'orchestral-patterns' },
+  { name: '@orchestral/runtime', dir: 'orchestral-runtime' },
+]
+
+const distUrlFor = (dir) =>
+  new URL(`../packages/${dir}/dist/index.js`, import.meta.url)
+
+// Fail readably (before any import) if a dist is missing — the script assumes a
+// built tree. This is the guard that turns "forgot to build" into a clear
+// message instead of a raw ERR_MODULE_NOT_FOUND.
+const missing = PACKAGES.filter((p) => !existsSync(distUrlFor(p.dir)))
+if (missing.length > 0) {
+  console.error('smoke:dist — missing build artifacts:\n')
+  for (const p of missing) {
+    console.error(`  ✗ ${p.name}: ${fileURLToPath(distUrlFor(p.dir))} not found`)
+  }
+  console.error(
+    '\nBuild the packages first, then re-run:\n' +
+      '  pnpm -r --filter "./packages/orchestral-*" build\n' +
+      '  node scripts/smoke-dist.mjs\n' +
+      '(or just `pnpm smoke:dist`, which builds then runs this script).',
+  )
+  process.exit(1)
+}
+
+// Redirect bare `@orchestral/*` specifiers to the built dist. Without this, the
+// transitive `@orchestral/core` import inside patterns'/runtime's dist resolves
+// to core's src/index.ts (TS) and crashes. Mapping every specifier — including
+// the top-level three — to the same dist URLs keeps a single module instance
+// per package. The hook source is a self-contained data: URL module; the URL
+// map is baked in as JSON so the (separate-thread) hook needs no other plumbing.
+const specifierToDist = Object.fromEntries(
+  PACKAGES.map((p) => [p.name, distUrlFor(p.dir).href]),
+)
+const hookSource = `
+const MAP = ${JSON.stringify(specifierToDist)}
+export async function resolve(specifier, context, nextResolve) {
+  if (Object.hasOwn(MAP, specifier)) {
+    return { url: MAP[specifier], shortCircuit: true }
+  }
+  return nextResolve(specifier, context)
+}
+`
+register(`data:text/javascript,${encodeURIComponent(hookSource)}`, import.meta.url)
+
+// ── assertions ─────────────────────────────────────────────────────────────
+let failures = 0
+function check(pkg, label, ok) {
+  if (ok) {
+    console.log(`  ✓ [${pkg}] ${label}`)
+  } else {
+    console.error(`  ✗ [${pkg}] ${label}`)
+    failures++
+  }
+}
+
+// Import the published dist directly by file URL (top-level entries); the hook
+// covers each package's transitive `@orchestral/*` imports.
+const core = await import(distUrlFor('orchestral-core').href)
+const patterns = await import(distUrlFor('orchestral-patterns').href)
+const runtime = await import(distUrlFor('orchestral-runtime').href)
+
+console.log('smoke:dist — exercising built dist/index.js of all three packages\n')
+
+// 1. Key exports are present and of the right kind. If any is missing the flow
+//    below can't run, so bail early with a precise message.
+console.log('exports:')
+check('@orchestral/core', 'PatternRegistry is a constructor', typeof core.PatternRegistry === 'function')
+check('@orchestral/core', 'InMemoryJobStore is a constructor', typeof core.InMemoryJobStore === 'function')
+check('@orchestral/core', 'createDefaultCapabilityRouter is a function', typeof core.createDefaultCapabilityRouter === 'function')
+check('@orchestral/patterns', 'createTextToImagePattern is a function', typeof patterns.createTextToImagePattern === 'function')
+check('@orchestral/patterns', 'TEXT_TO_IMAGE_PATTERN_ID === "text-to-image"', patterns.TEXT_TO_IMAGE_PATTERN_ID === 'text-to-image')
+check('@orchestral/patterns', 'TextToImageOutputSchema.parse is a function', typeof patterns.TextToImageOutputSchema?.parse === 'function')
+check('@orchestral/runtime', 'InlineRuntime is a constructor', typeof runtime.InlineRuntime === 'function')
+
+if (failures > 0) {
+  console.error(`\nsmoke:dist FAILED — ${failures} missing/invalid export(s); cannot run the dispatch flow.`)
+  process.exit(1)
+}
+
+// 2. Minimal end-to-end dispatch, mirroring examples/atomic-hello-world but with
+//    an inline `call` (the ai-sdk bridge is host territory, never shipped by the
+//    packages). The `call` returns a TextToImageOutput shaped exactly like the
+//    hello-world wiring output so the pattern's own schema validates it.
+const PNG_DATA_URI =
+  'data:image/png;base64,aVZCT1J3MEtHZ29BQUFBTlNVaEVVZ0E='
+
+function inlineImageModels() {
+  const envelope = {
+    capabilities: ['text-to-image'],
+    provider: 'mock',
+    modelId: 'mock-image',
+    inputs: ['text'],
+    outputs: ['image'],
+    tags: [],
+    source: 'user',
+    async call(input, _ctx, events) {
+      const prompt = input && typeof input === 'object' ? input.prompt : undefined
+      if (typeof prompt !== 'string' || prompt.length === 0) {
+        throw new Error('text-to-image call: input.prompt (non-empty string) is required')
+      }
+      const artifact = { kind: 'image', uri: PNG_DATA_URI, mime: 'image/png' }
+      events?.onArtifact?.(artifact)
+      const output = {
+        modality: 'image',
+        assets: [{ assetId: 'mock-image-0', modality: 'image', url: PNG_DATA_URI }],
+        cost: 0,
+        latencyMs: 1,
+        model: 'mock:mock-image',
+        provider: 'mock',
+      }
+      return { output, artifacts: [artifact] }
+    },
+  }
+  return (cap) => [envelope].filter((env) => env.capabilities.includes(cap))
+}
+
+console.log('\ndispatch:')
+let job
+try {
+  const registry = new core.PatternRegistry()
+  registry.add(patterns.createTextToImagePattern())
+
+  const router = core.createDefaultCapabilityRouter({ getModels: inlineImageModels() })
+  const rt = new runtime.InlineRuntime({
+    store: new core.InMemoryJobStore(),
+    registry,
+    router,
+  })
+
+  job = await rt.submitJob({
+    patternId: patterns.TEXT_TO_IMAGE_PATTERN_ID,
+    input: { prompt: 'a red bicycle' },
+  })
+} catch (err) {
+  console.error('  ✗ [@orchestral/runtime] submitJob threw instead of completing:')
+  console.error(err)
+  process.exit(1)
+}
+
+// 3. The job ran to completion in this tick and carries a usable output.
+check('@orchestral/runtime', 'job.status === "done"', job.status === 'done')
+check('@orchestral/runtime', 'job.error is null/undefined', job.error == null)
+check('@orchestral/runtime', 'job.output is present', job.output != null)
+
+// 4. The output satisfies the real patterns schema — the load-bearing contract
+//    a host relies on when consuming job.output. Parsing exercises the zod
+//    schema that lives in the patterns dist bundle.
+let parsed
+try {
+  parsed = patterns.TextToImageOutputSchema.parse(job.output)
+  check('@orchestral/patterns', 'TextToImageOutputSchema.parse(job.output) succeeds', true)
+} catch (err) {
+  check('@orchestral/patterns', 'TextToImageOutputSchema.parse(job.output) succeeds', false)
+  console.error(err)
+}
+
+if (parsed) {
+  check('@orchestral/patterns', 'parsed.modality === "image"', parsed.modality === 'image')
+  check('@orchestral/patterns', 'parsed.model === "mock:mock-image"', parsed.model === 'mock:mock-image')
+  check('@orchestral/patterns', 'parsed.provider === "mock"', parsed.provider === 'mock')
+  check('@orchestral/patterns', 'parsed.assets has one image asset', parsed.assets.length === 1 && parsed.assets[0]?.modality === 'image')
+  check('@orchestral/patterns', 'asset.url is a png data URI', /^data:image\/png;base64,/.test(parsed.assets[0]?.url ?? ''))
+}
+
+if (failures > 0) {
+  console.error(`\nsmoke:dist FAILED — ${failures} assertion(s) failed against the built dist.`)
+  process.exit(1)
+}
+console.log('\nsmoke:dist PASSED — all three dist bundles link and dispatch end to end.')

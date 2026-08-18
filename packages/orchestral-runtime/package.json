@@ -1,0 +1,68 @@
+{
+  "name": "@orchestral/runtime",
+  "version": "0.1.0",
+  "description": "In-process Runtime implementation for @orchestral/core. Submits jobs, dispatches Patterns through a CapabilityRouter, handles in-router retry + cross-Pattern Alternatives + idempotency. No durable queue — host owns the lifecycle. Node-only (uses node:crypto); core itself is runtime-agnostic.",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
+  "homepage": "https://github.com/orchestral-media/orchestral#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orchestral-media/orchestral.git",
+    "directory": "packages/orchestral-runtime"
+  },
+  "bugs": {
+    "url": "https://github.com/orchestral-media/orchestral/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "orchestration",
+    "runtime",
+    "capability",
+    "media",
+    "typescript"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.build.json && api-extractor run",
+    "prepack": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "dependencies": {
+    "@orchestral/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@orchestral/patterns": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6",
+    "zod": "^4.3.6"
+  }
+}

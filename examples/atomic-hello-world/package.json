@@ -1,0 +1,25 @@
+{
+  "name": "atomic-hello-world",
+  "private": true,
+  "type": "module",
+  "description": "Minimal host: run one atomic text-to-image dispatch through @orchestral/* with ~15 lines of ai-sdk wiring.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orchestral/core": "workspace:*",
+    "@orchestral/runtime": "workspace:*",
+    "@orchestral/patterns": "workspace:*",
+    "@ai-sdk/openai": "^4.0.0",
+    "ai": "^7.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  }
+}
