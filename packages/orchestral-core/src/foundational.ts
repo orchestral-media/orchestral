@@ -32,8 +32,8 @@ export type AgentPatternId = `agent_${string}`
 export type PatternId = AtomicPatternId | MetaPatternId | AgentPatternId
 
 // Re-export of zod v4's ZodType under the legacy name so existing call sites
-// keep compiling. Earlier versions defined a structural duck-type here so OSS
-// could stay zod-major-agnostic, but the package now depends on zod ^4.3.6
+// keep compiling. Earlier versions defined a structural duck-type here so the
+// package could stay zod-major-agnostic, but it now depends on zod ^4.3.6
 // directly (see package.json) — there's no reason to lose the full v4 type
 // surface (.parse, .safeParse, .extend, .merge, .pick, .omit, …) behind a
 // hand-rolled subset, and zod v4 dropped the `_output: T` phantom field the

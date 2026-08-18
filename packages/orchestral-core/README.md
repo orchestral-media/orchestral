@@ -2,6 +2,9 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
+Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral)
+— see the repo README for how the three packages fit together.
+
 A media-agent kit with capability-level semantic fallback — a substrate-agnostic
 orchestration layer that stays provider-SDK-free: you inject the model call.
 (The examples bridge to the Vercel [`ai`](https://ai-sdk.dev) SDK, but any
@@ -16,12 +19,16 @@ your own model bridge (a ~15-line `call` adapter over the provider SDK you use).
 
 ## Install
 
+> **Not on npm yet** — 0.1.0 publishes shortly. Until then, clone
+> [the repo](https://github.com/orchestral-media/orchestral) and run the
+> examples.
+
 ```sh
 npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 ```
 
-`zod` (v4) is a peer dependency — Pattern input/output schemas on the public
-API are zod schemas, so your app and Orchestral must share a single zod
+`zod` v4 (`>=4.3 <5`) is a peer dependency — Pattern input/output schemas on the
+public API are zod schemas, so your app and Orchestral must share a single zod
 instance (duplicate copies break zod's cross-instance checks).
 
 Calling a model is host territory — Orchestral ships **no** provider adapter. To
@@ -158,7 +165,7 @@ const contactSheet: MetaPattern<Input, Output> = {
 
 For a production-scale exemplar — fan-out, a VLM judge step, asset threading
 between steps — read `meta_image-best-of-n` in
-[`@orchestral/patterns`](https://www.npmjs.com/package/@orchestral/patterns),
+[`@orchestral/patterns`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-patterns),
 whose README carries a [generated catalog](https://github.com/orchestral-media/orchestral/blob/main/packages/orchestral-patterns/README.md#catalog)
 of every shipped pattern: input slots, outputs, and the host operations each one
 expects you to supply.

@@ -2,6 +2,9 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
+Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral)
+— see the repo README for how the three packages fit together.
+
 The first-party Pattern catalog for Orchestral — the patterns you register and
 dispatch through a runtime.
 
@@ -24,8 +27,9 @@ registry.add(createTextToImagePattern())
 registry.add(createStoryboardMeta())
 ```
 
-See [`@orchestral/core`](https://www.npmjs.com/package/@orchestral/core) for how
-patterns, the router, and a runtime fit together, plus an end-to-end example.
+See [`@orchestral/core`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-core)
+for how patterns, the router, and a runtime fit together, plus an end-to-end
+example.
 
 ## Catalog
 

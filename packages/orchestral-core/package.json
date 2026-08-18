@@ -15,11 +15,15 @@
   },
   "keywords": [
     "ai",
-    "agent",
+    "agents",
     "orchestration",
-    "capability",
-    "media",
-    "typescript"
+    "capability-routing",
+    "model-fallback",
+    "pattern-registry",
+    "json-schema",
+    "multimodal",
+    "typescript",
+    "zod"
   ],
   "type": "module",
   "sideEffects": false,

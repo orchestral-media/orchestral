@@ -4,13 +4,14 @@
 // pattern id (full id OR unqualified short name); the registry resolves it and
 // the host dispatches it directly, bypassing find_pattern / LLM selection.
 //
-// This module owns the pure resolution + the `exposure.slash` gate so the host
-// IPC handler stays thin (resolve here, then reuse the existing dispatch
-// pipeline with `audience: 'slash'`). Returning (not throwing) keeps the
-// failure modes structured so the renderer can surface a precise message.
+// This module owns the pure resolution + the `exposure.slash` gate so the
+// host's own entry point stays thin (resolve here, then reuse the existing
+// dispatch pipeline with `audience: 'slash'`). Returning (not throwing) keeps
+// the failure modes structured so the caller can surface a precise message.
 //
-// Scope: backend only. No autocomplete menu, schema→form, or asset
-// picker — those are independent renderer surfaces wired later.
+// Scope: resolution only. Anything a user-facing command surface needs on top
+// — a completion menu, a schema-driven form, an asset picker — is the host's
+// own concern.
 
 import { resolveExposure } from './pattern'
 import type { PatternRegistry } from './registry'
@@ -50,8 +51,8 @@ export type SlashDispatchResolution =
  *      as an unqualified short name (e.g. `text-to-image`).
  *
  * Gate (fail-closed): only `resolveExposure(pattern.exposure).slash === true`
- * passes. First-party Patterns don't opt into slash yet, so everything is
- * rejected by default — the backend ground is in place, content opens later.
+ * passes. First-party Patterns do not opt into slash; a host opts its own
+ * Patterns in.
  * @alpha
  */
 export function resolveSlashDispatch(

@@ -1,10 +1,10 @@
 // ADR-028 P2 — dispatchAgent tool catalog.
 //
-// Locks the OSS-side contract after the host-tool-policy move: dispatchAgent
+// Locks the library-side contract after the host-tool-policy move: dispatchAgent
 // emits the Path-5 router tools (find_pattern / dispatch_pattern), the injected
 // finish tool (complete_task), and forwards the AgentPattern's `pattern.id` to
 // AgentRunImpl.run({ patternId }). Host-tool assembly/filtering (injection +
-// visibility policy) no longer lives in OSS; the host injects its per-agent tool
+// visibility policy) no longer lives here; the host injects its per-agent tool
 // surface in a later task, keyed by patternId.
 //
 // The minimal {store: undefined, router: {resolve}} shape from the task brief
@@ -156,7 +156,7 @@ describe('dispatchAgent sessionId wiring', () => {
 
 // ── Finish broker (2026-07-18 agent finish contract §5) ────────────────────
 //
-// The finish tool's lifecycle now lives in OSS: dispatchAgent injects a
+// The finish tool's lifecycle now lives in the library: dispatchAgent injects a
 // schema-visible complete_task descriptor, intercepts its call (validate +
 // resolve deliverable handles), records the last valid finish, and composes
 // Pattern outputs from the recorded payload + run facts. Two errors self-heal

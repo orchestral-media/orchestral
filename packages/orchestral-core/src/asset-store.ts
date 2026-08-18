@@ -1,9 +1,9 @@
-// AssetStore — per-context registry of indirect asset references (an
-// OSS contract, substrate-agnostic). The interface is defined in
-// @orchestral/core; the host provides a sqlite implementation
-// (SessionAssetStore). The default InMemoryAssetStore uses an in-process Map
-// (dev/test only — dropped when the process exits). This mirrors the
-// "interface + default implementation" layering of JobStore / TranscriptStore.
+// AssetStore — per-context registry of indirect asset references. The
+// interface is substrate-agnostic: a host might back it with a database, a
+// key-value store, or anything else that survives its process. The default
+// InMemoryAssetStore uses an in-process Map (dev/test only — dropped when the
+// process exits). This mirrors the "interface + default implementation"
+// layering of JobStore / TranscriptStore.
 import { mintHandle } from './asset-index'
 import type { AssetKind } from './asset-index.types'
 
@@ -69,8 +69,8 @@ export interface ListContextFilter {
 }
 
 /**
- * Asset-ledger interface. Implemented by the host (sqlite / pg / memory);
- * the runtime is storage-agnostic. All methods are async.
+ * Asset-ledger interface. Implemented by the host over whatever storage it
+ * already runs; the runtime is storage-agnostic. All methods are async.
  * @alpha
  */
 export interface AssetStore {

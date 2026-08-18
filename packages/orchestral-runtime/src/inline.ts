@@ -216,10 +216,10 @@ export interface AgentAssetBridge {
    * but no handle and would therefore be dropped entirely by the downstream
    * `projectToolOutputForModel` D3 projection.
    *
-   * `patternId` tags the vault provenance edges (operation); `resolvedInputs`
-   * are the slot-keyed input assets this dispatch consumed (the agent path's
-   * resolveForDispatch output), used for both vault provenance and the surfaced
-   * `from` lineage. Implementations typically do this as a
+   * `patternId` names the operation on the provenance edges the host records;
+   * `resolvedInputs` are the slot-keyed input assets this dispatch consumed
+   * (the agent path's resolveForDispatch output), used for both that provenance
+   * and the surfaced `from` lineage. Implementations typically do this as a
    * stamp-handles + record-provenance + attach-lineage sequence.
    *
    * `sessionId` is the owner of the rows this write mints (the agent's
@@ -602,7 +602,7 @@ export class InlineRuntime implements Runtime {
       sessionId: spec.sessionId,
       // When the caller (e.g. submitAgentAsync) sets jobKind, forward it onto
       // the queued row so the persisted column matches the
-      // spec discriminator. Undefined falls through to the SqliteJobStore
+      // spec discriminator. Undefined falls through to the store's own
       // default of 'pattern'.
       ...(spec.jobKind ? { jobKind: spec.jobKind } : {}),
     }
@@ -1059,8 +1059,8 @@ export class InlineRuntime implements Runtime {
     // Claim the dispatch-tree root once: the first meta to use this state (a
     // top-level dispatch, or a fresh ctx.submitJob escape-hatch subtree) is the
     // root; every nested ctx.step inherits the same state → the same rootJobId.
-    // ctx.askUser prefixes its correlation id with it so nested parks route to
-    // the root chip. (See MetaSharedState.rootJobId.)
+    // ctx.askUser prefixes its correlation id with it so nested parks still
+    // address the root. (See MetaSharedState.rootJobId.)
     sharedState.rootJobId ??= jobId
 
     // Host seam for resolving a sub-step's `input.references` handles
@@ -1781,8 +1781,8 @@ export class InlineRuntime implements Runtime {
               ...(childAssets.length > 0 ? { assets: childAssets } : {}),
               ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
               // Stamp this agent's ledger context so a meta child resolves ITS
-              // sub-step references against the agent's runId ledger (where the
-              // LLM's handles live), not the chat session's.
+              // sub-step references against the agent's runId ledger (where this
+              // LLM's handles live), not the caller's.
               assetContextId: agentContextId,
             // Pass the agent's own controller signal (closed over from
             // dispatchAgent's `signal` param) as the child's

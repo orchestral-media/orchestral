@@ -65,14 +65,15 @@ export interface MetaSharedState {
   stepCounter: { value: number }
   stepIds: Set<string>
   /**
-   * jobId of the dispatch-tree ROOT — the top-level meta the LLM tool-called,
-   * the only node with a renderer tool chip. Claimed once by the first meta to
-   * use this state (top-level, or a fresh ctx.submitJob escape-hatch subtree);
-   * every nested ctx.step inherits the same state, so the same rootJobId. The
-   * ctx.askUser correlation id is prefixed with it so a nested park routes to
-   * the root chip and the host sweeps every park under one `${rootJobId}:`
-   * prefix. Uniqueness holds because rootJobId resets exactly when the shared
-   * stepCounter does (both live here).
+   * jobId of the dispatch-tree ROOT — the top-level meta the LLM tool-called.
+   * A host that surfaces dispatches in a UI typically has an element for that
+   * root node only, not for the nested steps under it. Claimed once by the
+   * first meta to use this state (top-level, or a fresh ctx.submitJob
+   * escape-hatch subtree); every nested ctx.step inherits the same state, so
+   * the same rootJobId. The ctx.askUser correlation id is prefixed with it so a
+   * nested park still addresses the root, and the host can sweep every park
+   * under one `${rootJobId}:` prefix. Uniqueness holds because rootJobId resets
+   * exactly when the shared stepCounter does (both live here).
    */
   rootJobId?: string
 }
@@ -95,12 +96,12 @@ export interface MetaCtxDeps {
   ) => Promise<Job<TIn, TOut>>
   /**
    * Host seam to resolve a sub-step's LLM-facing `input.references`
-   * handles against the meta's asset context (the chat session ledger, keyed by
-   * the meta dispatch's sessionId). The runtime injects it from the
+   * handles against the meta's asset context (the ledger keyed by the meta
+   * dispatch's sessionId). The runtime injects it from the
    * AgentAssetBridge in `dispatchMeta`; it resolves the target Pattern's
    * declared `assetNeeds` against the context and returns slot-keyed assetIds.
    *
-   * Without this (pure-OSS tests / bridge absent / no sessionId), `ctx.step`
+   * Without this (library-only tests / bridge absent / no sessionId), `ctx.step`
    * leaves the handle channel unresolved exactly as before — only the internal
    * `ref.assets` channel feeds the child. With it, a meta that forwards a caller
    * handle to a sub-step (e.g. best-of-n's inner i2i `references.source`) gets
@@ -132,7 +133,7 @@ export interface MetaCtxDeps {
    * channel and the internal `ref.assets` channel and that slot is declared
    * single-cardinality, the single-slot consumer reads index [0] and would
    * silently pick whichever channel we ordered first — so we throw instead.
-   * Absent (pure-OSS tests, or a runtime without a registry seam) → the guard is
+   * Absent (library-only tests, or a runtime without a registry seam) → the guard is
    * inert, which is safe because the handle channel is empty without a resolver,
    * so no dual-source clash can arise.
    */
@@ -211,8 +212,9 @@ function assertNoDualSourcedSingleSlot(
  * ExecutionContext construction for MetaPattern.compose().
  *
  * ctx.step / ctx.compute both achieve idempotency via an in-memory per-run
- * cache. Persisted step runs are a host concern; this OSS layer provides only a minimal
- * working version, and a host can swap in its own store backend on top.
+ * cache. Persisting step runs across process restarts is a host concern; this
+ * layer provides only the in-memory version, and a host can swap in its own
+ * store backend on top.
  *
  * `sharedState` carries `{stepCache, stepCounter, stepIds}`
  * from a parent meta when this ctx is being built for a nested dispatchMeta.
@@ -224,7 +226,7 @@ export function buildMetaExecutionContext(
   deps: MetaCtxDeps,
   metaId: PatternId,
   // The dispatched job id — stamped onto each AskUserRequest so the host can map
-  // the park to its renderer tool chip.
+  // the park back to whatever surface it raised the dispatch from.
   jobId: string,
   spec: JobSpec<unknown>,
   signal: AbortSignal,
@@ -477,8 +479,8 @@ export function buildMetaExecutionContext(
       )
     }
     // Prefix the correlation id with the dispatch-tree ROOT jobId (not this
-    // meta's own), so a park from a NESTED meta still routes to the root chip
-    // and the host sweeps every park under one `${rootJobId}:` prefix. The
+    // meta's own), so a park from a NESTED meta still addresses the root and
+    // the host can sweep every park under one `${rootJobId}:` prefix. The
     // shared stepCounter (same one ctx.step uses for default stepIds) keeps ids
     // unique within the tree; a fresh escape-hatch subtree gets its own root +
     // counter, so no cross-tree collision. `request.jobId` is the root too — the

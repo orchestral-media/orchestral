@@ -62,9 +62,11 @@ describe('agent_orchestrator', () => {
     expect(prefixLen).toBeGreaterThan(0)
     expect(sysA.slice(0, prefixLen)).toBe(sysB.slice(0, prefixLen))
 
-    // No embedded SKILL block — the orchestrator does not load skills (C1).
+    // No embedded prompt block — unlike long-form-video, the orchestrator's
+    // whole system prompt is the one constant, and it tells the LLM there is
+    // no further guidance to go and fetch.
     expect(sysA).not.toContain('EMBEDDED_SKILL')
-    expect(sysA).toContain('You do NOT load skills yourself.')
+    expect(sysA).toContain('there is nothing further for you to go and fetch')
 
     // Vision-blindness guard: the prompt must tell the LLM it cannot see its
     // own produced media and must not dispatch describe/caption to self-verify

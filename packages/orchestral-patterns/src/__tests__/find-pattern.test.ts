@@ -39,7 +39,7 @@ function freshIndex(patterns: readonly Pattern[]): PatternSearchIndex {
 // Stamp the lift marker the way the host's markLiftable() does (non-enumerable
 // Symbol prop). deriveLlmFacingInputSchema partitions purely on this marker, so
 // a test exercising the lift must mark the field — the host stamps it via its
-// own `liftable.*` builders, which OSS tests can't import.
+// own `liftable.*` builders, which these packages' tests can't import.
 function mark<T extends z.ZodTypeAny>(s: T): T {
   Object.defineProperty(s, LIFT_MARKER, {
     value: true,
@@ -457,10 +457,10 @@ describe('handleFindPattern', () => {
     })
 
     it('passes slim base Pattern through when callback NOT provided (no degraded mode)', () => {
-      // When the caller doesn't pass deriveProviderOptionsZod at all, OSS
-      // doesn't try to determine if a schema is curated — falls back to
+      // When the caller doesn't pass deriveProviderOptionsZod at all, the
+      // library doesn't try to determine if a schema is curated — falls back to
       // serving the static Pattern.input schema as-is. This preserves the
-      // "OSS works standalone without host catalog" mode (e.g. unit tests,
+      // "works standalone without a host catalog" mode (e.g. unit tests,
       // CLI tools that don't need provider-aware lift).
       const index = freshIndex([createTextToImagePattern() as never as Pattern])
       const result = handleFindPattern(

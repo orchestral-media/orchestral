@@ -1,17 +1,16 @@
 // Schema serialization helper — one-way zod → JSON Schema conversion.
 //
-// OSS Patterns are authored in zod throughout (the mainstream choice,
-// consistent with the ai-sdk default):
+// Patterns are authored in zod throughout (the mainstream choice, consistent
+// with the ai-sdk default):
 //   • PatternBase primary.tool.inputs / outputs: ZodSchema (internal zod-native)
-//   • OSS internal logic is all zod ops (.parse / .safeParse / z.intersection /
-//     z.infer)
+//   • library-internal logic is all zod ops (.parse / .safeParse /
+//     z.intersection / z.infer)
 //
-// The only boundary requirement is the **outbound LLM / IPC wire format** (the
-// LLM only understands JSON Schema, and zod can't cross IPC). `toJsonSchema(zod)`
-// is the explicit outbound helper the host calls when serializing:
-//   • host tool descriptor: called by serializeHostTool
-//   • OSS catalog-builder / find_pattern handler: when emitting LLM-facing schema
-//   • host AgentRunImpl wrapping host-injected agent tools across IPC
+// The only boundary requirement is the **outbound LLM / process wire format**
+// (the LLM only understands JSON Schema, and zod can't cross a process
+// boundary). `toJsonSchema(zod)` is the explicit outbound helper:
+//   • the catalog builder / find_pattern handler, when emitting LLM-facing schema
+//   • a host serializing its own injected tool descriptors across that boundary
 //
 // Design tradeoffs:
 //   • No raw JsonSchema authoring (YAGNI — no users actually want it; adding
@@ -34,9 +33,9 @@ import type { JsonSchema } from './capability-model'
  * byte-stability invariant requires.
  *
  * Use at the wire boundary:
- *   • LLM tool_result content(find_pattern, dispatch_pattern handlers)
- *   • IPC payload to worker(host AgentRunImpl wrap host-injected agent tools)
- *   • Persistence to sqlite / JSON snapshot file
+ *   • LLM tool_result content (find_pattern, dispatch_pattern handlers)
+ *   • a cross-process payload carrying host-injected agent tools
+ *   • persistence to a database row / JSON snapshot file
  */
 export function toJsonSchema<T>(zodSchema: ZodType<T>): JsonSchema {
   return z.toJSONSchema(zodSchema, { target: 'draft-2020-12' }) as JsonSchema

@@ -1,7 +1,7 @@
 # atomic-hello-world
 
 A from-scratch host that runs one atomic `text-to-image` dispatch through the
-published `@orchestral/*` packages and prints the generated image. The entire
+`@orchestral/*` packages and prints the generated image. The entire
 host is the ~15 lines of wiring in [`src/main.ts`](./src/main.ts) plus one
 OpenAI API key — there is **zero host engine code**.
 
@@ -15,6 +15,13 @@ pnpm --filter atomic-hello-world start
 
 It dispatches `{ prompt: 'a red bicycle' }`, waits for the (synchronous) job to
 finish, and logs each produced image asset's URI.
+
+> **`submitJob` rejects on terminal failure.** The runtime marks the job row
+> `errored` and rethrows, so in a real host the failure path is a `try` /
+> `catch` around the `await` — that is the branch you will actually hit. The
+> `job.status !== 'done'` guard in `main.ts` covers the one case that does *not*
+> throw: an idempotency-dedup hit hands back an existing row, which may still be
+> in flight.
 
 ## No key? Run the smoke test
 

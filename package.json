@@ -16,8 +16,6 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "biome lint .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
     "api:check": "pnpm -r --filter \"./packages/*\" exec api-extractor run",
     "api:update": "pnpm -r --filter \"./packages/*\" exec api-extractor run --local",
     "smoke:dist": "pnpm build && node scripts/smoke-dist.mjs",

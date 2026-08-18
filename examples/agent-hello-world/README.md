@@ -1,6 +1,6 @@
 # agent-hello-world
 
-A from-scratch host that runs one **agent-kind** dispatch through the published
+A from-scratch host that runs one **agent-kind** dispatch through the
 `@orchestral/*` packages. The agent's LLM loop decides to call the
 `text-to-image` tool, reads the produced image, and reports a one-line summary.
 The entire host is the wiring in [`src/main.ts`](./src/main.ts) plus one OpenAI
@@ -28,6 +28,13 @@ pnpm --filter agent-hello-world start
 
 It dispatches an image brief, runs the LLM tool-loop to completion (synchronous
 in this process), and logs the agent's summary plus the produced image URI.
+
+> **`submitJob` rejects on terminal failure.** The runtime marks the job row
+> `errored` and rethrows, so in a real host the failure path is a `try` /
+> `catch` around the `await` — that is the branch you will actually hit. The
+> `job.status !== 'done'` guard in `main.ts` covers the one case that does *not*
+> throw: an idempotency-dedup hit hands back an existing row, which may still be
+> in flight.
 
 ## No key? Run the smoke test
 

@@ -1,4 +1,4 @@
-// AssetLedger C2 — pure-OSS additive coverage.
+// AssetLedger — library-only additive coverage.
 //
 // Asserts each first-party Pattern factory now carries `assetNeeds` derived
 // from its bindings schema (§5.5), and that media-producing patterns' outputs

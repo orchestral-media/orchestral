@@ -178,7 +178,7 @@ describe('buildAlwaysLoadDescriptors', () => {
     expect(schema.properties).toBeDefined()
     // Phase 4c: the slim base is exactly { prompt, references }. With no host
     // closure to lift per-model ai-sdk params, the degraded descriptor shows
-    // ONLY those two fields — that is the intended OSS-standalone shape.
+    // ONLY those two fields — that is the intended standalone shape.
     expect(Object.keys(schema.properties!).sort()).toEqual(['prompt', 'references'])
     expect(schema.properties!.prompt).toBeDefined()
     expect(schema.properties!.references).toBeDefined()

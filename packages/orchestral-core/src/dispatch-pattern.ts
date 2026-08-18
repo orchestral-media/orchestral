@@ -38,15 +38,17 @@ export const DispatchPatternInputSchema = z.object({
 export type DispatchPatternInput = z.infer<typeof DispatchPatternInputSchema>
 
 /**
- * Audience hint for scope enforcement. Mirrors find_pattern, plus `'slash'`
- * for the user-driven by-id dispatch surface. Slash
- * bypasses find_pattern discovery — the user supplies the exact pattern id —
- * so the gate is `resolveExposure(...).slash` rather than the LLM surfaces.
- * `'canvas'` is the per-node canvas-workflow dispatch surface: a canvas node
- * calls dispatch_pattern directly by id (no find_pattern hop, same as
- * slash), gated on `resolveExposure(...).canvas` — fail-closed like every
- * other surface, so a Pattern must opt in via `exposure.canvas` before a
- * canvas node can dispatch it.
+ * Audience hint for scope enforcement. `'chat-turn'` and `'agent-loop'` are the
+ * two LLM surfaces, mirroring find_pattern.
+ *
+ * `'slash'` and `'canvas'` are host-defined surfaces: they cover the case where
+ * a **person**, not an LLM, names a Pattern directly — a typed command, or a
+ * node wired up in a graph editor. Both bypass find_pattern discovery (the id
+ * is supplied, not discovered), so neither is gated on the LLM-facing exposure
+ * flags; they gate on `resolveExposure(...).slash` / `.canvas` instead. This
+ * library never dispatches through them itself — they exist so a host building
+ * such a surface gets the same fail-closed gate the LLM surfaces get, rather
+ * than reinventing it and defaulting it open.
  */
 export type DispatchAudience = 'chat-turn' | 'agent-loop' | 'slash' | 'canvas'
 
@@ -155,7 +157,7 @@ export function resolveDispatchTarget(
         audience === 'slash'
           ? `Pattern "${input.pattern_id}" is not exposed to slash commands.`
           : audience === 'canvas'
-            ? `Pattern "${input.pattern_id}" is not exposed to the canvas.`
+            ? `Pattern "${input.pattern_id}" is not exposed to the 'canvas' surface.`
             : hostOnly
               ? `Pattern "${input.pattern_id}" is host-only and cannot be dispatched by any LLM.`
               : `Pattern "${input.pattern_id}" is not visible to the '${audience}' surface.`,
@@ -163,7 +165,7 @@ export function resolveDispatchTarget(
         audience === 'slash'
           ? 'Set exposure.slash to true on the Pattern to allow user slash dispatch.'
           : audience === 'canvas'
-            ? 'Set exposure.canvas to true on the Pattern to allow canvas-node dispatch.'
+            ? "Set exposure.canvas to true on the Pattern to allow dispatch from the 'canvas' surface."
             : hostOnly
               ? 'Use find_pattern to discover Patterns visible to this audience.'
               : 'Use find_pattern from this audience to see Patterns appropriate for this surface.',

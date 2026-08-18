@@ -9,7 +9,7 @@
 // PatternBase; kind-specific fields (compose / loop) live on each narrow
 // interface.
 //
-// Asset references: the LLM fills a handle in `inputs.references`, and the OSS
+// Asset references: the LLM fills a handle in `inputs.references`, and the
 // resolution pass resolves + validates it via AssetIndex into `ctx.assets`;
 // host-injected context (projectId / providerOptions) flows through
 // `ExecutionContext`. `bindings` has been fully removed.

@@ -88,19 +88,23 @@ describe('runtime.reconcile (crash recovery)', () => {
     await store.insert(orphan({ id: 'r2', idempotencyKey: 'k2', status: 'running' }))
     const runtime = makeRuntime(store)
 
-    // First update throws; reconcile must catch and proceed to the next row.
+    // r1's update throws; reconcile must catch and proceed to the other row.
+    // Keyed on the id, not on call order — reconcile does not promise which
+    // row it visits first, and call-order mocks flip under coverage timing.
     const realUpdate = store.update.bind(store)
     const spy = vi
       .spyOn(store, 'update')
-      .mockImplementationOnce(async () => {
-        throw new Error('boom')
+      .mockImplementation(async (id, patch) => {
+        if (id === 'r1') throw new Error('boom')
+        return realUpdate(id, patch)
       })
-      .mockImplementation(realUpdate)
 
     const recovered = await runtime.reconcile()
-    // One row failed, the other recovered.
+    // The failing row is skipped, the other recovered.
     expect(recovered.map((j) => j.id)).toEqual(['r2'])
     expect((await store.get('r2'))!.status).toBe('stale')
+    // r1's update never landed — it stays as reconcile found it.
+    expect((await store.get('r1'))!.status).toBe('running')
     spy.mockRestore()
   })
 })

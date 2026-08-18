@@ -18,11 +18,14 @@
   },
   "keywords": [
     "ai",
-    "agent",
+    "agents",
     "orchestration",
-    "runtime",
-    "capability",
-    "media",
+    "agent-runtime",
+    "job-orchestration",
+    "capability-routing",
+    "model-fallback",
+    "idempotency",
+    "human-in-the-loop",
     "typescript"
   ],
   "type": "module",

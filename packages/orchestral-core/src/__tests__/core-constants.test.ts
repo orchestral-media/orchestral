@@ -24,7 +24,7 @@ describe('@orchestral/core constants', () => {
   })
 
   // The marker symbols are a cross-package contract: the host stamps fields
-  // with them and OSS reads only their presence. They use `Symbol.for` so the
+  // with them and the library reads only their presence. They use `Symbol.for` so the
   // registry key (the `.description`) is the actual wire contract and must stay
   // byte-stable across package duplication in node_modules.
   it('marker symbol registry keys are pinned', () => {

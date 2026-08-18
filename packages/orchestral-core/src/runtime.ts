@@ -21,6 +21,14 @@ export interface Runtime {
    * row is returned as-is and may still be `queued` / `running` with a null
    * output, because the prior submit owns the dispatch. Check `status` and
    * fall back to `subscribe` / `pollJob` when you need the outcome.
+   *
+   * Failure rejects — it does not resolve with a failed Job. On the reference
+   * InlineRuntime a terminal failure first persists the row (`error`, or
+   * `cancelled` when the abort signal fired) and emits `job:failed` /
+   * `job:cancelled`, then rethrows the underlying error; an unregistered
+   * patternId rejects before any row exists at all. So a resolved Job from
+   * this call is never a failed one, and the persisted status is authoritative
+   * for anything that observes jobs out of band.
    */
   submitJob<TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,

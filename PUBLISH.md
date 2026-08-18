@@ -6,13 +6,12 @@ and no publish workflow in CI.
 
 ## 0. First push (once)
 
-The repository was assembled with a fresh history; there is nothing to merge
-and nothing to rebase onto.
+This repository starts from a fresh history, so the first push has nothing to
+merge and nothing to rebase onto.
 
-If it was assembled offline (`SPLIT_NO_INSTALL=1`), there is no `pnpm-lock.yaml`
-and no commit yet — run `pnpm install`, then `git add -A && git commit` before
-pushing. CI installs with `--frozen-lockfile`, so a first commit without the
-lockfile fails on the first run.
+Check that `pnpm-lock.yaml` is committed before pushing. CI installs with
+`--frozen-lockfile`, so a history whose first commit has no lockfile fails on
+its very first run. If it is missing, run `pnpm install` and commit it.
 
 ```sh
 # create an EMPTY repo at github.com/orchestral-media/orchestral first —
@@ -89,6 +88,7 @@ pnpm build
 pnpm test
 pnpm typecheck
 pnpm api:check
+pnpm lint
 node scripts/smoke-dist.mjs     # or `pnpm smoke:dist`, which rebuilds first
 ```
 

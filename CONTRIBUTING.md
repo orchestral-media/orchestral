@@ -21,12 +21,14 @@ pnpm build
 pnpm test
 pnpm typecheck
 pnpm api:check
+pnpm lint
 ```
 
 `pnpm build` comes first because api-extractor reads each package's generated
 declarations (`dts/index.d.ts`), which the build emits — on a fresh clone
-`pnpm api:check` fails without it. All four must pass; CI runs the same
-commands in the same order, plus `node scripts/smoke-dist.mjs` and `pnpm lint`.
+`pnpm api:check` fails without it. All five must pass; CI runs them in this
+same order, interleaved with `pnpm docs:catalog` and
+`node scripts/smoke-dist.mjs`.
 
 - **`pnpm api:check` fails when the public type surface changes.** That is the
   point — review the diff, run `pnpm api:update`, and commit the updated
@@ -43,10 +45,10 @@ commands in the same order, plus `node scripts/smoke-dist.mjs` and `pnpm lint`.
 
 ## Style
 
-Biome owns formatting and lint (`biome.json` at the repo root); run
-`pnpm format` before pushing. There is no separate style guide — match the
-surrounding code, and prefer a comment explaining *why* over one restating
-*what*.
+Biome is a lint gate, not a formatter: `pnpm lint` is what CI runs, and
+`biome.json` has the formatter switched off deliberately. Do not reformat files
+you are not otherwise changing — match the surrounding code, and prefer a
+comment explaining *why* over one restating *what*.
 
 ## Legal
 

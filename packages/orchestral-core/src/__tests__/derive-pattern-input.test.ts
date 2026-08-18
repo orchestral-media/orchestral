@@ -23,8 +23,8 @@ import {
 } from '../derive-pattern-input'
 
 /**
- * Mirror the host `_liftable.ts` `markLiftable()` helper — OSS tests can't import
- * the host package, so we stamp the marker the same way the builders do.
+ * Mirror the host `_liftable.ts` `markLiftable()` helper — these tests can't
+ * import a host package, so we stamp the marker the same way the builders do.
  */
 function markField<T extends ZodTypeAny>(s: T): T {
   Object.defineProperty(s, LIFT_MARKER, {
@@ -38,7 +38,7 @@ function markField<T extends ZodTypeAny>(s: T): T {
 /**
  * Mirror the host `_liftable.ts` `markHostAsset()` helper — stamps ASSET_MARKER
  * with the `{ fromSlot, format }` binding payload the host reads at dispatch.
- * OSS reads only the marker's presence (never its shape), so `format` is here
+ * The derive reads only the marker's presence (never its shape), so `format` is here
  * only to keep the fixture faithful to the real binding.
  */
 function markAsset<T extends ZodTypeAny>(s: T, fromSlot: string): T {
@@ -378,7 +378,7 @@ describe('deriveLlmFacingInputSchema', () => {
     })
 
     it('does not lift a liftable-NAMED field that lacks the marker', () => {
-      // OSS reads only the marker now — a providerOptions field literally named
+      // The derive reads only the marker now — a providerOptions field literally named
       // `n` but not stamped is NOT lifted as a top-level override; it stays
       // nested under input.providerOptions (the marker, not the name, decides).
       // The base schema's own top-level `n` (max 8, default 1) is untouched, so
@@ -444,7 +444,7 @@ describe('deriveLlmFacingInputSchema', () => {
   // ── ASSET_MARKER host-injected-from-slot fields (Phase 1) ────────────────
   // A providerOptions field stamped with ASSET_MARKER is a host-injected wire
   // field (e.g. Kling's file-typed imageTail). The LLM must never see it — the
-  // host fills it from a resolved slot asset at dispatch. OSS reads only the
+  // host fills it from a resolved slot asset at dispatch. The derive reads only the
   // marker's PRESENCE (field-name- and slot-agnostic) and drops the field from
   // BOTH the lifted top level and the nested providerOptions.
   describe('ASSET_MARKER host-injected fields', () => {

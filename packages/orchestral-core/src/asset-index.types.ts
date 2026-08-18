@@ -1,19 +1,20 @@
 // AssetLedger type contract. Pure types, zero runtime, zero SDK.
 //
 // The `modality` field on the asset context is typed as a standalone AssetKind
-// rather than the model-facing Modality (the field name / sqlite column name are
-// kept → zero migration). image/audio/video share the same names and values, so
-// there's no runtime behavior change. Modality goes back to being a pure model
-// I/O concept (capability-model.ts) and is no longer borrowed by the asset side.
+// rather than the model-facing Modality. The two overlap on image/audio/video —
+// same names, same values — but they answer different questions: AssetKind
+// classifies a file, Modality describes a model's I/O (capability-model.ts).
+// Keeping them separate stops one from drifting into the other's vocabulary.
 
 /**
  * Asset file kind — a second dimension orthogonal to the model-facing
  * {@link Modality} (a coarse MIME-derived enum). image/audio/video share names
- * and values with Modality (zero migration); document/data/archive/other are
- * file-container categories Modality doesn't have. For now document/data/archive
- * are classification labels only, with no consumer (ready for a future UI facet /
- * direct PDF feeding). other is the fail-open fallback (the host still persists
- * the original mediaType, so no information is lost).
+ * and values with Modality; document/data/archive/other are file-container
+ * categories Modality doesn't have. document/data/archive are classification
+ * labels only — nothing in this library branches on them, so a host is free to
+ * give them meaning (filtering, feeding a PDF to a model that accepts one).
+ * other is the fail-open fallback: the host still holds the original mediaType,
+ * so no information is lost by landing here.
  */
 export type AssetKind = 'image' | 'audio' | 'video' | 'document' | 'data' | 'archive' | 'other'
 
@@ -63,8 +64,9 @@ export type AssetReferences = Record<string, string | string[]>
 
 /** Compile-time twin of deriveReferencesSchema: per-slot optional keys from
  * an `as const` assetNeeds list — single → string, array → string|string[].
- * All slots optional (required-ness is the host default rule, §5.7). Two
- * projections of one SSOT; keep in lockstep with derive-references-schema.ts. */
+ * All slots optional — a required slot is enforced by the resolution pass's
+ * default rule, never by the type. Two projections of one SSOT; keep in
+ * lockstep with derive-references-schema.ts. */
 export type DerivedReferences<N extends readonly AssetNeed[]> = {
   [Need in N[number] as Need['slot']]?: Need['cardinality'] extends 'single'
     ? string

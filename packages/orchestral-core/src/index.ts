@@ -180,7 +180,8 @@ export { deriveCapabilities } from './derive-caps'
 //
 // `deriveLlmFacingInputSchema` lifts the host-marked fields and replaces
 // input.providerOptions with typed z.object(remaining). `LIFT_MARKER` is the
-// symbol the host stamps onto the fields it wants lifted — OSS reads only it.
+// symbol the host stamps onto the fields it wants lifted — the derive function
+// reads only the marker's presence, never its payload.
 export {
   deriveLlmFacingInputSchema,
   LIFT_MARKER,

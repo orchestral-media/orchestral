@@ -10,17 +10,7 @@
     "includes": ["**", "!**/dist", "!**/dts", "!**/out"]
   },
   "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineWidth": 100
-  },
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "single",
-      "semicolons": "asNeeded",
-      "trailingCommas": "all"
-    }
+    "enabled": false
   },
   "assist": {
     "enabled": true,

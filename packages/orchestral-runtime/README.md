@@ -2,6 +2,9 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
+Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral)
+— see the repo README for how the three packages fit together.
+
 The in-process `InlineRuntime` for Orchestral — the reference implementation of
 `@orchestral/core`'s `Runtime` contract.
 
@@ -20,8 +23,9 @@ const runtime = new InlineRuntime({ store, registry, router })
 const job = await runtime.submitJob({ patternId: 'text-to-image', input })
 ```
 
-See [`@orchestral/core`](https://www.npmjs.com/package/@orchestral/core) for the
-full picture — the contracts, the default router, and an end-to-end example.
+See [`@orchestral/core`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-core)
+for the full picture — the contracts, the default router, and an end-to-end
+example.
 
 ## Runtime semantics worth knowing
 
