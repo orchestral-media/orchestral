@@ -6,7 +6,8 @@
 //  • Transient retry happens inside the Router via
 //    `ResolveContext.excludeModel` accumulation.
 //  • Cross-Pattern recovery is declarative via `Pattern.alternatives[*]`
-//    evaluated in the satisfiability phase.
+//    evaluated in the satisfiability phase — opt-in, off by default
+//    (`InlineRuntimeInit.alternatives`).
 //  • Idempotency uses a canonical JSON hash (drops Date / Map / Buffer hazards).
 //  • Parent AbortSignal propagates into every child `submitJob`.
 //  • Alternative chain carries a `visited` Set so A→B→A loops fail loudly.
@@ -45,6 +46,7 @@ import type {
   SystemPromptContext,
   TranscriptMessage,
   TranscriptStore,
+  UnavailabilityReason,
   Unsubscribe,
   DispatchResult,
 } from '@orchestral/core'
@@ -59,11 +61,13 @@ import {
   DEFAULT_SUBAGENT_BLOCKLIST,
   DispatchPatternInputSchema,
   FindPatternInputSchema,
-  handleFindPattern,
   isDispatchError,
-  PatternSearchIndex,
   resolveDispatchTarget,
 } from '@orchestral/core'
+// Catalog retrieval. The find_pattern wire contract is core's
+// (FindPatternInputSchema above); the BM25 index and the handler that answers
+// a validated call ship in @orchestral/discovery.
+import { handleFindPattern, PatternSearchIndex } from '@orchestral/discovery'
 
 import { deriveIdempotencyKey } from './idempotency'
 import { forkExecutionContext } from './fork-context'
@@ -80,6 +84,12 @@ import {
 
 /** Default cap on `Pattern.alternatives` recursion depth. */
 const DEFAULT_MAX_ALTERNATIVE_DEPTH = 4
+
+/**
+ * Automatic `Pattern.alternatives` redirects are off unless the host asks for
+ * them. See `InlineRuntimeInit.alternatives` for the reasoning.
+ */
+const DEFAULT_ALTERNATIVES_MODE = 'off' as const
 
 /** Default cap on in-Router retries after `excludeModel` accumulation. */
 const DEFAULT_MAX_ROUTER_RETRIES = 3
@@ -263,9 +273,32 @@ export interface InlineRuntimeInit {
    */
   onJobCreated?: (jobId: string, spec: JobSpec) => void
   /**
+   * Whether a failed primary path may be redirected through the parent
+   * Pattern's declared `alternatives`. Defaults to `'off'`.
+   *
+   * `'off'` — the primary path is the only path. When the capability cannot
+   * be served AND a declared alternative's `appliesWhen` matches, the job
+   * fails with an `ALTERNATIVES_NOT_ENABLED` JobError whose
+   * `details.diagnostic` lists every applicable path (id / description /
+   * target patternId) plus how to turn redirects on, so the caller — or an
+   * LLM reading the failed tool result — can choose one deliberately. With no
+   * applicable alternative the failure is the plain router error, unchanged.
+   *
+   * `'auto'` — the runtime takes the first alternative whose `appliesWhen`
+   * matches, announcing the swap with `job:alternative-selected` before the
+   * redirect dispatches.
+   *
+   * Off by default because substituting a semantically different path is a
+   * product decision, not a runtime one: a caller who asked for an
+   * identity-preserving edit and silently received a re-render from a caption
+   * got a different answer, not a retry. Failing loudly with the paths named
+   * keeps that choice with the host.
+   */
+  alternatives?: 'auto' | 'off'
+  /**
    * Cap on `Pattern.alternatives` recursion depth. Defaults to 4. Tune
    * down for tighter latency budgets; tune up only if you genuinely have
-   * deep fallback chains (rare).
+   * deep fallback chains (rare). Only reachable with `alternatives: 'auto'`.
    */
   maxAlternativeDepth?: number
   /**
@@ -408,6 +441,7 @@ export class InlineRuntime implements Runtime {
   /** Per-job AbortController; cancelJob aborts via this map. */
   private readonly controllers = new Map<string, AbortController>()
   private readonly onJobCreated?: (jobId: string, spec: JobSpec) => void
+  private readonly alternativesMode: 'auto' | 'off'
   private readonly maxAlternativeDepth: number
   private readonly maxRouterRetries: number
   private readonly maxAgentDepth: number
@@ -436,6 +470,7 @@ export class InlineRuntime implements Runtime {
     this.router = init.router
     this.resolveCtxProvider = init.resolveCtxProvider
     this.onJobCreated = init.onJobCreated
+    this.alternativesMode = init.alternatives ?? DEFAULT_ALTERNATIVES_MODE
     this.maxAlternativeDepth =
       init.maxAlternativeDepth ?? DEFAULT_MAX_ALTERNATIVE_DEPTH
     this.maxRouterRetries =
@@ -905,22 +940,43 @@ export class InlineRuntime implements Runtime {
     )
 
     if (!sat.ok) {
-      const alt = this.pickAlternative(atomic, baseCtx, requiredTags, preserves)
-      if (!alt) {
-        // Terminal no-model error. Route through router.resolve so the error
-        // is built at the single router seam — a host router that decorates
-        // resolve() errors (e.g. with UI remedy text) covers this path too,
-        // and the message stays consistent with every other no-model throw.
-        this.router.resolve(atomic.id as Capability, requiredTags, baseCtx)
-        // resolve() unexpectedly succeeded right after checkSatisfiable said
-        // no (racing catalog change) — still unavailable this dispatch.
-        throw new NoModelForCapabilityError(
-          atomic.id as Capability,
+      if (this.alternativesMode === 'auto') {
+        const alt = this.pickAlternative(atomic, baseCtx, requiredTags, preserves)
+        if (alt) {
+          return this.runAlternative<TIn, TOut>(jobId, alt, spec, signal, visited, depth + 1, parentCtx)
+        }
+      } else {
+        // Redirects are off (the default): fail, but name what was on the
+        // table. A declared path that would have matched is the one thing the
+        // caller cannot re-derive from the router error, so it travels
+        // structurally on the JobError rather than only in prose.
+        const applicable = this.applicableAlternatives(
+          atomic,
+          baseCtx,
           requiredTags,
-          sat.reason,
+          preserves,
         )
+        if (applicable.length > 0) {
+          throw new AlternativesNotEnabledError(
+            atomic.id as Capability,
+            sat.reason,
+            applicable,
+          )
+        }
       }
-      return this.runAlternative<TIn, TOut>(jobId, alt, spec, signal, visited, depth + 1, parentCtx)
+      // No alternative to take (or none declared at all). Terminal no-model
+      // error: route through router.resolve so the error is built at the
+      // single router seam — a host router that decorates resolve() errors
+      // (e.g. with UI remedy text) covers this path too, and the message stays
+      // consistent with every other no-model throw.
+      this.router.resolve(atomic.id as Capability, requiredTags, baseCtx)
+      // resolve() unexpectedly succeeded right after checkSatisfiable said
+      // no (racing catalog change) — still unavailable this dispatch.
+      throw new NoModelForCapabilityError(
+        atomic.id as Capability,
+        requiredTags,
+        sat.reason,
+      )
     }
 
     // Dispatch phase — Router resolve + ModelCapability.call with accumulated
@@ -1022,8 +1078,16 @@ export class InlineRuntime implements Runtime {
       }
     }
 
-    // Router/model exhausted — fall through to Pattern.alternatives
-    const alt = this.pickAlternative(atomic, baseCtx, requiredTags, preserves)
+    // Router/model exhausted — fall through to Pattern.alternatives, if the
+    // host enabled them. With `alternatives: 'off'` this path rethrows the
+    // primary failure verbatim rather than an ALTERNATIVES_NOT_ENABLED error:
+    // here a model was found and its call failed (auth, invalid input,
+    // network), and that provider error is the actionable one — restating it
+    // as a routing-policy code would mask the cause the host needs.
+    const alt =
+      this.alternativesMode === 'auto'
+        ? this.pickAlternative(atomic, baseCtx, requiredTags, preserves)
+        : null
     if (!alt) {
       throw lastErr instanceof Error
         ? lastErr
@@ -2062,8 +2126,35 @@ export class InlineRuntime implements Runtime {
   }
 
   /**
+   * Every registered alternative whose appliesWhen matches, in declaration
+   * order. Only the disabled path needs the whole list — the failure
+   * enumerates what the host could have switched on — so `pickAlternative`
+   * keeps short-circuiting and an enabled dispatch evaluates no more
+   * conditions (i.e. no more `checkSatisfiable` calls) than it used to.
+   */
+  private applicableAlternatives<I, O>(
+    atomic: AtomicPattern<I, O>,
+    ctx: ResolveContext,
+    requiredTags: readonly ModelTag[],
+    requestedSemantics: readonly Semantics[],
+  ): readonly Alternative<unknown, unknown>[] {
+    const alternatives = this.registry.getEntry(atomic.id)?.alternatives ?? []
+    return alternatives.filter((alt) =>
+      this.appliesWhen(
+        alt.appliesWhen,
+        ctx,
+        atomic.id as Capability,
+        requiredTags,
+        requestedSemantics,
+      ),
+    )
+  }
+
+  /**
    * Pick the first registered alternative whose appliesWhen matches.
-   * Synchronous; no IO beyond Router.checkSatisfiable.
+   * Synchronous; no IO beyond Router.checkSatisfiable. Callers gate this on
+   * `alternativesMode === 'auto'` — a match is only ever taken when the host
+   * opted in.
    */
   private pickAlternative<I, O>(
     atomic: AtomicPattern<I, O>,
@@ -2105,9 +2196,6 @@ export class InlineRuntime implements Runtime {
       }
       case 'preserves-required':
         return cond.semantics.some((s) => requestedSemantics.includes(s))
-      case 'budget-below':
-        // BudgetGuard not wired yet; never triggers.
-        return false
     }
   }
 
@@ -2132,8 +2220,8 @@ export class InlineRuntime implements Runtime {
     }
     // Surface the degradation before the redirect dispatches — without this
     // event a subscriber cannot tell a degraded completion from a primary
-    // one, and the Alternative's declared losses/qualityDelta metadata would
-    // be evaluated and then thrown away.
+    // one, and the Alternative's declared losses metadata would be evaluated
+    // and then thrown away.
     const snapshot = await this.store.get(jobId)
     if (snapshot) {
       this.fanout(jobId, {
@@ -2144,7 +2232,6 @@ export class InlineRuntime implements Runtime {
         targetPatternId: targetId,
         ...(alt.preserves ? { preserves: alt.preserves } : {}),
         ...(alt.losses ? { losses: alt.losses } : {}),
-        ...(alt.qualityDelta !== undefined ? { qualityDelta: alt.qualityDelta } : {}),
       })
     }
     const childInput = alt.via.mapInput(spec.input)
@@ -2376,6 +2463,61 @@ export class InlineRuntime implements Runtime {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/** One declared alternative the dispatch declined to take, as reported. */
+interface AvailableAlternative {
+  /** `Alternative.id` — unique within the parent Pattern's list. */
+  id: string
+  /** `Alternative.description` — human-readable path summary. */
+  description: string
+  /** `Alternative.via.patternId` — submit this to take the path by hand. */
+  targetPatternId: PatternId
+}
+
+/** One sentence, both in the message and on the structured diagnostic. */
+const ALTERNATIVES_HINT =
+  "Construct InlineRuntime with `alternatives: 'auto'` to let it redirect through declared alternatives automatically, or submit one of the listed targetPatternId values yourself."
+
+/**
+ * The primary path cannot be served, a declared alternative matches, and
+ * automatic redirects are off (the default). Structured on purpose: `code` is
+ * stable, and `diagnostic` reaches the host as `JobError.details.diagnostic`
+ * through normaliseError, so a subscriber — or an LLM reading the failed tool
+ * result — enumerates the paths without parsing the message.
+ *
+ * Runtime-internal: hosts narrow on `JobError.code`, which is the shape that
+ * actually crosses the subscription boundary; the class itself is not part of
+ * the package surface.
+ */
+class AlternativesNotEnabledError extends Error {
+  readonly code = 'ALTERNATIVES_NOT_ENABLED'
+  readonly diagnostic: {
+    capability: Capability
+    reason: UnavailabilityReason
+    alternatives: readonly AvailableAlternative[]
+    hint: string
+  }
+
+  constructor(
+    capability: Capability,
+    reason: UnavailabilityReason,
+    applicable: readonly Alternative<unknown, unknown>[],
+  ) {
+    const alternatives: readonly AvailableAlternative[] = applicable.map(
+      (alt) => ({
+        id: alt.id,
+        description: alt.description,
+        targetPatternId: alt.via.patternId,
+      }),
+    )
+    super(
+      `ALTERNATIVES_NOT_ENABLED: ${capability} cannot be served (reason=${reason}) and automatic alternatives are off; ${alternatives.length} declared path(s) would have applied: ${alternatives
+        .map((a) => `${a.id} → ${a.targetPatternId}`)
+        .join(', ')}. ${ALTERNATIVES_HINT}`,
+    )
+    this.diagnostic = { capability, reason, alternatives, hint: ALTERNATIVES_HINT }
+  }
+}
 
 function normaliseError(err: unknown, defaultCode?: string): JobError {
   if (err instanceof Error) {

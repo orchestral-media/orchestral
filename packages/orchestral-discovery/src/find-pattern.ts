@@ -5,6 +5,11 @@
 // structured JSON. LLM then emits `dispatch_pattern({pattern_id, ...})`
 // in a follow-up turn.
 //
+// The input contract (`FindPatternInputSchema` / `FindPatternInput`) stays in
+// @orchestral/core next to `DispatchPatternInputSchema` — rendering the tool
+// definition and validating an incoming call are contract work. This module
+// owns the retrieval that answers a validated call.
+//
 // Invariants this function preserves:
 //   • catalog tool definitions never change (find_pattern is one of the
 //     fixed handful of catalog entries) — KV-cache prefix stable
@@ -15,45 +20,17 @@
 
 import { z } from 'zod'
 
-import type { Capability } from './capability'
-import type { CapabilityRouter } from './capability-router'
-import type { ResolveContext } from './capability-model'
-import type { Pattern, PatternBase } from './pattern'
-import { resolveExposure } from './pattern'
+import type {
+  Capability,
+  CapabilityRouter,
+  FindPatternInput,
+  Pattern,
+  PatternBase,
+  ResolveContext,
+} from '@orchestral/core'
+import { resolveExposure } from '@orchestral/core'
 import type { PatternSearchIndex, PatternSearchFilter } from './pattern-search-index'
 import { DEFAULT_SEARCH_K } from './pattern-search-index'
-
-/** LLM-facing input contract for the find_pattern catalog tool. */
-export const FindPatternInputSchema = z.object({
-  query: z
-    .string()
-    .min(1)
-    .describe(
-      [
-        'Free-form task description. Prefer English keywords: the first-party catalog is written in English and the tokenizer does not translate across languages. CJK queries are tokenized too, but only match catalog text written in that language — translate the user intent to English keywords when in doubt.',
-        'Examples: "describe image content", "replace person with cyberpunk style", "transcribe podcast to subtitles".',
-        'Prefix a word with + to make it mandatory — only patterns containing it are returned, e.g. "edit photo +inpaint".',
-        'When you already know what you want, use a selector instead of prose:',
-        '"select:<id>[,<id>...]" for specific patterns (id or short name);',
-        '"namespace:<ns>" for a whole group;',
-        '"<prefix>*" for every id starting with that prefix, e.g. "meta_*";',
-        'a bare "<id>" for exactly one pattern.',
-      ].join(' '),
-    ),
-  kind: z
-    .enum(['atomic', 'meta', 'agent'])
-    .optional()
-    .describe(
-      'Optional Pattern kind filter. atomic = single capability call; meta = multi-step pipeline; agent = LLM-driven loop. Omit to search all kinds.',
-    ),
-  modality: z
-    .enum(['image', 'video', 'audio', 'text'])
-    .optional()
-    .describe(
-      'Optional modality filter (only meaningful for kind=atomic). Atomic Patterns are grouped by namespace: image-gen / video-gen / audio-gen / text-gen.',
-    ),
-})
-export type FindPatternInput = z.infer<typeof FindPatternInputSchema>
 
 /**
  * Compact LLM-facing summary of a Pattern's outputs.

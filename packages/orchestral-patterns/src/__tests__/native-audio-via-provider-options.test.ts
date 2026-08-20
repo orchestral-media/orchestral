@@ -39,14 +39,13 @@ import { z } from 'zod'
 
 import {
   deriveLlmFacingInputSchema,
-  handleFindPattern,
   resolveDispatchTarget,
   isDispatchError,
   DispatchPatternInputSchema,
   PatternRegistry,
-  PatternSearchIndex,
   type Pattern,
 } from '@orchestral/core'
+import { handleFindPattern, PatternSearchIndex } from '@orchestral/discovery'
 import { createTextToVideoPattern } from '../index'
 
 function freshIndex(): {

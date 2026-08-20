@@ -1,6 +1,12 @@
-// Declarative cross-Pattern fallback paths. Data-only Alternative entries
+// Declarative cross-Pattern fallback paths. Data-only Alternative entries a
 // runtime evaluates proactively (`appliesWhen`) before dispatching, and
 // reactively cascades through when a chosen path fails.
+//
+// Declaring an alternative does not make it fire: whether a runtime redirects
+// automatically is the runtime's policy, and @orchestral/runtime keeps it off
+// by default (`InlineRuntimeInit.alternatives`), reporting the applicable paths
+// on the failure instead. These types describe the paths; they do not promise
+// one will be taken.
 
 import type { ModelTag } from './model-tag'
 import type { PatternId } from './foundational'
@@ -66,12 +72,6 @@ export type AlternativeAppliesWhen =
       requiredTags?: readonly ModelTag[]
     }
   /**
-   * Budget remaining is below `threshold` cents — switch to a cheaper
-   * implementation path. Requires a host that evaluates budget when picking
-   * alternatives; the default resolver in 0.1.0 does not (declaration-only).
-   */
-  | { kind: 'budget-below'; threshold: number }
-  /**
    * Planner / user requested one or more semantic dimensions be preserved.
    * Pattern.inputs by convention exposes a
    * `requiresSemantics?: Semantics[]` field; the LLM populates it via Skill
@@ -98,9 +98,7 @@ export type AlternativeAppliesWhen =
  *   acknowledged escape hatch where pure-declarative breaks down (input
  *   shape transforms, prompt template assembly). Keep them pure
  *   (synchronous, deterministic, no IO).
- * - `costMultiplier` / `qualityDelta` are UI/planner metadata only and do
- *   NOT participate in dispatch ordering. Declaration order in the parent
- *   `alternatives` array is the ranking.
+ * - Declaration order in the parent `alternatives` array is the ranking.
  */
 export interface Alternative<I = unknown, O = unknown> {
   /** Stable id; unique within the parent Pattern's `alternatives` array. */
@@ -130,13 +128,6 @@ export interface Alternative<I = unknown, O = unknown> {
     /** Transform child output back into the parent's declared output shape. */
     mapOutput: (childOutput: unknown) => O
   }
-  /**
-   * Relative cost factor (1.0 = same as default). UI metadata only —
-   * not read by the default router in 0.1.0.
-   */
-  costMultiplier?: number
-  /** -1..+1; negative = quality regression vs default, positive = upgrade. */
-  qualityDelta?: number
   /** Semantic dimensions retained through this path. */
   preserves?: readonly Semantics[]
   /** Semantic dimensions lost. Surfaced to user via degradation notice. */

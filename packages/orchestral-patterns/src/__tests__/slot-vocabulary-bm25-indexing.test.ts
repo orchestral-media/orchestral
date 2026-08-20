@@ -10,11 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  PatternRegistry,
-  PatternSearchIndex,
-  type Pattern,
-} from '@orchestral/core'
+import { PatternRegistry, type Pattern } from '@orchestral/core'
+import { PatternSearchIndex } from '@orchestral/discovery'
 import {
   createTextToImagePattern,
   createImageToImagePattern,

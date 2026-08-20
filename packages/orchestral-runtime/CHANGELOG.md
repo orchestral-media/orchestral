@@ -8,6 +8,37 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
+## [Unreleased]
+
+### Breaking (0.x)
+
+- **Automatic `Alternative` fallback is now opt-in and off by default.**
+  `InlineRuntimeInit.alternatives` selects `'off'` (default) or `'auto'`;
+  previously every runtime redirected automatically. Under `'off'`, a dispatch
+  whose capability cannot be served and that has a matching declared
+  alternative fails with a structured `ALTERNATIVES_NOT_ENABLED` `JobError`
+  whose `details.diagnostic` carries the capability, the unavailability reason,
+  every applicable path (`id` / `description` / `targetPatternId`) and a hint
+  for switching redirects on — so the host, or an LLM reading the failed tool
+  result, chooses the degraded path deliberately instead of receiving it
+  silently. With no applicable alternative the failure is unchanged
+  (`NO_MODEL_FOR_CAPABILITY`), and a failed *model call* still rethrows the
+  provider's own error rather than a routing-policy code. Hosts that want the
+  previous behaviour pass `alternatives: 'auto'`.
+
+- Follows core's removal of declaration-only metadata: the
+  `job:alternative-selected` event no longer carries `qualityDelta`
+  (`preserves` / `losses` remain), and the never-matching `'budget-below'`
+  `appliesWhen` arm is gone from alternative evaluation.
+
+### Changed
+
+- **New dependency: `@orchestral/discovery`.** The `PatternSearchIndex` and
+  `handleFindPattern` that back a subagent's `find_pattern` tool moved out of
+  `@orchestral/core` into their own package; the runtime now pulls them from
+  there. Behaviour is unchanged and no runtime API moved — hosts installing
+  `@orchestral/runtime` get the new package transitively.
+
 ## [0.1.0] - 2026-08-16 — Initial public release
 
 First public release. `@orchestral/runtime` is `InlineRuntime`, the in-process

@@ -75,22 +75,17 @@ export {
   type AgentToolDescriptor,
   type BuildCatalogDescriptorsOptions,
 } from './catalog-builder'
+
+// ── Router tool input contracts ──────────────────────────────────────────
+// The two fixed router tools' wire schemas. `buildCatalogDescriptors`
+// serialises them into the tool definitions and a host validates incoming
+// tool calls against them. The retrieval that answers a validated
+// `find_pattern` call (BM25 index + `handleFindPattern`) is not a contract and
+// ships separately in `@orchestral/discovery`.
 export {
-  PatternSearchIndex,
-  type PatternSearchFilter,
-  // Element type of the public `PatternSearchIndex.skipped` getter — exported
-  // so callers (typically find_pattern) can name what they iterate over.
-  type SkippedPatternRecord,
-} from './pattern-search-index'
-export {
-  handleFindPattern,
   FindPatternInputSchema,
   type FindPatternInput,
-  type FindPatternResult,
-  type FindPatternMatch,
-  type FindPatternOutputsSummary,
-  type HandleFindPatternOptions,
-} from './find-pattern'
+} from './find-pattern-schema'
 export {
   resolveDispatchTarget,
   isDispatchError,
@@ -174,9 +169,21 @@ export {
   ModelExcludedError,
   type DefaultCapabilityRouterDeps,
 } from './capability-router-default'
+// Routing visibility: the structured dump `CapabilityRouter.explain` returns
+// (which model was dropped by which filter, the surviving order, what resolve
+// would do) plus a printable rendering of it. `explain` is optional on the
+// interface — feature-detect before calling.
+export {
+  formatRoutingExplanation,
+  type RoutingCandidate,
+  type RoutingDropStage,
+  type RoutingExplanation,
+  type RoutingOutcome,
+  type RoutingSelectionRule,
+} from './routing-explanation'
 export { deriveCapabilities } from './derive-caps'
 // Pure derive function (the host invokes it via the deriveProviderOptionsZod
-// closure passed into handleFindPattern).
+// closure passed into `handleFindPattern` in @orchestral/discovery).
 //
 // `deriveLlmFacingInputSchema` lifts the host-marked fields and replaces
 // input.providerOptions with typed z.object(remaining). `LIFT_MARKER` is the
@@ -202,13 +209,24 @@ export type {
 export {
   whenCapabilityUnavailable,
   whenPreservesRequired,
-  whenBudgetBelow,
   whenAlways,
 } from './alternative-builders'
 
 // ── Registry ─────────────────────────────────────────────────────────────
 export { PatternRegistry } from './registry'
 export type { RegistryEntry } from './registry'
+// Pattern-package convention: the package.json `"orchestral"` field a package
+// publishes so its patterns are discoverable without executing it, and the
+// errors `PatternRegistry.addFromManifest` throws when the declaration and the
+// module disagree.
+export {
+  ManifestError,
+  OrchestralManifestPatternSchema,
+  OrchestralManifestSchema,
+  type ManifestErrorCode,
+  type OrchestralManifest,
+  type OrchestralManifestPattern,
+} from './manifest'
 
 // ── Runtime contract ─────────────────────────────────────────────────────
 // (Implementations live in @orchestral/runtime; this package ships only the
@@ -259,9 +277,6 @@ export type {
   DispatchContext,
   SystemPromptContext,
   ExecutionContext,
-  BudgetGuard,
-  Tracer,
-  Span,
   // Step / compute primitives
   RetryPolicy,
   StepOptions,

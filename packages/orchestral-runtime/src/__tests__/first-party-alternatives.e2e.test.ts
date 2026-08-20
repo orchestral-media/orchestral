@@ -3,6 +3,11 @@
 // model still completes an image-to-image job, by way of the caption →
 // text-to-image meta, and reports the degradation it took.
 //
+// Redirects are opt-in, so every runtime here is constructed with
+// `alternatives: 'auto'` — this file is about what the declared paths DO once
+// a host has asked for them, not about the default (alternatives-default-off
+// .test.ts covers that).
+//
 // The asset channel is part of that proof. Every model call records the
 // DispatchContext it was handed, because "the chain ran" and "the chain ran on
 // the right image" are different claims: the caption step is what carries the
@@ -155,6 +160,7 @@ describe('first-party alternatives', () => {
     const calls: Call[] = []
     const events: JobEvent[] = []
     const rt = new InlineRuntime({
+      alternatives: 'auto',
       store: new InMemoryJobStore() as never,
       registry: makeRegistry(),
       router: makeRouter(calls),
@@ -208,7 +214,6 @@ describe('first-party alternatives', () => {
       'mask-guidance',
     ])
     expect(ev.preserves).toEqual(['style'])
-    expect(ev.qualityDelta).toBe(-0.5)
   })
 
   it('captions the source the caller pointed at, not the newest image in the ledger', async () => {
@@ -219,6 +224,7 @@ describe('first-party alternatives', () => {
     // its source explicitly through the handle channel to avoid that.
     const calls: Call[] = []
     const rt = new InlineRuntime({
+      alternatives: 'auto',
       store: new InMemoryJobStore() as never,
       registry: makeRegistry(),
       router: makeRouter(calls),
@@ -253,6 +259,7 @@ describe('first-party alternatives', () => {
   it('carries every source image of a multi-source edit into the caption step', async () => {
     const calls: Call[] = []
     const rt = new InlineRuntime({
+      alternatives: 'auto',
       store: new InMemoryJobStore() as never,
       registry: makeRegistry(),
       router: makeRouter(calls),
@@ -281,6 +288,7 @@ describe('first-party alternatives', () => {
   it('requests the draft render size through the declared text-to-image params', async () => {
     const calls: Call[] = []
     const rt = new InlineRuntime({
+      alternatives: 'auto',
       store: new InMemoryJobStore() as never,
       registry: makeRegistry(),
       router: makeRouter(calls),
@@ -330,6 +338,7 @@ describe('first-party alternatives', () => {
     }
 
     const rt = new InlineRuntime({
+      alternatives: 'auto',
       store: new InMemoryJobStore() as never,
       registry: makeRegistry(),
       router,
@@ -487,6 +496,7 @@ describe('capabilities that deliberately ship no alternative', () => {
       const calls: Call[] = []
       const events: JobEvent[] = []
       const rt = new InlineRuntime({
+        alternatives: 'auto',
         store: new InMemoryJobStore() as never,
         registry: FULL_REGISTRY,
         router: makeRouterMissing(patternId, calls),

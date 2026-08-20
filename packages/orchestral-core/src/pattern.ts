@@ -82,8 +82,8 @@ export interface PatternBase<I = unknown, O = unknown> {
    * Avoid repeating tokens patternId already contains — `patternIdParts`
    * already indexes those. The runtime's `find_pattern.query` describe text
    * already asks the LLM to translate non-English requests into English
-   * keywords before calling, so write English only here (see find-pattern.ts
-   * FindPatternInputSchema.query).
+   * keywords before calling, so write English only here (see
+   * find-pattern-schema.ts, `FindPatternInputSchema.query`).
    *
    * Examples:
    *   • image-to-text → 'describe an image or extract text via OCR'

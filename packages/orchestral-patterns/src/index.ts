@@ -119,7 +119,9 @@ export {
   type ImageToImageViaCaptionOutput,
 } from './atomic/image-to-image-via-caption'
 
-// ── First-party meta/agent pipelines ─────────────────────────────────────
+// ── First-party meta pipelines ───────────────────────────────────────────
+// Agent-kind patterns are NOT here: they live in the optional @orchestral/agent
+// package. This catalog is atomic + meta only.
 export {
   SCRIPT_PLANNING_PATTERN_ID,
   ScriptPlanningInputSchema,
@@ -290,20 +292,6 @@ export {
   type LyricsToMvMetaDeps,
   type LyricsToMvPromptOverrides,
 } from './meta/lyrics-to-mv'
-
-export {
-  AGENT_LONG_FORM_VIDEO_PATTERN_ID,
-  AgentLongFormVideoInputSchema,
-  createLongFormVideoAgent,
-  type AgentLongFormVideoInput,
-} from './agent/long-form-video'
-
-export {
-  AGENT_ORCHESTRATOR_PATTERN_ID,
-  OrchestratorInputSchema,
-  createOrchestratorAgent,
-  type OrchestratorInput,
-} from './agent/orchestrator'
 
 // ── Meta prompt-override defaults ─────────────────────────────────────────
 // Each meta inlines its system prompts as module constants. These frozen

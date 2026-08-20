@@ -8,6 +8,36 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
+## [Unreleased]
+
+### Added
+
+- **Ships an `"orchestral"` manifest in package.json** — the pattern-package
+  convention core defines (`OrchestralManifestSchema`). It declares all 25
+  patterns as `{ id, kind, export }` plus the six host operations the video
+  metas need (`requiredOps`), so a host can register the whole catalog with
+  `registry.addFromManifest(pkg.orchestral, patterns, ops)` and read what this
+  package contributes with `npm view @orchestral/patterns orchestral`. Added the
+  `orchestral-pattern` npm keyword for the same reason. No source change — the
+  factories the manifest names are the ones already exported.
+
+### Breaking (0.x)
+
+- **The two agent Patterns moved to `@orchestral/agent`.**
+  `createLongFormVideoAgent` / `AGENT_LONG_FORM_VIDEO_PATTERN_ID` /
+  `AgentLongFormVideoInputSchema` / `AgentLongFormVideoInput` and
+  `createOrchestratorAgent` / `AGENT_ORCHESTRATOR_PATTERN_ID` /
+  `OrchestratorInputSchema` / `OrchestratorInput` are no longer exported here,
+  and the `"orchestral"` manifest declares 25 patterns instead of 27. This
+  package is now atomic + meta only: agent support is an optional extension, not
+  part of the catalog. The patterns themselves are unchanged — install
+  `@orchestral/agent` and change the import path. (`@orchestral/agent` depends
+  on this package: its agents still compose this catalog by pattern id.)
+
+- Follows core's removal of declaration-only metadata: the `image-to-image`
+  via-caption alternative no longer declares `costMultiplier` /
+  `qualityDelta`. Its `preserves` / `losses` degradation notice is unchanged.
+
 ## [0.1.0] - 2026-08-16 — Initial public release
 
 First public release. `@orchestral/patterns` is the first-party Pattern catalog

@@ -17,10 +17,8 @@
 
 import MiniSearch from 'minisearch'
 
-import type { NamespaceId } from './catalog'
-import { resolveNamespace } from './catalog'
-import type { Pattern } from './pattern'
-import type { PatternRegistry, RegistryEntry } from './registry'
+import type { NamespaceId, Pattern, PatternRegistry, RegistryEntry } from '@orchestral/core'
+import { resolveNamespace } from '@orchestral/core'
 
 /**
  * Default result count for both `PatternSearchIndex.search` and

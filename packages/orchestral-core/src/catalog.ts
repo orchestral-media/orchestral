@@ -64,7 +64,8 @@ export const DEFAULT_SUBAGENT_BLOCKLIST: {
 
 /**
  * Namespace for every capability literal an atomic Pattern id can be. Grouped
- * by media domain — the axis `PatternSearchFilter.modality` filters on — so
+ * by media domain — the axis a catalog search filters on (see
+ * `PatternSearchFilter.modality` in @orchestral/discovery) — so
  * `image-segmentation` groups with image, `summarization` / `translation`
  * with text, and speech recognition with audio (it is an audio capability
  * even though its output is text).

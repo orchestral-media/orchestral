@@ -13,13 +13,12 @@ import { z } from 'zod'
 
 import {
   deriveLlmFacingInputSchema,
-  handleFindPattern,
   LIFT_MARKER,
   PatternRegistry,
-  PatternSearchIndex,
   type Pattern,
   type CapabilityRouter,
 } from '@orchestral/core'
+import { handleFindPattern, PatternSearchIndex } from '@orchestral/discovery'
 import {
   createAutomaticSpeechRecognitionPattern,
   createImageToImagePattern,

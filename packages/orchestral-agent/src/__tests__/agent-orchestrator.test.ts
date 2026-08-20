@@ -12,8 +12,8 @@ import {
 import {
   createOrchestratorAgent,
   AGENT_ORCHESTRATOR_PATTERN_ID,
-} from '../agent/orchestrator'
-import { ORCHESTRATOR_SYSTEM_PROMPT } from '../agent/orchestrator/prompts'
+} from '../orchestrator'
+import { ORCHESTRATOR_SYSTEM_PROMPT } from '../orchestrator/prompts'
 
 describe('agent_orchestrator', () => {
   it('declares a stable agent Pattern with the expected id, kind, namespace, and primary surface', () => {

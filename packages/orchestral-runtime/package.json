@@ -59,7 +59,8 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
-    "@orchestral/core": "workspace:*"
+    "@orchestral/core": "workspace:*",
+    "@orchestral/discovery": "workspace:*"
   },
   "devDependencies": {
     "@orchestral/patterns": "workspace:*",

@@ -3,7 +3,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral)
-— see the repo README for how the three packages fit together.
+— see the repo README for how the packages fit together.
 
 The first-party Pattern catalog for Orchestral — the patterns you register and
 dispatch through a runtime.
@@ -14,9 +14,14 @@ It ships two tiers, all building on `@orchestral/core`:
   `image-to-text`, `text-to-video`, `image-to-video`, `video-to-video`,
   `text-to-speech`, `text-to-audio`, `automatic-speech-recognition`,
   `text-generation`, and more.
-- **Meta / agent pipelines** — multi-step compositions with inlined prompts:
+- **Meta pipelines** — multi-step compositions with inlined prompts:
   storyboarding, script planning, idea-to-video, novel-to-events, best-of-N image
-  selection, the long-form-video agent, the orchestrator agent, and others.
+  selection, and others.
+
+Agent-kind patterns are **not** here: they live in the optional
+[`@orchestral/agent`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-agent)
+package, together with a reference `AgentRunImpl`. Agent support is an opt-in
+extension; this catalog is atomic + meta.
 
 ```ts
 import { PatternRegistry } from '@orchestral/core'
@@ -66,10 +71,8 @@ Every pattern this package exports, generated from the built package by
 | `meta_script2video` | meta | Generate a video from a scene script. | — | — | `concatVideos` | — |
 | `meta_storyboard` | meta | Generate a multi-panel storyboard from a scene and character reference sheets, keeping each… | — | assets[] | — | — |
 | `meta_ugc-testimonial` | meta | Generate a UGC product testimonial video from a product description and optional persona. | — | — | `concatVideos`<br>`addBackgroundAudio`<br>`addSubtitles`<br>`createSubtitleAsset` | — |
-| `agent_long-form-video` | agent | Turn a novel into a long-form (multi-event, multi-scene) video. | — | assets[] | — | — |
-| `agent_orchestrator` | agent | Use for open-ended, multi-step media tasks needing planning and adaptive decisions across several… | `images`:image[]<br>`videos`:video[]<br>`audios`:audio[] | assets[] | — | — |
 
-27 Patterns.
+25 Patterns.
 
 - **Input slots** — the `assetNeeds` an author declared; the LLM fills them through `input.references.<slot>`. `[]` marks a multi-asset slot, **req** a required one. A Pattern with no slots takes text input only.
 - **Output** — the same projection `find_pattern` shows the LLM: the outputs schema's `modality` literal, and `assets[]` when it returns produced assets. A meta that hands back plain asset-id fields instead of an `assets[]` envelope reads as `—` here.

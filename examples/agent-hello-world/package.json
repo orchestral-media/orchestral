@@ -2,13 +2,14 @@
   "name": "agent-hello-world",
   "private": true,
   "type": "module",
-  "description": "Minimal host: run one agent-kind dispatch (LLM tool-loop → text-to-image) through @orchestral/* with the in-process ai-sdk AgentRunImpl.",
+  "description": "Minimal host: run one agent-kind dispatch (LLM tool-loop → text-to-image) through @orchestral/* with @orchestral/agent's in-process ai-sdk AgentRunImpl.",
   "scripts": {
     "start": "tsx src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@orchestral/agent": "workspace:*",
     "@orchestral/core": "workspace:*",
     "@orchestral/runtime": "workspace:*",
     "@orchestral/patterns": "workspace:*",

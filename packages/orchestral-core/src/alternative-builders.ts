@@ -34,17 +34,6 @@ export const whenPreservesRequired = (
 ): AlternativeAppliesWhen => ({ kind: 'preserves-required', semantics })
 
 /**
- * Match when BudgetGuard's remaining budget (cents) is below `threshold`.
- */
-/**
- * Declaration-only in 0.1.0 — see `AlternativeAppliesWhen`'s 'budget-below'
- * arm: the default resolver does not evaluate budget.
- */
-export const whenBudgetBelow = (
-  threshold: number,
-): AlternativeAppliesWhen => ({ kind: 'budget-below', threshold })
-
-/**
  * Always applicable. Last-resort row. Use sparingly — a no-op `always`
  * alternative defeats proactive filtering.
  */

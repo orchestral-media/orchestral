@@ -10,11 +10,11 @@ import {
 import {
   createLongFormVideoAgent,
   AGENT_LONG_FORM_VIDEO_PATTERN_ID,
-} from '../agent/long-form-video'
+} from '../long-form-video'
 import {
   LONG_FORM_VIDEO_DIRECTOR_PROMPT,
   CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT,
-} from '../agent/long-form-video/prompts'
+} from '../long-form-video/prompts'
 
 // Post-split the director + character-merge SKILL bodies are INLINED in the
 // pattern (no longer host-injected deps), and ADR-028 moved the agent's host

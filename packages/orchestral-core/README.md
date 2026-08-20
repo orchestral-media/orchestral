@@ -190,10 +190,12 @@ const director: AgentPattern<DirectorInput> = {
 ```
 
 Driving that loop is host territory, like `ModelCapability.call`: the runtime
-needs an `AgentRunImpl` bridging to whatever agent SDK you use. The runnable
+needs an `AgentRunImpl` bridging to whatever agent SDK you use. The optional
+[`@orchestral/agent`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-agent)
+package ships a reference one over the Vercel `ai` SDK's tool loop, plus the two
+first-party agent Patterns; the runnable
 [`examples/agent-hello-world`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world)
-shows one over the Vercel `ai` SDK's tool loop (`src/agent-runner.ts`). The
-agent seam is `@alpha` — expect it to move before 1.0.
+wires it up. The agent seam is `@alpha` — expect it to move before 1.0.
 
 ## Asset handles in brief
 
@@ -227,8 +229,6 @@ const viaCaption: Alternative<ImageToImageInput, ImageToImageOutput> = {
   id: 'via-caption',
   description: 'No image-to-image model is available: caption the source image, then re-render it.',
   appliesWhen: whenCapabilityUnavailable(), // pass ModelTags to require them
-  costMultiplier: 2,  // two model calls (caption + render) replace one edit call
-  qualityDelta: -0.5,
   via: {
     patternId: 'meta_image-to-image-via-caption',
     // The source image rides in the dispatch ctx, so only the intent is remapped.
@@ -236,8 +236,8 @@ const viaCaption: Alternative<ImageToImageInput, ImageToImageOutput> = {
     // Project field by field rather than casting the child envelope across.
     // `degraded` / `requestedSize` are deliberately not projected: the
     // degradation is already reported out-of-band by `job:alternative-selected`
-    // (which carries `losses` / `qualityDelta`), and the requested size belongs
-    // to the child's own render, not the parent's contract.
+    // (which carries `losses`), and the requested size belongs to the child's
+    // own render, not the parent's contract.
     mapOutput: (childOutput) => {
       const out = childOutput as ImageToImageViaCaptionOutput
       return {
@@ -325,6 +325,66 @@ Mechanics a host must know:
   question/answer contracts; `askUser.custom` passes an arbitrary payload for
   a bespoke widget.
 
+## Pattern packages
+
+A package that ships patterns says so in its `package.json`, under an
+`"orchestral"` field:
+
+```json
+{
+  "name": "orchestral-pattern-foo",
+  "keywords": ["orchestral-pattern"],
+  "orchestral": {
+    "patterns": [
+      { "id": "text-to-image", "kind": "atomic", "export": "createTextToImagePattern" },
+      { "id": "meta_storyboard", "kind": "meta", "export": "createStoryboardMeta" }
+    ],
+    "requiredOps": ["concatVideos"]
+  }
+}
+```
+
+- **`export`** names a *factory* on the package entry point, not the pattern
+  itself — patterns are built per registry, and some factories take host
+  operations as their argument.
+- **`id` / `kind`** are declared so a reader knows what the package contributes
+  without running it; the loader verifies both against the built pattern, so a
+  stale manifest fails loudly instead of registering something else. The kind
+  prefix is part of the contract (`meta_*`, `agent_*`, bare capability id for
+  atomic) — `inferNamespace` and the sub-agent recursion guard route on it.
+- **`requiredOps`** names the host operations the package's factories expect
+  (the ffmpeg-shaped work a meta cannot do itself). The loader refuses to
+  register anything when one is missing, rather than failing halfway through a
+  pipeline.
+
+Loading one is two lines plus however your host reads a JSON file:
+
+```ts
+import * as foo from 'orchestral-pattern-foo'
+import pkg from 'orchestral-pattern-foo/package.json' with { type: 'json' }
+
+registry.addFromManifest(pkg.orchestral, foo, ops) // → registered pattern ids
+```
+
+**Discovery is a query, not a registration.** `npm view orchestral-pattern-foo
+orchestral` prints the manifest without installing anything; the npm keyword
+`orchestral-pattern`, the GitHub topic of the same name, and the
+`orchestral-pattern-*` name convention are how packages are found. There is no
+central index, no submission, and nothing to be approved by.
+
+What this deliberately is *not*: a plugin framework. There is no lifecycle, no
+sandbox, no version negotiation, no lazy activation. Two consequences worth
+knowing before you rely on it:
+
+- **All or nothing.** The manifest describes the package's whole contribution,
+  so a host that cannot supply a `requiredOps` entry registers the subset it
+  wants by calling the factories itself — which is all `addFromManifest` does.
+- **The manifest is a declaration, not a permission boundary.** Reading it is
+  safe; loading the package runs its code, exactly like any other import.
+
+`@orchestral/patterns` is the first package to follow the convention — its
+`"orchestral"` field covers all 27 shipped patterns.
+
 ## API map
 
 The barrel is wide; hello-world composes with a handful of symbols:
@@ -338,30 +398,56 @@ The barrel is wide; hello-world composes with a handful of symbols:
 | Author patterns | `defineAtomicPattern` (atomic entry point) / `MetaPattern` / `AgentPattern`, `Alternative` + `when*` builders |
 | Pause for a human | `ctx.askUser` + `AskUserHandler` (see above) |
 | Type a sub-pattern call | `createPatternFn` |
+| See why routing picked (or refused) a model | `router.explain?.(...)` + `formatRoutingExplanation` |
+| Load someone else's pattern package | `registry.addFromManifest` (see above) |
 
-Everything else on the barrel (asset-ledger primitives, catalog/discovery
-helpers such as `handleFindPattern` / `PatternSearchIndex` /
-`resolveDispatchTarget`, schema derivation utilities) exists for hosts that
-expose the catalog to an LLM as tools. Adopt those incrementally — none are
-needed for hello-world.
+Everything else on the barrel (asset-ledger primitives, catalog rendering and
+dispatch helpers such as `buildCatalogDescriptors` / `resolveDispatchTarget`,
+schema derivation utilities) exists for hosts that expose the catalog to an LLM
+as tools. Adopt those incrementally — none are needed for hello-world.
 
-## Declared but not implemented in 0.x
+Core renders the two fixed router tools and validates calls against their
+schemas (`FindPatternInputSchema`, `DispatchPatternInputSchema`), but it does
+**not** search. Answering a `find_pattern` call — the BM25 index over the
+registry plus the `handleFindPattern` handler — lives in
+[`@orchestral/discovery`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-discovery),
+because which retrieval algorithm ranks your catalog is a product decision, not
+a contract. `@orchestral/runtime` already depends on it; reach for it directly
+only if you drive the agent loop yourself.
 
-Some fields on the public types are declarative metadata that nothing in this
-package consumes yet. They are honest to *write* — a host router or a planner UI
-can read them — but writing one changes no built-in behaviour:
+## Routing knobs in 0.x
 
-| Field | Status in 0.x |
-| --- | --- |
-| `ModelCapability.cost` / `.latencyMs` | Never read. The default router does not rank by cost or latency. |
-| `ModelCapability.tier` | Read **only** when the caller passes `ResolveContext.tier`, and then best-effort: the first tier match wins, otherwise it falls through. |
-| `ModelCapability.maxConcurrency` | Never enforced — neither the router nor `InlineRuntime` throttles. Your dispatch layer must apply the limit. |
-| `Alternative.costMultiplier` / `.qualityDelta` | Planner / UI metadata only; they do not reorder alternatives. |
-| `appliesWhen: whenBudgetBelow(...)` | Never matches. There is no budget source wired in, so this arm always evaluates false. |
+The default router's ranking is: pinned model → preferred provider → tier match
+(if requested) → **first candidate in declared order**. Ordering `getModels`'
+return is how you control routing today.
 
-With none of these in play, the default router's ranking is: pinned model →
-preferred provider → tier match (if requested) → **first candidate in declared
-order**. Ordering `getModels`' return is how you control routing today.
+The one soft knob is `ModelCapability.tier`: it is read **only** when the
+caller passes `ResolveContext.tier`, and then best-effort — the first tier
+match wins, otherwise resolution falls through to the remaining candidates.
+There is deliberately no cost or latency metadata on the public types: media
+generation cost is not reliably computable up front, so anything cost-aware
+belongs in your own `getModels` ordering or a custom router.
+
+Those knobs stack, and a wrong model looks exactly like a wrong catalog from
+`resolve`'s return value alone. `explain` dumps the whole decision — every
+model considered, the filter that dropped each one, the surviving fallback
+order, and what `resolve` would do — and `formatRoutingExplanation` prints it:
+
+```text
+routing: text-to-image tags=[fast]
+satisfiable: yes
+resolve: fal:flux (by first-candidate)
+context: excludeModel=[openai:gpt-image-1]
+ranking: enablement default (getCapabilityOrder) [fal:flux, replicate:flux]
+candidates: 2 kept of 3
+  1. fal:flux tier=premium tags=[fast]
+  2. replicate:flux tags=[fast]
+  -  openai:gpt-image-1 tags=[fast] dropped: excluded-model
+```
+
+`explain` is **optional** on the `CapabilityRouter` interface — implementing
+the interface directly stays a two-method job — so call it as
+`router.explain?.(capability, tags, ctx)`.
 
 ## Versioning (0.x SemVer)
 

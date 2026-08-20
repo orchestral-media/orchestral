@@ -15,6 +15,7 @@ import type {
   ResolveContext,
 } from './capability-model'
 import type { UnavailabilityReason } from './alternative'
+import type { RoutingExplanation } from './routing-explanation'
 
 /**
  * Discriminated-union result for `checkSatisfiable`. Replaces an earlier
@@ -41,7 +42,8 @@ export type SatisfiableResult =
  * In-Router retry: when a model call fails transiently, the runtime adds
  * the failed `provider:modelId` to `ResolveContext.excludeModel` and calls
  * `resolve` again. If no candidate remains the runtime throws
- * NO_MODEL_FOR_CAPABILITY and the resolver evaluates `Alternative` fallbacks.
+ * NO_MODEL_FOR_CAPABILITY, and evaluates `Alternative` fallbacks only if the
+ * host enabled them (opt-in in @orchestral/runtime).
  */
 export interface CapabilityRouter {
   /**
@@ -57,12 +59,31 @@ export interface CapabilityRouter {
 
   /**
    * Pick a concrete model. Throws NO_MODEL_FOR_CAPABILITY if no candidate
-   * survives filtering — the runtime translates this into fallback
-   * evaluation.
+   * survives filtering — which a runtime translates into fallback evaluation
+   * when it has been asked to, and into a job failure otherwise.
    */
   resolve(
     capability: Capability,
     requiredTags: readonly ModelTag[],
     ctx: ResolveContext,
   ): ModelCapability
+
+  /**
+   * Dump one routing decision in full: every model the router looked at, the
+   * filter that dropped each one, the surviving fallback order, and what
+   * `resolve` would do with the same arguments. Answers "why that model" /
+   * "why nothing" without a debugger; `formatRoutingExplanation` renders the
+   * result for a CLI or a log.
+   *
+   * Runs the same filters `resolve` runs, calls no model, and mutates nothing.
+   *
+   * OPTIONAL so that implementing `CapabilityRouter` directly stays a
+   * two-method job — a host router written before this existed keeps
+   * compiling. Callers must feature-detect (`router.explain?.(...)`).
+   */
+  explain?(
+    capability: Capability,
+    requiredTags?: readonly ModelTag[],
+    ctx?: ResolveContext,
+  ): RoutingExplanation
 }

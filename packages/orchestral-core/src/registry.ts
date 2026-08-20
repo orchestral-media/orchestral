@@ -5,6 +5,7 @@ import type { Unsubscribe } from './job-store'
 import type { NamespaceId } from './catalog'
 import { resolveNamespace } from './catalog'
 import { DEFAULT_AGENT_FINISH_SPEC, defaultAgentFinishOutputs } from './agent-finish'
+import { ManifestError, OrchestralManifestSchema } from './manifest'
 import { auditOutputsSchema } from './output-fields'
 
 /**
@@ -21,6 +22,8 @@ import { auditOutputsSchema } from './output-fields'
  * The registry is the single source of truth for alternatives. Interface:
  *   • `add(spec)`            — the single registration entry point, auto-expands
  *                              spec.alternatives into attach calls
+ *   • `addFromManifest()`    — the same, driven by a pattern package's declared
+ *                              package.json `"orchestral"` field
  *   • `getEntry(id)`         — returns the Pattern itself + all attachments
  *                              (built-in + third-party)
  *   • `attachAlternative()`  — third party attaches an alternative; gated by
@@ -206,6 +209,94 @@ export class PatternRegistry {
     this.register(spec)
   }
 
+  /**
+   * Register everything a pattern package declares in its package.json
+   * `"orchestral"` field (see [manifest.ts](./manifest.ts)).
+   *
+   *   import * as patterns from 'orchestral-pattern-foo'
+   *   import pkg from 'orchestral-pattern-foo/package.json' with { type: 'json' }
+   *   registry.addFromManifest(pkg.orchestral, patterns, ops)
+   *
+   * `manifest` is validated (it comes from a file on disk, so it is `unknown`
+   * until it parses), each declared `export` is looked up on `module`, and the
+   * factory is called with `ops` as its single argument — the shipped atomic
+   * factories take an options object and ignore the extra keys, the metas Pick
+   * the operations they declared. A host with no host-ops omits `ops` entirely,
+   * which is legal exactly when the manifest declares no `requiredOps`.
+   *
+   * Every Pattern is built and checked BEFORE any of them is registered, so a
+   * manifest error leaves the registry untouched. The one exception is
+   * `register`'s own duplicate / conflict throws, which fire during the
+   * registration loop — a package cannot be half-loaded by a stale manifest,
+   * but it can be by loading the same package twice.
+   *
+   * Returns the ids registered, in manifest order.
+   */
+  addFromManifest(
+    manifest: unknown,
+    module: Readonly<Record<string, unknown>>,
+    ops?: Readonly<Record<string, unknown>>,
+  ): readonly PatternId[] {
+    const parsed = OrchestralManifestSchema.safeParse(manifest)
+    if (!parsed.success) {
+      throw new ManifestError(
+        'MANIFEST_INVALID',
+        parsed.error.issues
+          .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+          .join('; '),
+      )
+    }
+    const { patterns, requiredOps } = parsed.data
+
+    const missingOps = (requiredOps ?? []).filter(
+      (op) => typeof ops?.[op] !== 'function',
+    )
+    if (missingOps.length > 0) {
+      throw new ManifestError(
+        'MANIFEST_MISSING_OPS',
+        `manifest requires host operations [${missingOps.join(', ')}] that the ` +
+          `ops argument does not provide as functions`,
+      )
+    }
+
+    const built: Pattern[] = []
+    for (const entry of patterns) {
+      const factory = module[entry.export]
+      if (factory === undefined) {
+        throw new ManifestError(
+          'MANIFEST_EXPORT_MISSING',
+          `no export "${entry.export}" on the module (declared for pattern "${entry.id}")`,
+        )
+      }
+      if (typeof factory !== 'function') {
+        throw new ManifestError(
+          'MANIFEST_EXPORT_NOT_A_FACTORY',
+          `export "${entry.export}" is ${typeof factory}, expected a factory function`,
+        )
+      }
+      const produced = (factory as (arg?: unknown) => unknown)(ops) as
+        | { id?: unknown; kind?: unknown }
+        | null
+        | undefined
+      if (
+        typeof produced !== 'object' ||
+        produced === null ||
+        produced.id !== entry.id ||
+        produced.kind !== entry.kind
+      ) {
+        throw new ManifestError(
+          'MANIFEST_PATTERN_MISMATCH',
+          `export "${entry.export}" produced ${describeProduced(produced)}, ` +
+            `manifest declares id "${entry.id}" kind "${entry.kind}"`,
+        )
+      }
+      built.push(produced as Pattern)
+    }
+
+    for (const pattern of built) this.add(pattern)
+    return built.map((p) => p.id)
+  }
+
   unregister(id: PatternId): boolean {
     const pattern = this.byId.get(id)
     if (!pattern) return false
@@ -306,8 +397,9 @@ export class PatternRegistry {
   /**
    * Lightweight snapshot for inspection / debug surfaces. Catalog
    * rendering for LLM consumption lives in `catalog-builder.ts`
-   * (`buildCatalogDescriptors`) + `pattern-search-index.ts`
-   * (`PatternSearchIndex`).
+   * (`buildCatalogDescriptors`); BM25 retrieval over this registry lives in
+   * `@orchestral/discovery` (`PatternSearchIndex`), which reads it through
+   * the public accessors below.
    */
   listForCatalog(
     excludeIds?: readonly PatternId[],
@@ -394,4 +486,10 @@ const EMPTY_PATTERNS: readonly Pattern[] = []
 function shortNameOf(patternId: PatternId): string {
   const idx = patternId.lastIndexOf('/')
   return idx === -1 ? patternId : patternId.slice(idx + 1)
+}
+
+/** What a factory actually returned, for the mismatch error message. */
+function describeProduced(value: { id?: unknown; kind?: unknown } | null | undefined): string {
+  if (typeof value !== 'object' || value === null) return `${typeof value} ${String(value)}`
+  return `id ${JSON.stringify(value.id)} kind ${JSON.stringify(value.kind)}`
 }
