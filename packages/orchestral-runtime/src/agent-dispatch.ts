@@ -254,8 +254,11 @@ export interface AgentDispatchDeps {
   agentAssetBridge?: AgentAssetBridge
   catalogOptions?: BuildCatalogDescriptorsOptions
   resolveCtxProvider?: (spec: JobSpec) => ResolveContext
-  /** Envelope table `getAgentEnvelope` reads; this module writes into it. */
-  agentEnvelopes: Map<string, AgentDispatchEnvelope>
+  /**
+   * Record the envelope `getAgentEnvelope` reads. The runtime owns the table
+   * and its bound; this module only reports what a dispatch produced.
+   */
+  recordEnvelope: (jobId: string, envelope: AgentDispatchEnvelope) => void
   fanoutJobEvent: (jobId: string, build: (job: Job) => JobEvent) => Promise<void>
   /** `InlineRuntime._submitJobInternal` — how a tool call becomes a child job. */
   submitChild: <TIn = unknown, TOut = unknown>(
@@ -1009,7 +1012,7 @@ deps: AgentDispatchDeps,
     //   • neither         — a positive AGENT_INCOMPLETE: the runtime KNOWS
     //     no valid finish arrived (replaces the old bare-{text} sniffing).
     const setErroredEnvelope = (errorMessage: string): void => {
-      deps.agentEnvelopes.set(jobId, {
+      deps.recordEnvelope(jobId, {
         patternId: pattern.id,
         text: result.text,
         status: 'errored',
@@ -1064,7 +1067,7 @@ deps: AgentDispatchDeps,
       throw Object.assign(new Error(msg), { code: 'AGENT_OUTPUT_COMPOSE_MISMATCH' })
     }
 
-    deps.agentEnvelopes.set(jobId, {
+    deps.recordEnvelope(jobId, {
       patternId: pattern.id,
       text: result.text,
       status: 'completed',
@@ -1110,7 +1113,7 @@ deps: AgentDispatchDeps,
           deliverables: finishState.value.resolved,
         })
         const parsed = outputsSchema.parse(salvaged) as TOut
-        deps.agentEnvelopes.set(jobId, {
+        deps.recordEnvelope(jobId, {
           patternId: pattern.id,
           text: '',
           status: 'completed',
@@ -1120,7 +1123,7 @@ deps: AgentDispatchDeps,
         })
         return parsed
       } catch (salvageErr) {
-        deps.agentEnvelopes.set(jobId, {
+        deps.recordEnvelope(jobId, {
           patternId: pattern.id,
           text: '',
           status: 'errored',

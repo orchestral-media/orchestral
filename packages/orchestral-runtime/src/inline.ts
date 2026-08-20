@@ -84,6 +84,46 @@ import {
   runAlternative,
 } from './alternatives'
 
+/**
+ * Cap on retained agent envelopes. `getAgentEnvelope` is a read-after-settle
+ * lookup, so only recent dispatches are ever asked for; keeping the map
+ * bounded means a host that forgets `disposeAgentEnvelope` leaks nothing
+ * worse than this many envelopes.
+ */
+const MAX_AGENT_ENVELOPES = 64
+
+/**
+ * Event types after which no further event can fan out for that job. Used to
+ * release the job's subscriber set — see `fanout`.
+ */
+/**
+ * The produced-media array off a step's output envelope, when it has one.
+ * Read structurally rather than by pattern kind: every first-party output that
+ * carries media uses `assets`, and a third-party Pattern that follows the same
+ * envelope gets the same treatment for free.
+ */
+function stepAssets(
+  output: unknown,
+): readonly { assetId: string; modality: string; url?: string }[] | undefined {
+  const assets = (output as { assets?: unknown } | null | undefined)?.assets
+  if (!Array.isArray(assets) || assets.length === 0) return undefined
+  const usable = assets.filter(
+    (a): a is { assetId: string; modality: string; url?: string } =>
+      typeof a === 'object' &&
+      a !== null &&
+      typeof (a as { assetId?: unknown }).assetId === 'string' &&
+      typeof (a as { modality?: unknown }).modality === 'string',
+  )
+  return usable.length > 0 ? usable : undefined
+}
+
+const TERMINAL_EVENTS: ReadonlySet<JobEvent['type']> = new Set([
+  'job:completed',
+  'job:failed',
+  'job:cancelled',
+  'job:stale',
+])
+
 /** Default cap on `Pattern.alternatives` recursion depth. */
 const DEFAULT_MAX_ALTERNATIVE_DEPTH = 4
 
@@ -266,10 +306,13 @@ export class InlineRuntime implements Runtime {
    * success and error paths). Host retrieves via `getAgentEnvelope(jobId)`
    * after observing the corresponding `job:settled` event.
    *
-   * Lifecycle burden: entries live until the host calls
-   * `disposeAgentEnvelope(jobId)` (or the job is cancelled) — the map grows
-   * one entry per agent dispatch otherwise. Both methods are
-   * InlineRuntime-only (not on the Runtime contract).
+   * Bounded (see MAX_AGENT_ENVELOPES): a host that reads the envelope and
+   * calls `disposeAgentEnvelope(jobId)` keeps the map at the size of its
+   * in-flight work, and one that never disposes still cannot grow it without
+   * bound — the oldest entry is evicted on overflow. Eviction only ever costs
+   * an envelope old enough that its dispatch settled long ago, which is why
+   * `getAgentEnvelope` documents `undefined` as a normal answer. Both methods
+   * are InlineRuntime-only (not on the Runtime contract).
    */
   private readonly agentEnvelopes = new Map<string, AgentDispatchEnvelope>()
 
@@ -1018,6 +1061,19 @@ export class InlineRuntime implements Runtime {
           // here closes over dispatchMeta's `signal` arg, which is the meta's
           // controller.signal (set up in _submitJobInternal).
         ) => this._submitJobInternal<TIn2, TOut2>(s, ancestors, ss, signal),
+        // Sub-steps settle on the parent's stream: a meta is one Job to the
+        // caller, so without this a multi-minute chain is silent between
+        // job:started and job:completed.
+        onStepSettled: ({ rootJobId, stepId, patternId, childJobId, output }) => {
+          void this.fanoutJobEvent(rootJobId, (job) => ({
+            type: 'job:step',
+            job,
+            stepId,
+            patternId,
+            childJobId,
+            ...(stepAssets(output) ? { assets: stepAssets(output) } : {}),
+          }))
+        },
         ...(resolveStepReferences ? { resolveStepReferences } : {}),
         // Registry seam for the merge's single-cardinality dual-source guard:
         // the child's declared `assetNeeds` tell buildMetaExecutionContext which
@@ -1252,7 +1308,17 @@ export class InlineRuntime implements Runtime {
       agentAssetBridge: this.agentAssetBridge,
       catalogOptions: this.catalogOptions,
       resolveCtxProvider: this.resolveCtxProvider,
-      agentEnvelopes: this.agentEnvelopes,
+      recordEnvelope: (jobId, envelope) => {
+        // Evict the oldest entry once full (Map iterates in insertion order),
+        // mirroring the meta stepCache bound. Delete-then-set so re-recording
+        // the same jobId refreshes its position rather than aging in place.
+        this.agentEnvelopes.delete(jobId)
+        if (this.agentEnvelopes.size >= MAX_AGENT_ENVELOPES) {
+          const oldest = this.agentEnvelopes.keys().next().value
+          if (oldest !== undefined) this.agentEnvelopes.delete(oldest)
+        }
+        this.agentEnvelopes.set(jobId, envelope)
+      },
       fanoutJobEvent: (jobId, build) => this.fanoutJobEvent(jobId, build),
       submitChild: (spec, ancestors, mss, parentSignal, parentCtx) =>
         this._submitJobInternal(spec, ancestors, mss, parentSignal, parentCtx),
@@ -1261,11 +1327,18 @@ export class InlineRuntime implements Runtime {
 
   private fanout(jobId: string, event: JobEvent): void {
     const set = this.subscribers.get(jobId)
-    if (!set || set.size === 0) return
-    for (const cb of [...set]) {
-      try { cb(event) }
-      catch (e) { console.error('[runtime] subscriber threw:', e) }
+    if (set && set.size > 0) {
+      for (const cb of [...set]) {
+        try { cb(event) }
+        catch (e) { console.error('[runtime] subscriber threw:', e) }
+      }
     }
+    // A terminal event is the last one this jobId can ever emit, so the
+    // subscriber set is dead weight from here on. Dropping it after the
+    // delivery means a host that never calls its Unsubscribe still leaves
+    // nothing behind; the returned Unsubscribe stays safe to call, because it
+    // tolerates the entry already being gone.
+    if (TERMINAL_EVENTS.has(event.type)) this.subscribers.delete(jobId)
   }
 }
 

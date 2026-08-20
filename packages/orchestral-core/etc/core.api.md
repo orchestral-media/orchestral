@@ -845,6 +845,17 @@ export type JobEvent<TInput = unknown, TOutput = unknown> = {
     job: Job<TInput, TOutput>;
     artifact: Artifact;
 } | {
+    type: 'job:step';
+    job: Job<TInput, TOutput>;
+    stepId: string;
+    patternId: PatternId;
+    childJobId: string;
+    assets?: readonly {
+        assetId: string;
+        modality: string;
+        url?: string;
+    }[];
+} | {
     type: 'job:output';
     job: Job<TInput, TOutput>;
 } | {

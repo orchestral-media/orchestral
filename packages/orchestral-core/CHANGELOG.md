@@ -69,6 +69,18 @@ adapter over whichever provider SDK you use.
   is persistable. Hosts driving their own dispatch loop should call the guard at
   the same seam.
 
+- **Streaming intermediate results (`job:step`).** A MetaPattern is one Job to
+  its caller — the sub-dispatches it runs have their own ids the caller never
+  sees — so a long chain (image → video → speech) used to be silent between
+  `job:started` and `job:completed`. `job:step` fires on the parent's stream as
+  each step lands, carrying the author-facing `stepId`, the Pattern that ran,
+  the sub-dispatch's `childJobId` for correlation, and the media that step
+  produced, so an intermediate frame is showable while the rest is still
+  running. Exactly once per dispatched step: `ctx.step` rejects a repeated step
+  id rather than serving one twice, and a failed step fails the parent.
+  `ctx.compute` is silent — it wraps a local function, so there is nothing to
+  correlate.
+
 - **Job lifecycle contracts.** `Job` / `JobStore` / `Runtime`, plus
   `InMemoryJobStore` as the reference store. `JobEvent` covers creation,
   progress, completion, failure, and `job:alternative-selected` — fired once per

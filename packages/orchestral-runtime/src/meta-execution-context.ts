@@ -89,6 +89,19 @@ export interface MetaCtxDeps {
    * with the ancestor chain + meta shared state threaded through so nested
    * meta dispatches can inherit the parent's stepCache / counter / stepIds.
    */
+  /**
+   * Report a settled sub-step on the parent job's event stream. Optional so a
+   * host driving `buildMetaExecutionContext` directly (tests, a custom meta
+   * runner) needs no event plumbing; absent means a silent pipeline, which is
+   * what every meta did before.
+   */
+  onStepSettled?: (args: {
+    rootJobId: string
+    stepId: string
+    patternId: PatternId
+    childJobId: string
+    output: unknown
+  }) => void
   submitChild: <TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,
     ancestors: readonly PatternId[],
@@ -431,6 +444,21 @@ export function buildMetaExecutionContext(
               `META_STEP_FAILED: ${metaId} step[${effectiveStepId}] ` +
                 `${ref.patternId}: ${child.error?.message ?? 'unknown'}`,
             )
+          }
+          // Announce on the parent's stream. Inside `run`, so it describes a
+          // dispatch that actually happened and succeeded — exactly once per
+          // step, since the stepIds guard above rejects a repeated id rather
+          // than letting it reach the cache. `stepId` is the author-facing id,
+          // matching StepResult.meta.stepId; the namespaced form is an
+          // internal routing concern.
+          if (rootJobId) {
+            deps.onStepSettled?.({
+              rootJobId,
+              stepId,
+              patternId: ref.patternId,
+              childJobId: child.id,
+              output: child.output,
+            })
           }
           return child.output as T
         }

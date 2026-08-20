@@ -79,6 +79,21 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
   for a dispatch failure that carries no code of its own is
   `DISPATCH_EXECUTE_FAILED`.
 
+- **Sub-step visibility (`job:step`).** Meta dispatch reports each sub-step on
+  the parent job's stream as it lands, with the step's produced media attached
+  — a pipeline is observable while it runs instead of only when it finishes.
+  The emit sits inside the dispatch path, so it describes work that actually
+  ran and succeeded; `ctx.compute` stays silent.
+
+- **In-memory sidecar tables are bounded by the runtime, not by host
+  discipline.** A job's subscriber set is released once a terminal event has
+  been delivered — nothing further can fan out for that id, and the Unsubscribe
+  a host already holds stays safe to call. The agent envelope table keeps its
+  most recent 64 entries and evicts the oldest rather than growing, so a host
+  that never calls `disposeAgentEnvelope` leaks a bounded amount instead of one
+  entry per agent dispatch. (`getAgentEnvelope` already documented `undefined`
+  as a normal answer.) Job controllers were already released in a `finally`.
+
 - **Node requirement declared.** `engines.node >= 18` — the runtime uses
   `node:crypto` for idempotency hashing. `@orchestral/core` itself has no Node
   dependency and runs in renderer / worker / edge contexts.

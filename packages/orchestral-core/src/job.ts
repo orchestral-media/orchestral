@@ -198,6 +198,38 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
       /** Intermediate artifact (preview frame, draft image, etc). */
       artifact: Artifact
     }
+  | {
+      /**
+       * A step inside a MetaPattern's `compose()` finished, fired on the
+       * PARENT job's stream. A meta pipeline is one Job to the caller — its
+       * sub-dispatches have their own ids the caller never sees — so without
+       * this a long chain (image → video → speech) is silent from
+       * `job:started` until the whole pipeline settles.
+       *
+       * Fired after the sub-dispatch settles successfully and before the next
+       * step starts — exactly once per dispatched step, since `ctx.step`
+       * rejects a repeated step id outright (DUPLICATE_STEP_ID) rather than
+       * serving it twice. A failing step raises META_STEP_FAILED and fails the
+       * parent instead, so this event only ever describes work that landed.
+       *
+       * `ctx.compute` is silent: it wraps a local function, so there is no
+       * sub-dispatch and nothing a progress UI could correlate.
+       */
+      type: 'job:step'
+      job: Job<TInput, TOutput>
+      /** Author-facing step id, as passed to `ctx.step` (unnamespaced). */
+      stepId: string
+      /** The Pattern the step dispatched. */
+      patternId: PatternId
+      /** The sub-dispatch's own job id, for correlation against the store. */
+      childJobId: string
+      /**
+       * Media the step produced, when its output carries an `assets` array —
+       * this is what makes an intermediate frame or clip showable while the
+       * rest of the pipeline is still running.
+       */
+      assets?: readonly { assetId: string; modality: string; url?: string }[]
+    }
   | { type: 'job:output'; job: Job<TInput, TOutput> }
   | {
       /**
