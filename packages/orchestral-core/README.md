@@ -262,9 +262,11 @@ const viaCaption: Alternative<ImageToImageInput, ImageToImageOutput> = {
 }
 ```
 
-The redirect target must be registered too: with `meta_image-to-image-via-caption`
-absent from the registry, the runtime throws
-`ALTERNATIVE_PATTERN_NOT_REGISTERED` instead of falling back.
+The redirect target has to be registered for a redirect to happen — but only a
+runtime that redirects can miss it: under `alternatives: 'auto'`, an absent
+`meta_image-to-image-via-caption` throws `ALTERNATIVE_PATTERN_NOT_REGISTERED`
+instead of falling back. Under the default `'off'` nothing is dispatched
+through the path, so nothing has to be registered for the failure to name it.
 
 `whenCapabilityUnavailable('identity-preserving')` narrows the trigger to "no
 model bearing this tag"; `whenPreservesRequired(...)` triggers on the caller's
