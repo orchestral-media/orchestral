@@ -1,7 +1,7 @@
 {
   "name": "@orchestral/agent",
   "version": "0.1.0",
-  "description": "Orchestral agent support — the first-party AgentPatterns (long-form video director, media orchestrator) plus a reference in-process AgentRunImpl over the ai-sdk tool loop. Optional extension; nothing in core/runtime/patterns depends on it.",
+  "description": "Orchestral agent support — the two first-party AgentPatterns (long-form video director, media orchestrator). Ships no agent loop and no provider SDK: the AgentRunImpl driving the loop is injected by the host. Optional extension; nothing in core/runtime/patterns depends on it.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
   "homepage": "https://github.com/orchestral-media/orchestral#readme",
@@ -16,7 +16,7 @@
   "keywords": [
     "ai",
     "agents",
-    "agent-loop",
+    "agent-pattern",
     "orchestration",
     "orchestral-pattern",
     "media-pipeline",
@@ -76,12 +76,10 @@
     "@orchestral/runtime": "workspace:*"
   },
   "peerDependencies": {
-    "ai": "^7.0.0",
     "zod": ">=4.3 <5"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "ai": "^7.0.0",
     "typescript": "^5.7.2",
     "vitest": "^3.2.6",
     "zod": "^4.3.6"

@@ -81,7 +81,7 @@ function fakeRuntime(
     },
     cancelJob: async () => {},
     subscribe: () => () => {},
-    reconcile: async () => [],
+    abandonOrphanedJobs: async () => [],
   } as unknown as Runtime & { specs: JobSpec[] }
 }
 

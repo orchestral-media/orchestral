@@ -1,18 +1,19 @@
-// Reference AgentRunImpl — the in-process ai-sdk tool-loop, the runner side of
-// this package's agent support. The runtime calls `run()` once per AgentPattern
-// dispatch; everything host-agnostic — wrapping each tool, the onToolCall bridge
-// back into the runtime, system → instructions, abort/timeout plumbing — lives
-// here, so a host that just wants an LLM loop in this process injects this
-// instead of writing it.
+// Host-local AgentRunImpl — the in-process ai-sdk tool-loop. This is the
+// agent-side analogue of the atomic example's ai-sdk-wiring.ts, and it lives
+// here for the same reason that file does: the @orchestral packages ship no
+// provider SDK and no agent framework, so picking one (here: the Vercel AI
+// SDK's ToolLoopAgent) is the host's call, not the library's. That is the same
+// iron rule that leaves `ModelCapability.call` unimplemented in the box —
+// @orchestral/agent defines the two AgentPatterns, @orchestral/runtime defines
+// the AgentRunImpl seam, and this file is what a host writes to fill it.
 //
-// `ai` is a PEER dependency, never a bundled one: the iron rule is that
-// orchestral ships no provider SDK, and resolving a model from a BYOK key stays
-// host territory. The host installs `ai` (and its provider packages) itself, so
-// there is exactly one copy of the SDK in the tree — the one it already built
-// its model instances with.
+// The runtime calls `run()` once per AgentPattern dispatch. Everything
+// host-agnostic — wrapping each tool, the onToolCall bridge back into the
+// runtime, system → instructions, abort/timeout plumbing — lives here, and is
+// portable across hosts: copy this file, keep the two genuinely host-shaped
+// seams (resolving model tags to a concrete LanguageModel, and the loop stop
+// condition) as the deps you fill in. main.ts fills them in directly.
 //
-// The two genuinely host-shaped seams — resolving model tags to a concrete
-// LanguageModel, and the loop stop condition — are the deps a host fills in.
 // A production host (worker over IPC, persisted message history, host-granted
 // tools) writes its own AgentRunImpl instead; the seam is the same either way.
 

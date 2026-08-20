@@ -12,6 +12,17 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Breaking (0.x)
 
+- **`InlineRuntime.reconcile()` is now `InlineRuntime.abandonOrphanedJobs()`.**
+  Follows core's rename of the `Runtime` method; signature and behaviour are
+  unchanged. The runtime never resumed anything here — it sweeps rows the dead
+  process left `queued` / `running` to terminal `stale` and emits `job:stale`
+  — and the old name suggested otherwise.
+
+  ```diff
+  - const stale = await runtime.reconcile()
+  + const stale = await runtime.abandonOrphanedJobs()
+  ```
+
 - **Automatic `Alternative` fallback is now opt-in and off by default.**
   `InlineRuntimeInit.alternatives` selects `'off'` (default) or `'auto'`;
   previously every runtime redirected automatically. Under `'off'`, a dispatch

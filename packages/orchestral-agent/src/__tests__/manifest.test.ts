@@ -23,9 +23,12 @@ describe('@orchestral/agent manifest', () => {
 
     // No ops argument: neither agent takes host operations, so the manifest
     // declares no `requiredOps`.
-    const ids = registry.addFromManifest(pkg.orchestral, agent)
+    const result = registry.addFromManifest(pkg.orchestral, agent)
 
-    expect(ids).toEqual(manifest.patterns.map((p) => p.id))
+    expect(result.registered).toEqual(manifest.patterns.map((p) => p.id))
+    // Neither agent needs a host op, so nothing is ever skipped for want of one
+    // and the package loads with no `ops` argument at all.
+    expect(result.skipped).toEqual([])
     expect(registry.size()).toBe(manifest.patterns.length)
     for (const entry of manifest.patterns) {
       expect(registry.get(entry.id)?.kind).toBe('agent')
@@ -37,8 +40,8 @@ describe('@orchestral/agent manifest', () => {
     const declared = new Set(manifest.patterns.map((p) => p.export))
     // Pattern factories in this package are named `create*Agent`. The narrower
     // suffix (core's guard over @orchestral/patterns matches bare `create*`)
-    // keeps `createInProcessAgentRunImpl` — a runner, not a Pattern — out of
-    // the comparison.
+    // keeps the comparison to Pattern factories even if a future non-Pattern
+    // `create*` helper is exported alongside them.
     const exported = Object.keys(agent).filter(
       (name) => name.startsWith('create') && name.endsWith('Agent'),
     )

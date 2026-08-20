@@ -23,7 +23,8 @@ import { auditOutputsSchema } from './output-fields'
  *   • `add(spec)`            — the single registration entry point, auto-expands
  *                              spec.alternatives into attach calls
  *   • `addFromManifest()`    — the same, driven by a pattern package's declared
- *                              package.json `"orchestral"` field
+ *                              package.json `"orchestral"` field; all of it, or
+ *                              the subset the host can actually run
  *   • `getEntry(id)`         — returns the Pattern itself + all attachments
  *                              (built-in + third-party)
  *   • `attachAlternative()`  — third party attaches an alternative; gated by
@@ -222,7 +223,16 @@ export class PatternRegistry {
    * factory is called with `ops` as its single argument — the shipped atomic
    * factories take an options object and ignore the extra keys, the metas Pick
    * the operations they declared. A host with no host-ops omits `ops` entirely,
-   * which is legal exactly when the manifest declares no `requiredOps`.
+   * which is legal exactly when the patterns it loads declare no `requiredOps`.
+   *
+   * `options` decides WHICH of the declared patterns that is:
+   *   • `only` — register just these ids (an id the manifest does not declare
+   *     is an error, not a no-op).
+   *   • `missingOps` — `'throw'` (the default) refuses the whole load when a
+   *     selected pattern's `requiredOps` are not all present as functions on
+   *     `ops`; `'skip'` leaves those patterns out and reports them in the
+   *     result. Skipping is opt-in because a pattern silently missing from the
+   *     registry surfaces hours later as a routing miss.
    *
    * Every Pattern is built and checked BEFORE any of them is registered, so a
    * manifest error leaves the registry untouched. The one exception is
@@ -230,13 +240,14 @@ export class PatternRegistry {
    * registration loop — a package cannot be half-loaded by a stale manifest,
    * but it can be by loading the same package twice.
    *
-   * Returns the ids registered, in manifest order.
+   * Returns what was registered and what was skipped, both in manifest order.
    */
   addFromManifest(
     manifest: unknown,
     module: Readonly<Record<string, unknown>>,
     ops?: Readonly<Record<string, unknown>>,
-  ): readonly PatternId[] {
+    options?: AddFromManifestOptions,
+  ): AddFromManifestResult {
     const parsed = OrchestralManifestSchema.safeParse(manifest)
     if (!parsed.success) {
       throw new ManifestError(
@@ -246,21 +257,36 @@ export class PatternRegistry {
           .join('; '),
       )
     }
-    const { patterns, requiredOps } = parsed.data
+    const selected = selectManifestEntries(parsed.data.patterns, options?.only)
 
-    const missingOps = (requiredOps ?? []).filter(
-      (op) => typeof ops?.[op] !== 'function',
-    )
-    if (missingOps.length > 0) {
-      throw new ManifestError(
-        'MANIFEST_MISSING_OPS',
-        `manifest requires host operations [${missingOps.join(', ')}] that the ` +
-          `ops argument does not provide as functions`,
+    // Ops first, for every selected entry, before any factory runs: an
+    // under-provisioned host should learn what it is missing from a registry
+    // that is still empty, not from a pattern that half-built.
+    const onMissingOps = options?.missingOps ?? 'throw'
+    const skipped: SkippedManifestPattern[] = []
+    const runnable: typeof selected = []
+    for (const entry of selected) {
+      const missing = (entry.requiredOps ?? []).filter(
+        (op) => typeof ops?.[op] !== 'function',
       )
+      if (missing.length === 0) {
+        runnable.push(entry)
+        continue
+      }
+      if (onMissingOps === 'throw') {
+        throw new ManifestError(
+          'MANIFEST_MISSING_OPS',
+          `pattern "${entry.id}" requires host operations ` +
+            `[${missing.join(', ')}] that the ops argument does not provide as ` +
+            `functions — supply them, narrow the load with { only: [...] }, or ` +
+            `pass { missingOps: 'skip' } to load the rest without it`,
+        )
+      }
+      skipped.push({ id: entry.id as PatternId, missingOps: missing })
     }
 
     const built: Pattern[] = []
-    for (const entry of patterns) {
+    for (const entry of runnable) {
       const factory = module[entry.export]
       if (factory === undefined) {
         throw new ManifestError(
@@ -294,7 +320,7 @@ export class PatternRegistry {
     }
 
     for (const pattern of built) this.add(pattern)
-    return built.map((p) => p.id)
+    return { registered: built.map((p) => p.id), skipped }
   }
 
   unregister(id: PatternId): boolean {
@@ -478,6 +504,75 @@ export class PatternRegistry {
 export interface RegistryEntry {
   pattern: Pattern
   alternatives: readonly Alternative<unknown, unknown>[]
+}
+
+/**
+ * How much of a manifest to load, for `PatternRegistry.addFromManifest`.
+ * Omitting it means "all of it, and fail if anything is missing an op" — the
+ * strictest reading of the declaration.
+ */
+export interface AddFromManifestOptions {
+  /**
+   * Register only these pattern ids. An id the manifest does not declare
+   * throws `MANIFEST_UNKNOWN_PATTERN`: a host naming a pattern that quietly
+   * vanished from a package it upgraded has a broken deployment, not a shorter
+   * catalog. Order is irrelevant — registration follows manifest order.
+   */
+  readonly only?: readonly string[]
+  /**
+   * What to do with a selected pattern whose `requiredOps` the `ops` argument
+   * does not fully provide. `'throw'` (the default) fails the whole load and
+   * registers nothing; `'skip'` registers the rest and lists the omissions in
+   * `AddFromManifestResult.skipped`.
+   */
+  readonly missingOps?: 'throw' | 'skip'
+}
+
+/** One pattern `addFromManifest` deliberately did not register. */
+export interface SkippedManifestPattern {
+  readonly id: PatternId
+  /**
+   * The `requiredOps` entries that were absent from `ops`. Non-empty —
+   * unsatisfied host operations are the only reason a load skips a declared
+   * pattern (`only` is the caller's own selection, not a skip).
+   */
+  readonly missingOps: readonly string[]
+}
+
+/**
+ * The outcome of `PatternRegistry.addFromManifest`: what went into the
+ * registry, and what was left out and why. A caller that passed
+ * `missingOps: 'skip'` is expected to read `skipped` — a shorter catalog than
+ * the package advertises should be visible at boot, not inferred later from a
+ * pattern that cannot be routed to.
+ */
+export interface AddFromManifestResult {
+  /** Ids registered, in manifest order. */
+  readonly registered: readonly PatternId[]
+  /** Empty unless `missingOps: 'skip'` was passed. In manifest order. */
+  readonly skipped: readonly SkippedManifestPattern[]
+}
+
+/**
+ * Narrow a manifest's entries to `options.only`, preserving manifest order so
+ * two hosts asking for the same subset register it identically.
+ */
+function selectManifestEntries<T extends { id: string }>(
+  entries: readonly T[],
+  only: readonly string[] | undefined,
+): T[] {
+  if (only === undefined) return [...entries]
+  const declared = new Set(entries.map((e) => e.id))
+  const unknown = only.filter((id) => !declared.has(id))
+  if (unknown.length > 0) {
+    throw new ManifestError(
+      'MANIFEST_UNKNOWN_PATTERN',
+      `only names [${unknown.join(', ')}], which this manifest does not ` +
+        `declare; it declares [${[...declared].join(', ')}]`,
+    )
+  }
+  const wanted = new Set(only)
+  return entries.filter((e) => wanted.has(e.id))
 }
 
 const EMPTY_ALTERNATIVES: readonly Alternative<unknown, unknown>[] = []

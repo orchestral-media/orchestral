@@ -14,12 +14,18 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Ships an `"orchestral"` manifest in package.json** — the pattern-package
   convention core defines (`OrchestralManifestSchema`). It declares all 25
-  patterns as `{ id, kind, export }` plus the six host operations the video
-  metas need (`requiredOps`), so a host can register the whole catalog with
-  `registry.addFromManifest(pkg.orchestral, patterns, ops)` and read what this
-  package contributes with `npm view @orchestral/patterns orchestral`. Added the
-  `orchestral-pattern` npm keyword for the same reason. No source change — the
-  factories the manifest names are the ones already exported.
+  patterns as `{ id, kind, export }`, and the six deliverable metas that need
+  ffmpeg-shaped host operations name their own on the entry
+  (`meta_explainer-short` → `concatVideos` + `stillToVideo`,
+  `meta_ugc-testimonial` → four, and so on). The other nineteen declare none,
+  so a host with no multimedia backend still loads them:
+  `registry.addFromManifest(pkg.orchestral, patterns, undefined, { missingOps: 'skip' })`
+  registers those nineteen and reports the six it left out. With the ops in
+  hand, `registry.addFromManifest(pkg.orchestral, patterns, ops)` takes the lot.
+  `npm view @orchestral/patterns orchestral` prints all of it without
+  installing; the `orchestral-pattern` npm keyword is there for the same reason.
+  No source change — the factories the manifest names are the ones already
+  exported.
 
 ### Breaking (0.x)
 

@@ -98,12 +98,18 @@
       {
         "id": "meta_script2video",
         "kind": "meta",
-        "export": "createScript2VideoMeta"
+        "export": "createScript2VideoMeta",
+        "requiredOps": [
+          "concatVideos"
+        ]
       },
       {
         "id": "meta_idea2video",
         "kind": "meta",
-        "export": "createIdea2VideoMeta"
+        "export": "createIdea2VideoMeta",
+        "requiredOps": [
+          "concatVideos"
+        ]
       },
       {
         "id": "meta_prose-chunking",
@@ -133,7 +139,11 @@
       {
         "id": "meta_product-ad-short",
         "kind": "meta",
-        "export": "createProductAdShortMeta"
+        "export": "createProductAdShortMeta",
+        "requiredOps": [
+          "addBackgroundAudio",
+          "recordSessionAsset"
+        ]
       },
       {
         "id": "meta_product-photo-pack",
@@ -143,26 +153,32 @@
       {
         "id": "meta_ugc-testimonial",
         "kind": "meta",
-        "export": "createUgcTestimonialMeta"
+        "export": "createUgcTestimonialMeta",
+        "requiredOps": [
+          "concatVideos",
+          "addBackgroundAudio",
+          "addSubtitles",
+          "createSubtitleAsset"
+        ]
       },
       {
         "id": "meta_explainer-short",
         "kind": "meta",
-        "export": "createExplainerShortMeta"
+        "export": "createExplainerShortMeta",
+        "requiredOps": [
+          "concatVideos",
+          "stillToVideo"
+        ]
       },
       {
         "id": "meta_lyrics-to-mv",
         "kind": "meta",
-        "export": "createLyricsToMvMeta"
+        "export": "createLyricsToMvMeta",
+        "requiredOps": [
+          "concatVideos",
+          "addBackgroundAudio"
+        ]
       }
-    ],
-    "requiredOps": [
-      "concatVideos",
-      "stillToVideo",
-      "addBackgroundAudio",
-      "addSubtitles",
-      "createSubtitleAsset",
-      "recordSessionAsset"
     ]
   },
   "type": "module",

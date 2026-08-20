@@ -155,6 +155,18 @@ export type {
   CallEvents,
   JsonSchema,
 } from './capability-model'
+// Adapter-contract generation marker. `MODEL_SPEC_VERSION` is what a new
+// `ModelCapability` declares as its `specificationVersion`;
+// `assertSupportedModelSpecVersion` is the guard the dispatch path runs before
+// `call`, so an adapter built for a generation this build cannot execute fails
+// with a stable `MODEL_SPEC_VERSION_UNSUPPORTED` code instead of being called.
+export {
+  assertSupportedModelSpecVersion,
+  MODEL_SPEC_VERSION,
+  ModelSpecVersionUnsupportedError,
+  SUPPORTED_MODEL_SPEC_VERSIONS,
+  type ModelSpecVersion,
+} from './model-spec-version'
 export type {
   CapabilityRouter,
   SatisfiableResult,
@@ -214,7 +226,12 @@ export {
 
 // ── Registry ─────────────────────────────────────────────────────────────
 export { PatternRegistry } from './registry'
-export type { RegistryEntry } from './registry'
+export type {
+  AddFromManifestOptions,
+  AddFromManifestResult,
+  RegistryEntry,
+  SkippedManifestPattern,
+} from './registry'
 // Pattern-package convention: the package.json `"orchestral"` field a package
 // publishes so its patterns are discoverable without executing it, and the
 // errors `PatternRegistry.addFromManifest` throws when the declaration and the

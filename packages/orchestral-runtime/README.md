@@ -35,9 +35,9 @@ example.
   to completion before the promise resolves, so every job event has already
   fired. Subscribe from the `onJobCreated` init hook to observe progress;
   `await submitJob(...)` then `subscribe(...)` observes nothing.
-- **`reconcile()` abandons, it does not resume.** After a crash, queued /
-  running rows are marked terminal `stale` (emitting `job:stale`) — an
-  in-process runtime cannot re-attach to lost work.
+- **`abandonOrphanedJobs()` is the whole crash story.** Call it on start: rows
+  the dead process left `queued` / `running` go terminal `stale` (emitting
+  `job:stale`). An in-process runtime has nothing left to re-attach to.
 - **Human-in-the-loop parks in memory.** `ctx.askUser` awaits the injected
   `askUser` handler with the job left `running`; the park does not survive a
   process restart.

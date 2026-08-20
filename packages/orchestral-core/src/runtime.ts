@@ -39,14 +39,18 @@ export interface Runtime {
   cancelJob(jobId: string, reason?: string): Promise<void>
   subscribe(jobId: string, cb: (ev: JobEvent) => void): Unsubscribe
   /**
-   * On process start, bring jobs persisted as queued / running back to a
-   * consistent state. What "consistent" means is substrate-defined: a
-   * durable engine may re-attach and resume; an in-process runtime cannot
-   * resume lost work — the reference InlineRuntime marks every such job
-   * terminal `'stale'` and emits `job:stale`. Callers must not assume
-   * resumption: treat the returned jobs as reconciled, not recovered.
+   * On process start, give up on the jobs persisted as queued / running that
+   * no live controller owns any more — the process that was running them
+   * died. Each orphan is marked terminal `'stale'` and emitted as
+   * `job:stale`; the work itself is gone and is never re-attached or re-run.
+   * Resolves with the jobs it abandoned, in their new terminal state.
+   *
+   * This is abandonment with bookkeeping, on every substrate: a substrate
+   * that can genuinely resume lost work should expose that as its own call
+   * rather than hiding resumption behind this one, so a caller can always
+   * read the returned rows as dead.
    */
-  reconcile(): Promise<readonly Job[]>
+  abandonOrphanedJobs(): Promise<readonly Job[]>
   /**
    * Metadata sidecar for a settled `kind: 'agent'` dispatch — tool counts,
    * usage, final text, transcript pointer. Returns undefined for a

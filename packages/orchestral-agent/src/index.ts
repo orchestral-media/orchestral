@@ -1,5 +1,5 @@
-// @orchestral/agent — the optional agent extension: the first-party
-// AgentPatterns plus the reference in-process runner that drives their loop.
+// @orchestral/agent — the optional agent extension: the two first-party
+// AgentPatterns, and nothing else.
 //
 // Agent support is NOT part of the core surface. `@orchestral/core` defines the
 // contract types (AgentPattern, the finish envelope, agentInputSchema) and
@@ -8,6 +8,13 @@
 // write its own agent. This package is what you install when you want the
 // first-party ones instead. Nothing in @orchestral/core, @orchestral/runtime or
 // @orchestral/patterns depends on it.
+//
+// The tool-loop driver is deliberately absent. Like `ModelCapability.call`,
+// AgentRunImpl is a seam the library declares and the host fills: shipping a
+// loop here would mean shipping an agent-framework choice (and its provider
+// SDK) inside a pattern catalog. A copy-paste reference implementation over the
+// ai-sdk ToolLoopAgent lives in examples/agent-hello-world/src/agent-runner.ts.
+// This package's only runtime dependency surface is zod + the workspace ones.
 
 // ── First-party AgentPatterns ────────────────────────────────────────────
 export {
@@ -23,12 +30,3 @@ export {
   createOrchestratorAgent,
   type OrchestratorInput,
 } from './orchestrator'
-
-// ── Reference AgentRunImpl ───────────────────────────────────────────────
-// The in-process ai-sdk tool-loop. `ai` is a PEER dependency — orchestral
-// ships no provider SDK, the host brings its own (and its own key).
-export {
-  createInProcessAgentRunImpl,
-  type AgentRunDeps,
-  type LanguageModelInstance,
-} from './in-process-run'

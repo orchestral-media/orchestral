@@ -319,8 +319,8 @@ Mechanics a host must know:
   the runtime validates it against `answerSchema` when one is provided.
 - The park is **in-memory**: the job stays `running` (there is no `paused`
   `JobStatus`) and compose's local state lives on the JS stack. It survives
-  only as long as the process — after a crash, `reconcile()` marks the job
-  `stale`.
+  only as long as the process — after a crash, `abandonOrphanedJobs()` marks
+  the job `stale`.
 - `askUser.confirm` / `choose` / `form` cover the common widgets with typed
   question/answer contracts; `askUser.custom` passes an arbitrary payload for
   a bespoke widget.
@@ -337,9 +337,14 @@ A package that ships patterns says so in its `package.json`, under an
   "orchestral": {
     "patterns": [
       { "id": "text-to-image", "kind": "atomic", "export": "createTextToImagePattern" },
-      { "id": "meta_storyboard", "kind": "meta", "export": "createStoryboardMeta" }
-    ],
-    "requiredOps": ["concatVideos"]
+      { "id": "meta_storyboard", "kind": "meta", "export": "createStoryboardMeta" },
+      {
+        "id": "meta_idea2video",
+        "kind": "meta",
+        "export": "createIdea2VideoMeta",
+        "requiredOps": ["concatVideos"]
+      }
+    ]
   }
 }
 ```
@@ -352,10 +357,13 @@ A package that ships patterns says so in its `package.json`, under an
   stale manifest fails loudly instead of registering something else. The kind
   prefix is part of the contract (`meta_*`, `agent_*`, bare capability id for
   atomic) — `inferNamespace` and the sub-agent recursion guard route on it.
-- **`requiredOps`** names the host operations the package's factories expect
-  (the ffmpeg-shaped work a meta cannot do itself). The loader refuses to
-  register anything when one is missing, rather than failing halfway through a
-  pipeline.
+- **`requiredOps`** names the host operations *that one pattern's* factory
+  expects (the ffmpeg-shaped work a meta cannot do itself). It sits on the
+  entry, not on the package: a package-wide list would make one ffmpeg-shaped
+  meta enough to render the other two dozen patterns unloadable for a host with
+  no ffmpeg, which is the opposite of what a manifest is for. A package-level
+  `requiredOps` is refused rather than ignored — silently dropping a
+  fail-closed op declaration is worse than either alternative.
 
 Loading one is two lines plus however your host reads a JSON file:
 
@@ -363,8 +371,25 @@ Loading one is two lines plus however your host reads a JSON file:
 import * as foo from 'orchestral-pattern-foo'
 import pkg from 'orchestral-pattern-foo/package.json' with { type: 'json' }
 
-registry.addFromManifest(pkg.orchestral, foo, ops) // → registered pattern ids
+const { registered, skipped } = registry.addFromManifest(pkg.orchestral, foo, ops)
 ```
+
+Take a subset when that is all you can run — `only` picks patterns by id (an id
+the manifest does not declare is an error, not a silent no-op), and
+`missingOps` decides what a pattern whose ops you cannot supply does:
+
+```ts
+// Everything that needs nothing from the host; the rest is reported, not dropped.
+const { registered, skipped } = registry.addFromManifest(
+  pkg.orchestral, foo, undefined, { missingOps: 'skip' },
+)
+// skipped → [{ id: 'meta_idea2video', missingOps: ['concatVideos'] }]
+```
+
+`missingOps` defaults to `'throw'`: fail-closed is the right default because a
+pattern quietly absent from the registry resurfaces hours later as a routing
+miss. `'skip'` is how you say you meant it, and the result tells you what it
+cost you.
 
 **Discovery is a query, not a registration.** `npm view orchestral-pattern-foo
 orchestral` prints the manifest without installing anything; the npm keyword
@@ -376,14 +401,16 @@ What this deliberately is *not*: a plugin framework. There is no lifecycle, no
 sandbox, no version negotiation, no lazy activation. Two consequences worth
 knowing before you rely on it:
 
-- **All or nothing.** The manifest describes the package's whole contribution,
-  so a host that cannot supply a `requiredOps` entry registers the subset it
-  wants by calling the factories itself — which is all `addFromManifest` does.
+- **Atomic within one call.** Every selected pattern is built and checked before
+  any of them is registered, so a manifest error leaves the registry untouched —
+  but loading the same package twice still throws from `register` itself.
 - **The manifest is a declaration, not a permission boundary.** Reading it is
   safe; loading the package runs its code, exactly like any other import.
 
 `@orchestral/patterns` is the first package to follow the convention — its
-`"orchestral"` field covers all 27 shipped patterns.
+`"orchestral"` field covers all 25 shipped patterns, six of which declare the
+ffmpeg-shaped ops they need. `@orchestral/agent` carries its own for the two
+agent patterns.
 
 ## API map
 

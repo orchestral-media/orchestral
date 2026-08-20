@@ -12,6 +12,7 @@
 // that bridges to the underlying provider SDK.
 
 import type { Capability } from './capability'
+import type { ModelSpecVersion } from './model-spec-version'
 import type { ModelTag } from './model-tag'
 import type { Artifact, DispatchResult } from './pattern'
 import type { DispatchContext } from './execution-context'
@@ -202,6 +203,28 @@ export interface ModelCapabilityRecord extends ModelCapabilityBlob {
  * carry host-injected ambient context (validated at the host boundary).
  */
 export interface ModelCapability extends ModelCapabilityRecord {
+  /**
+   * Which generation of the adapter contract below `call` implements.
+   * Optional; an envelope that declares nothing is read as
+   * `MODEL_SPEC_VERSION`'s first generation ('v1') — the contract that
+   * predates this field. New adapters should declare
+   * `specificationVersion: MODEL_SPEC_VERSION` so the field distinguishes an
+   * undeclared old adapter from one deliberately built for a later generation.
+   *
+   * Enforced, not decorative: the dispatch path runs
+   * `assertSupportedModelSpecVersion` immediately before calling `call`, and a
+   * version this build cannot execute fails the job with a structured
+   * `MODEL_SPEC_VERSION_UNSUPPORTED` error rather than reaching an adapter
+   * whose signature the runtime no longer matches.
+   *
+   * It lives on the ENVELOPE, not on {@link ModelCapabilityRecord}: it
+   * describes the host code that implements `call`, not the model. A catalog
+   * row persists what a model can do; which adapter generation wraps it is
+   * decided when the host builds the envelope, so nothing about this field is
+   * persistable.
+   */
+  readonly specificationVersion?: ModelSpecVersion
+
   call<I = unknown, O = unknown>(
     input: I,
     ctx: DispatchContext,

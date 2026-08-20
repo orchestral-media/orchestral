@@ -13,9 +13,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **New package — agent support is now an optional extension.** `@orchestral/agent`
-  collects everything agent-specific that used to be spread across the catalog
-  and the examples, so `@orchestral/patterns` is atomic + meta only and nothing
-  in core / runtime / patterns depends on this package.
+  collects the first-party agent Patterns that used to sit in the catalog, so
+  `@orchestral/patterns` is atomic + meta only and nothing in core / runtime /
+  patterns depends on this package.
 
 - **Two first-party `AgentPattern`s, moved from `@orchestral/patterns`**
   (unchanged behaviour, new home):
@@ -28,29 +28,37 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Their ids, schemas, prompts, and tool catalogs are byte-identical to the ones
   `@orchestral/patterns` 0.1.0 shipped; only the import path changes.
 
-- **`createInProcessAgentRunImpl`, promoted from `examples/agent-hello-world`.**
-  The reference `AgentRunImpl` over the ai-sdk `ToolLoopAgent`: it wraps each
-  runtime tool descriptor, bridges `execute` back into the runtime through
-  `onToolCall`, maps `system` → `instructions`, and threads abort/timeout into
-  `generate()`. The host-shaped seams (`resolveModel`, `stopWhen`) stay
-  injected. Every host that wanted an in-process loop was copying this file;
-  now it is a dependency.
-
 - **`"orchestral"` manifest + `orchestral-pattern` keyword.** The package
   declares its two agent patterns as `{ id, kind, export }` for
   `registry.addFromManifest(pkg.orchestral, agent)`. No `requiredOps` — neither
   agent takes host operations.
 
+### Changed
+
+- **No tool-loop runner ships in this package.** During development this package
+  briefly carried `createInProcessAgentRunImpl` (an ai-sdk `ToolLoopAgent`
+  wrapper) with `ai` as a peer dependency. It was **never published** — this
+  package's first release is the one being prepared here — and it has been
+  moved back to `examples/agent-hello-world/src/agent-runner.ts`, where it
+  started. There is nothing for a consumer to migrate.
+
+  The reason: `AgentRunImpl` is the same kind of seam as
+  `ModelCapability.call` — the library declares it, the host fills it. Shipping
+  a loop would have meant this package picking an agent framework on the host's
+  behalf and dragging its SDK into every install, including installs that only
+  want the two declarative patterns. The runner is still a working reference
+  implementation, still exercised by the example's offline smoke test; it is
+  just documentation you copy rather than a dependency you inherit.
+
 ### Notes
 
-- **`ai` is a peer dependency (`^7`), not a bundled one.** Orchestral ships no
-  provider SDK: the host's model instance and the loop that consumes it must
-  come from the same copy of `ai`, and the host owns the SDK version and its
-  credentials. `zod` (`>=4.3 <5`) is a peer for the same reason.
+- **No provider SDK, and no agent framework, in the dependency tree.** The only
+  peer is `zod` (`>=4.3 <5`), so that the schemas here are the host's zod
+  instance. Whatever SDK a host's runner uses is the host's own install.
 - **The agent seam itself did not move.** `@orchestral/core` still owns
   `AgentPattern` / `agentInputSchema` / the finish envelope, and
   `@orchestral/runtime` still owns `dispatchAgent` and the `AgentRunImpl`
-  interface — dormant until a host injects a runner. This package only fills
-  that seam.
+  interface — dormant until a host injects a runner. This package supplies
+  Patterns for that machinery to run; the host supplies the runner.
 - **`@alpha`.** The agent seam is still evolving; a 0.1 → 0.2 reshape of these
   exports is not a breaking change under the 0.x policy above.

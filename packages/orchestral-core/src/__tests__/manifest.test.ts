@@ -49,13 +49,79 @@ describe('@orchestral/patterns manifest', () => {
     const manifest = OrchestralManifestSchema.parse(pkg.orchestral)
     const registry = new PatternRegistry()
 
-    const ids = registry.addFromManifest(pkg.orchestral, patternsModule, OPS)
+    const result = registry.addFromManifest(pkg.orchestral, patternsModule, OPS)
 
-    expect(ids).toEqual(manifest.patterns.map((p) => p.id))
+    expect(result.registered).toEqual(manifest.patterns.map((p) => p.id))
+    expect(result.skipped).toEqual([])
     expect(registry.size()).toBe(manifest.patterns.length)
     for (const entry of manifest.patterns) {
       expect(registry.get(entry.id)?.kind).toBe(entry.kind)
     }
+  })
+
+  it('declares host ops per pattern, so the ffmpeg-free subset still loads', () => {
+    const manifest = OrchestralManifestSchema.parse(pkg.orchestral)
+    // The claim that makes per-pattern requiredOps worth having: the patterns
+    // that need nothing outnumber the ones that do, and a host without ffmpeg
+    // must still get them.
+    const needOps = manifest.patterns.filter((p) => p.requiredOps?.length)
+    expect(needOps.length).toBeGreaterThan(0)
+    expect(needOps.length).toBeLessThan(manifest.patterns.length)
+    // Every declared op is one the meta authoring surface actually names.
+    for (const entry of needOps) {
+      for (const op of entry.requiredOps ?? []) {
+        expect(Object.keys(OPS)).toContain(op)
+      }
+    }
+
+    const registry = new PatternRegistry()
+    const result = registry.addFromManifest(
+      pkg.orchestral,
+      patternsModule,
+      undefined,
+      { missingOps: 'skip' },
+    )
+
+    expect(result.registered).toEqual(
+      manifest.patterns.filter((p) => !p.requiredOps?.length).map((p) => p.id),
+    )
+    expect(result.skipped.map((s) => s.id)).toEqual(needOps.map((p) => p.id))
+    // The report says WHICH op was missing — a skipped pattern that only shows
+    // up as a routing miss hours later is the failure mode this prevents.
+    for (const skip of result.skipped) {
+      expect(skip.missingOps.length).toBeGreaterThan(0)
+    }
+    expect(registry.size()).toBe(result.registered.length)
+  })
+
+  it('loads just the patterns a host asks for with { only }', () => {
+    const registry = new PatternRegistry()
+
+    const result = registry.addFromManifest(
+      pkg.orchestral,
+      patternsModule,
+      undefined,
+      { only: ['text-to-image', 'image-to-text'] },
+    )
+
+    expect(result.registered).toEqual(['text-to-image', 'image-to-text'])
+    expect(registry.size()).toBe(2)
+  })
+
+  it('rejects an { only } id the manifest does not declare', () => {
+    const registry = new PatternRegistry()
+    let thrown: unknown
+    try {
+      registry.addFromManifest(pkg.orchestral, patternsModule, OPS, {
+        only: ['text-to-image', 'no-such-pattern'],
+      })
+    } catch (e) {
+      thrown = e
+    }
+    expect(thrown).toBeInstanceOf(ManifestError)
+    expect((thrown as ManifestError).code).toBe('MANIFEST_UNKNOWN_PATTERN')
+    expect((thrown as ManifestError).message).toContain('no-such-pattern')
+    expect(registry.size()).toBe(0)
   })
 
   it('declares every pattern factory the package exports', () => {
@@ -243,7 +309,7 @@ describe('addFromManifest validation', () => {
 
   it('loads a manifest that declares no host ops without an ops argument', () => {
     const registry = new PatternRegistry()
-    const ids = registry.addFromManifest(
+    const result = registry.addFromManifest(
       {
         patterns: [
           { id: 'text-to-image', kind: 'atomic', export: 'makePattern' },
@@ -252,7 +318,53 @@ describe('addFromManifest validation', () => {
       },
       MODULE,
     )
-    expect(ids).toEqual(['text-to-image', 'image-to-text'])
+    expect(result.registered).toEqual(['text-to-image', 'image-to-text'])
+    expect(result.skipped).toEqual([])
     expect(registry.has('image-to-text')).toBe(true)
+  })
+
+  it('rejects a package-level requiredOps instead of ignoring it', () => {
+    // The field moved to the entries. Ignoring it would drop a fail-closed op
+    // declaration on the floor — the one outcome worse than refusing to load.
+    const registry = new PatternRegistry()
+    expectManifestError(
+      () =>
+        registry.addFromManifest(
+          {
+            patterns: [
+              { id: 'text-to-image', kind: 'atomic', export: 'makePattern' },
+            ],
+            requiredOps: ['concatVideos'],
+          },
+          MODULE,
+        ),
+      'MANIFEST_INVALID',
+    )
+    expect(registry.size()).toBe(0)
+  })
+
+  it("skips only the entries whose ops are missing under missingOps: 'skip'", () => {
+    const registry = new PatternRegistry()
+    const result = registry.addFromManifest(
+      {
+        patterns: [
+          { id: 'text-to-image', kind: 'atomic', export: 'makePattern' },
+          {
+            id: 'image-to-text',
+            kind: 'atomic',
+            export: 'makeOther',
+            requiredOps: ['concatVideos'],
+          },
+        ],
+      },
+      MODULE,
+      undefined,
+      { missingOps: 'skip' },
+    )
+    expect(result.registered).toEqual(['text-to-image'])
+    expect(result.skipped).toEqual([
+      { id: 'image-to-text', missingOps: ['concatVideos'] },
+    ])
+    expect(registry.has('image-to-text')).toBe(false)
   })
 })

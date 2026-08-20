@@ -12,6 +12,23 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Breaking (0.x)
 
+- **`Runtime.reconcile()` is now `Runtime.abandonOrphanedJobs()`.** Same
+  signature, same behaviour — the old name lied. "Reconcile" reads, in a
+  distributed-systems context, as *converge to the desired state*, so callers
+  assumed a crashed job would be picked back up. It never was: the call finds
+  job rows left `queued` / `running` with no live controller and marks them
+  terminal `'stale'`, emitting `job:stale`. Nothing is resumed.
+
+  ```diff
+  - const stale = await runtime.reconcile()
+  + const stale = await runtime.abandonOrphanedJobs()
+  ```
+
+  The interface doc no longer hedges that a durable substrate "may re-attach
+  and resume" behind this method: a substrate that can genuinely resume lost
+  work should expose that as its own call, so the rows this one returns are
+  always safe to read as dead.
+
 - **The discovery layer moved out to `@orchestral/discovery`.** `PatternSearchIndex`,
   `handleFindPattern` and their types (`PatternSearchFilter`,
   `SkippedPatternRecord`, `FindPatternResult`, `FindPatternMatch`,
@@ -63,23 +80,35 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   anyone.
 
 - **Pattern-package convention (`"orchestral"` in package.json) and
-  `PatternRegistry.addFromManifest(manifest, module, ops?)`.** A package
-  declares `patterns: [{ id, kind, export }]` (plus optional `requiredOps`) so
-  what it contributes is readable with `npm view <pkg> orchestral` — no install,
-  no execution. `OrchestralManifestSchema` validates the field;
-  `addFromManifest` looks each `export` up on the module, calls it with `ops`,
-  verifies the built pattern's `id` and `kind` against the declaration, and
-  registers the lot, throwing a coded `ManifestError` (`MANIFEST_INVALID` /
-  `MANIFEST_MISSING_OPS` / `MANIFEST_EXPORT_MISSING` /
-  `MANIFEST_EXPORT_NOT_A_FACTORY` / `MANIFEST_PATTERN_MISMATCH`) before
-  registering anything when they disagree.
+  `PatternRegistry.addFromManifest(manifest, module, ops?, options?)`.** A
+  package declares `patterns: [{ id, kind, export, requiredOps? }]` so what it
+  contributes is readable with `npm view <pkg> orchestral` — no install, no
+  execution. `OrchestralManifestSchema` validates the field; `addFromManifest`
+  looks each `export` up on the module, calls it with `ops`, verifies the built
+  pattern's `id` and `kind` against the declaration, and registers the lot,
+  throwing a coded `ManifestError` (`MANIFEST_INVALID` /
+  `MANIFEST_UNKNOWN_PATTERN` / `MANIFEST_MISSING_OPS` /
+  `MANIFEST_EXPORT_MISSING` / `MANIFEST_EXPORT_NOT_A_FACTORY` /
+  `MANIFEST_PATTERN_MISMATCH`) before registering anything when they disagree.
+  It returns `{ registered, skipped }` rather than a bare id list, so a partial
+  load is legible.
+
+  `requiredOps` is declared per pattern, not per package: of the 25 patterns in
+  `@orchestral/patterns` only six need the ffmpeg-shaped host operations, and a
+  package-wide list would have made those six enough to render the other
+  nineteen unloadable for a host with no ffmpeg. `options.only` loads a subset
+  by id (an undeclared id is an error, not a no-op) and `options.missingOps`
+  chooses between refusing the load (`'throw'`, the default — fail-closed,
+  because a pattern quietly missing from the registry resurfaces as a routing
+  miss much later) and registering the rest (`'skip'`, which reports every
+  omission and why in `skipped`).
 
   Discovery is a query rather than a registration: npm keyword
   `orchestral-pattern`, GitHub topic of the same name, `orchestral-pattern-*`
   package names. No central index exists. This is a convention plus a loader,
   not a plugin framework — no lifecycle, sandbox, version negotiation or lazy
   activation, and loading a package still runs its code like any import.
-  `@orchestral/patterns` is the first package to carry the field.
+  `@orchestral/patterns` and `@orchestral/agent` both carry the field.
 
 ### Breaking (0.x)
 

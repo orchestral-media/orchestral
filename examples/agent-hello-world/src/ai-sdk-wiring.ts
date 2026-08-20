@@ -13,6 +13,7 @@ import type {
   ModelTag,
   DispatchResult,
 } from '@orchestral/core'
+import { MODEL_SPEC_VERSION } from '@orchestral/core'
 
 // The resolved ImageModel OBJECT type, pulled out of generateImage's signature
 // (avoids a transitive @ai-sdk/provider import). A host passes the instance it
@@ -103,6 +104,9 @@ export function createImageModels(
   specs: readonly ImageModelSpec[],
 ): (cap: Capability) => readonly ModelCapability[] {
   const envelopes: ModelCapability[] = specs.map((spec) => ({
+    // The `call` contract generation this adapter implements — imported, not
+    // hard-coded, so a runtime that cannot execute it says so before calling.
+    specificationVersion: MODEL_SPEC_VERSION,
     capabilities: ['text-to-image'],
     provider: spec.provider,
     modelId: spec.modelId,

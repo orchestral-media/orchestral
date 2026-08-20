@@ -14,8 +14,8 @@ export type JobStatus =
   | 'error'
   | 'cancelled'
   /**
-   * Runtime found this row in 'running' at startup reconcile but could not
-   * determine outcome — abandoned without knowing if the provider call landed.
+   * Runtime found this row in 'running' at startup with no live controller
+   * and abandoned it — no way to tell whether the provider call ever landed.
    */
   | 'stale'
 

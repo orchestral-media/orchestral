@@ -43,8 +43,8 @@ npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 ```
 
 Two optional packages sit on top: `@orchestral/discovery` (the BM25 search
-behind a `find_pattern` tool) and `@orchestral/agent` (the two agent patterns
-plus an in-process `AgentRunImpl` over the AI SDK).
+behind a `find_pattern` tool) and `@orchestral/agent` (the two agent patterns).
+Neither pulls in a provider SDK.
 
 `zod` v4 (`>=4.3 <5`) is a peer dependency: pattern input/output schemas are zod
 schemas on the public API, so your app and Orchestral must share one zod
@@ -160,8 +160,10 @@ implementations you swap; the third is the call adapter:
 | `ModelCapability.call` | the actual provider invocation | nothing — this is the ~15-line adapter you write over your own SDK |
 
 Agent patterns add a fourth seam, `AgentRunImpl`, which drives the inner LLM
-tool-loop. It is `@alpha`; `@orchestral/agent` ships a reference implementation
-over the AI SDK (`ai` as a peer dependency).
+tool-loop. It is `@alpha`, and it ships nothing for the same reason
+`ModelCapability.call` does not: picking an agent framework is the host's call.
+`examples/agent-hello-world` wires one over the AI SDK's tool loop in ~150
+lines — copy it and swap in whatever loop you already run.
 
 ## Packages
 
@@ -171,7 +173,7 @@ over the AI SDK (`ai` as a peer dependency).
 | [`@orchestral/patterns`](packages/orchestral-patterns) | The first-party pattern catalog: one atomic pattern per capability, plus meta pipelines (storyboarding, script planning, idea-to-video, best-of-N selection, …) with their prompts inlined. |
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
 | [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex` and the `find_pattern` tool handler. Core keeps the input contract; this package owns the searching. |
-| [`@orchestral/agent`](packages/orchestral-agent) | Optional. The two agent patterns plus `createInProcessAgentRunImpl`, a reference `AgentRunImpl` over the AI SDK's tool loop (`ai` is a peer dependency). |
+| [`@orchestral/agent`](packages/orchestral-agent) | Optional. The two agent patterns (an orchestrator and a long-form-video director). Declarations only — the tool loop that runs them is the `AgentRunImpl` you inject. |
 | [`@orchestral/dsh-plugin`](packages/orchestral-dsh-plugin) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |
 
 All packages are Apache-2.0. The `@orchestral/*` packages are released together
@@ -185,7 +187,7 @@ This is 0.x. Each package README states its own edges rather than hiding them:
   provider messages: `tool_use` pairing and reasoning blocks are gone on resume —
   [runtime § Resume fidelity](packages/orchestral-runtime/README.md#resume-fidelity).
 - **No durable queue.** `InlineRuntime` runs a job in the caller's tick, and
-  `reconcile()` abandons crashed jobs as `stale` instead of resuming them;
+  `abandonOrphanedJobs()` marks jobs a dead process left behind as `stale`;
   `ctx.askUser` parks in memory only —
   [runtime § Runtime semantics worth knowing](packages/orchestral-runtime/README.md#runtime-semantics-worth-knowing).
 - **Deliverable metas need a multimedia backend you supply.** Six

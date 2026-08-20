@@ -9,24 +9,23 @@ Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral
 `@orchestral/core`, `@orchestral/runtime` or `@orchestral/patterns` depends on
 this package; a host that never runs an LLM loop never installs it.
 
-What it ships is exactly two things:
+What it ships is exactly one thing: **two first-party `AgentPattern`s.**
 
-- **Two first-party `AgentPattern`s** — `agent_long-form-video` (a novel →
-  multi-event video director, with its SKILL bodies inlined) and
-  `agent_orchestrator` (a general open-ended media orchestrator). Both compose
-  the atomic + meta catalog in [`@orchestral/patterns`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-patterns)
-  by pattern id.
-- **A reference `AgentRunImpl`** — `createInProcessAgentRunImpl`, which drives
-  the ai-sdk `ToolLoopAgent` in this process and bridges its tool calls back
-  into the runtime.
+- `agent_long-form-video` — a novel → multi-event video director, with its SKILL
+  bodies inlined.
+- `agent_orchestrator` — a general open-ended media orchestrator.
+
+Both compose the atomic + meta catalog in
+[`@orchestral/patterns`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-patterns)
+by pattern id. Both are pure declarations: prompts, schemas, tool lists. **No
+loop implementation and no provider SDK ships here** — the `AgentRunImpl` that
+drives the LLM tool-loop is yours to inject (see below).
 
 ```ts
 import { PatternRegistry } from '@orchestral/core'
 import { InlineRuntime } from '@orchestral/runtime'
-import {
-  createOrchestratorAgent,
-  createInProcessAgentRunImpl,
-} from '@orchestral/agent'
+import { createOrchestratorAgent } from '@orchestral/agent'
+import { createInProcessAgentRunImpl } from './agent-runner' // yours
 
 const registry = new PatternRegistry()
 registry.add(createOrchestratorAgent())
@@ -69,41 +68,60 @@ the split is:
 | --- | --- |
 | `AgentPattern` type, finish envelope, `agentInputSchema` | `@orchestral/core` |
 | `dispatchAgent`, the `AgentRunImpl` interface, tool catalog + handle plumbing | `@orchestral/runtime` (inert until a runner is injected) |
-| First-party agent Patterns + a runner that fills the seam | **this package** |
+| First-party agent Patterns | **this package** |
+| The runner that fills the seam | **your host** — reference implementation in [`examples/agent-hello-world`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world) |
 
-A production host (desktop app, server) typically keeps the patterns and writes
-its own `AgentRunImpl` — one that runs the loop in a worker over IPC, persists
-message history, and grants host tools. The interface is the same either way;
-`createInProcessAgentRunImpl` is the zero-infrastructure version of it.
+## Why no loop implementation ships here
 
-## Why `ai` is a peer dependency
+Same iron rule as `ModelCapability.call`: **Orchestral ships no provider SDK,
+and no agent framework either.** `AgentRunImpl` is a seam the library declares
+and the host fills — the agent-side twin of the `call` adapter you already write
+over your own SDK.
 
-Orchestral ships no provider SDK — the host brings its own, along with its own
-key. The reference runner is written against the Vercel AI SDK's
-`ToolLoopAgent`, so `ai` is declared as a **peer** dependency (`^7`) rather than
-a bundled one:
+Shipping a loop would mean this package picking your agent framework (Vercel AI
+SDK? LangGraph? your own worker protocol?) and dragging its SDK into every
+install, including the installs of hosts that only want the two declarative
+patterns above. So the loop stays out, and the interface stays small:
 
-- the model instance the host builds (`openai('gpt-4o')`) and the loop that
-  consumes it must come from the *same* copy of `ai`; a bundled second copy
-  would fail at the type level and misbehave at runtime;
-- the host stays in charge of the SDK version, its provider packages, and its
-  credentials — none of which a pattern catalog has any business pinning.
-
-Install it alongside this package:
-
-```sh
-pnpm add @orchestral/agent ai @ai-sdk/openai
+```ts
+interface AgentRunImpl {
+  run(args): Promise<{ text: string; usage?: { totalTokens?: number } }>
+}
 ```
 
-`zod` (`>=4.3 <5`) is a peer for the same reason it is one in
-`@orchestral/patterns`: the schemas here must be the host's zod instance.
+The runtime hands `run()` the system prompt, the seed messages, the tool
+descriptors (already built from `loop.toolPatternIds`, finish tool included), an
+`onToolCall` callback that recurses back into `runtime.submitJob`, and an abort
+signal. All a runner does is drive some tool loop over that and return the final
+text. The four rules that the signature cannot express — and that fail silently
+when broken — are documented on the interface itself in
+[`@orchestral/runtime`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-runtime).
 
-## Runnable example
+**A copy-pasteable reference implementation lives in
+[`examples/agent-hello-world/src/agent-runner.ts`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world/src/agent-runner.ts)**
+— ~150 lines over the Vercel AI SDK's `ToolLoopAgent`, with the two host-shaped
+seams (`resolveModel`, `stopWhen`) left injected. The example is the whole path
+end to end — registry → router → runtime → one agent dispatch — with a smoke
+test that runs the loop offline against a mock LLM (no API key). Copy that file
+into your host and adjust, or write your own against a different framework.
 
-[`examples/agent-hello-world`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world)
-is the whole thing end to end — registry → router → runtime → one agent
-dispatch — in about a hundred lines of host wiring, with a smoke test that runs
-the loop offline against a mock LLM (no API key).
+A production host (desktop app, server) writes its own anyway — one that runs
+the loop in a worker over IPC, persists message history, and grants host tools.
+The interface is the same either way.
+
+## Dependencies
+
+This package has **no provider-SDK dependency at all**. Its only peer is `zod`
+(`>=4.3 <5`), for the same reason it is one in `@orchestral/patterns`: the
+schemas here must be the host's zod instance.
+
+```sh
+pnpm add @orchestral/agent zod
+```
+
+Whatever SDK your runner uses (`ai`, `@ai-sdk/openai`, …) is installed by your
+host, at your chosen version — the model instance you build and the loop that
+consumes it then trivially come from the same copy.
 
 > **`@alpha`.** The agent seam (`AgentRunImpl`) is still evolving; a 0.1 → 0.2
 > reshape of these exports is not a breaking change under this repo's 0.x

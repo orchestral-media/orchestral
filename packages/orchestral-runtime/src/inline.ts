@@ -50,7 +50,10 @@ import type {
   Unsubscribe,
   DispatchResult,
 } from '@orchestral/core'
-import { NoModelForCapabilityError } from '@orchestral/core'
+import {
+  assertSupportedModelSpecVersion,
+  NoModelForCapabilityError,
+} from '@orchestral/core'
 import {
   AGENT_FINISH_TOOL_NAME,
   buildAlwaysLoadDescriptors,
@@ -1038,6 +1041,14 @@ export class InlineRuntime implements Runtime {
         if (!lastErr) lastErr = e
         break
       }
+      // Adapter-contract gate — the last thing between a resolved envelope and
+      // its `call`, so every dispatch (primary, retry, fallback walk) passes
+      // through it. Deliberately OUTSIDE the try below: an envelope built for a
+      // contract generation this build cannot execute is a wiring error, not a
+      // transient provider failure, so it must not be swallowed into
+      // excludeModel and silently routed around. It throws
+      // MODEL_SPEC_VERSION_UNSUPPORTED with a machine-readable diagnostic.
+      assertSupportedModelSpecVersion(model)
       try {
         // Primary path only. Pass the DispatchContext — the adapter reads
         // ctx.assets (resolved assetIds) + ctx.signal; the LLM never saw raw
@@ -2365,28 +2376,28 @@ export class InlineRuntime implements Runtime {
   /**
    * In-process runtime: lost in-flight work cannot be resumed. Every
    * queued/running row is marked terminal 'stale' (emitting job:stale) so
-   * the store is consistent after a crash — reconcile() here is abandonment
-   * with bookkeeping, not re-attachment. See Runtime.reconcile for the
-   * substrate contract.
+   * the store is consistent after a crash. Best-effort per row — one row
+   * that fails to update does not stop the rest. See
+   * Runtime.abandonOrphanedJobs for the substrate contract.
    */
-  async reconcile(): Promise<readonly Job[]> {
+  async abandonOrphanedJobs(): Promise<readonly Job[]> {
     const stuck = await this.store.query({
       status: ['queued', 'running'] as readonly JobStatus[],
     })
-    const updated: Job[] = []
+    const abandoned: Job[] = []
     for (const job of stuck) {
       try {
         await this.store.update(job.id, { status: 'stale', updatedAt: Date.now() })
         const next = await this.store.get(job.id)
         if (next) {
-          updated.push(next)
+          abandoned.push(next)
           this.fanout(job.id, { type: 'job:stale', job: next })
         }
       } catch (e) {
-        console.warn(`[runtime] reconcile failed for ${job.id}:`, e)
+        console.warn(`[runtime] abandonOrphanedJobs failed for ${job.id}:`, e)
       }
     }
-    return updated
+    return abandoned
   }
 
   // ── Internals ────────────────────────────────────────────────────────────

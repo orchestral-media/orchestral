@@ -6,17 +6,17 @@ A from-scratch host that runs one **agent-kind** dispatch through the
 The entire host is the wiring in [`src/main.ts`](./src/main.ts) plus one OpenAI
 API key — there is **zero host engine code**: no worker, no IPC, no database.
 
-This is the agent-battery companion to
+This is the agent companion to
 [`../atomic-hello-world`](../atomic-hello-world). The new piece is
-`createInProcessAgentRunImpl` from the optional
-[`@orchestral/agent`](../../packages/orchestral-agent) package: an in-process
-`AgentRunImpl` that drives the ai-sdk `ToolLoopAgent` and bridges its tool calls
-back into the runtime. That package declares `ai` as a **peer** dependency —
-this example installs it (`ai@^7`) along with its own provider SDK, because the
-@orchestral packages never ship a provider SDK themselves.
+[`src/agent-runner.ts`](./src/agent-runner.ts): a host-local `AgentRunImpl` that
+drives the ai-sdk `ToolLoopAgent` and bridges its tool calls back into the
+runtime. It sits next to `src/ai-sdk-wiring.ts` for exactly the same reason —
+the `@orchestral/*` packages ship no provider SDK and no agent framework, so
+both adapters are host territory. The example installs `ai@^7` and
+`@ai-sdk/openai` itself; nothing in `@orchestral/*` pulls them in.
 
 > **`@alpha`.** The agent seam (`AgentRunImpl`) is still evolving; a 0.1 → 0.2
-> reshape of this export is not a breaking change.
+> reshape of it is not a breaking change.
 
 ## Run it
 
@@ -59,14 +59,22 @@ repo's `pnpm test:run`.
 - **The tool's `ModelCapability.call`** (text-to-image) is bridged by the
   host-local [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts), exactly as in the
   atomic example.
-- **The agent loop** is driven by `createInProcessAgentRunImpl` from
-  [`@orchestral/agent`](../../packages/orchestral-agent). Its only host-shaped
-  seam is `resolveModel`: map the loop's `modelTags` to a concrete ai-sdk LLM
-  instance you built with your own key (BYOK territory). An optional `stopWhen`
-  callback overrides the default 16-step cap. Everything else — tool wrapping,
-  the `onToolCall` bridge back into the runtime, `system` → `instructions`,
-  abort/timeout plumbing — is host-agnostic boilerplate, which is why it ships
-  in that package instead of being copied into every host.
+- **The agent loop** is driven by `createInProcessAgentRunImpl` in the
+  host-local [`src/agent-runner.ts`](./src/agent-runner.ts) — the file to copy
+  into your own host. Its only host-shaped seam is `resolveModel`: map the
+  loop's `modelTags` to a concrete ai-sdk LLM instance you built with your own
+  key (BYOK territory). An optional `stopWhen` callback overrides the default
+  16-step cap. Everything else — tool wrapping, the `onToolCall` bridge back
+  into the runtime, `system` → `instructions`, abort/timeout plumbing — is
+  host-agnostic and ports as-is.
+
+  Orchestral deliberately does not ship this file. `AgentRunImpl` is the same
+  kind of seam as `ModelCapability.call`: the library declares it, the host
+  fills it. A loop implementation is an agent-framework choice (this one picks
+  the Vercel AI SDK), and a pattern catalog has no business making that choice
+  — or dragging a provider SDK into the installs of hosts that only want the
+  declarative patterns in
+  [`@orchestral/agent`](../../packages/orchestral-agent).
 - **Typed output.** The agent pattern declares `loop.outputExtractor`, which
   tells the runtime to skip injecting its default finish tool for this
   dispatch; the in-process runner then returns the natural-finish `{ text }`
@@ -74,7 +82,9 @@ repo's `pnpm test:run`.
   final text (the runtime then validates them against `outputs`). See
   [`src/pattern.ts`](./src/pattern.ts).
 
-A production host (a desktop app, a server) swaps `createInProcessAgentRunImpl`
-for its own `AgentRunImpl` that runs the loop in a worker over IPC, persists the
-message history, and grants host tools — the same `InlineRuntime` construction,
-a different injected runner.
+A production host (a desktop app, a server) swaps `src/agent-runner.ts` for its
+own `AgentRunImpl` that runs the loop in a worker over IPC, persists the message
+history, and grants host tools — the same `InlineRuntime` construction, a
+different injected runner. The four rules an implementation must honour (and
+that the type signature cannot express) are documented on the interface in
+[`@orchestral/runtime`](../../packages/orchestral-runtime/src/agent-run.ts).

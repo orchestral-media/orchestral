@@ -5,12 +5,6 @@
 ```ts
 
 import { AgentPattern } from '@orchestral/core';
-import type { AgentRunImpl } from '@orchestral/runtime';
-import type { ModelTag } from '@orchestral/core';
-import type { ResolveContext } from '@orchestral/core';
-import { StopCondition } from 'ai';
-import { ToolLoopAgent } from 'ai';
-import { ToolSet } from 'ai';
 import { z } from 'zod';
 
 // @public (undocumented)
@@ -31,29 +25,11 @@ export const AgentLongFormVideoInputSchema: z.ZodObject<{
     maxEvents: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 
-// @public (undocumented)
-export interface AgentRunDeps {
-    resolveModel: (args: {
-        modelTags: readonly ModelTag[];
-        resolveCtx?: ResolveContext;
-        sessionId?: string;
-    }) => LanguageModelInstance | Promise<LanguageModelInstance>;
-    stopWhen?: (args: {
-        patternId: string;
-    }) => StopCondition<ToolSet> | StopCondition<ToolSet>[];
-}
-
-// @public
-export function createInProcessAgentRunImpl(deps: AgentRunDeps): AgentRunImpl;
-
 // @alpha (undocumented)
 export function createLongFormVideoAgent(): AgentPattern<AgentLongFormVideoInput>;
 
 // @alpha (undocumented)
 export function createOrchestratorAgent(): AgentPattern<OrchestratorInput>;
-
-// @public (undocumented)
-export type LanguageModelInstance = ConstructorParameters<typeof ToolLoopAgent>[0]['model'];
 
 // @public (undocumented)
 export type OrchestratorInput = z.infer<typeof OrchestratorInputSchema>;

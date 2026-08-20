@@ -48,6 +48,21 @@ export const OrchestralManifestPatternSchema = z
     kind: z.enum(PATTERN_KINDS),
     /** Export name of the factory on the package entry point. */
     export: z.string().min(1),
+    /**
+     * Names of host operations THIS pattern's factory expects on the object
+     * passed to it — the ffmpeg-shaped work (`concatVideos`, `addSubtitles`, …)
+     * a meta cannot do itself. Omitted means the factory needs nothing from the
+     * host, which is the common case: most atomic patterns and every
+     * prompt-only meta build from an empty object.
+     *
+     * Per pattern rather than per package on purpose. A package-wide list is
+     * all-or-nothing, so one ffmpeg-shaped meta would make the other two dozen
+     * patterns unloadable for a host that has no ffmpeg — which is the opposite
+     * of what a manifest is for. Declared here, `addFromManifest` can check
+     * each entry against the ops it was given and let the caller take the part
+     * it can run (see its `missingOps` option).
+     */
+    requiredOps: z.array(z.string().min(1)).optional(),
   })
   .refine((entry) => idCarriesKind(entry.id, entry.kind), {
     message:
@@ -77,14 +92,26 @@ export const OrchestralManifestSchema = z.object({
       { message: 'duplicate pattern id in manifest' },
     ),
   /**
-   * Names of host operations the package's factories expect on the object
-   * passed to them — the ffmpeg-shaped work (`concatVideos`, `addSubtitles`, …)
-   * a meta cannot do itself. Declarative for a reader deciding whether the
-   * package is usable at all, and enforced by `addFromManifest`, which refuses
-   * to register anything when one is missing rather than failing halfway
-   * through a pipeline hours later.
+   * Not a field — a rejection. Host operations are declared per pattern
+   * (`patterns[].requiredOps`); a package-level list would say "this package
+   * needs ffmpeg" about a package whose ten atomic patterns need nothing, and
+   * the loader would refuse the lot. An aggregate view is one `flatMap` away
+   * from the entries and would otherwise be a second copy to keep in sync, so
+   * a package-level `requiredOps` is refused outright rather than ignored:
+   * silently dropping a declaration whose whole point is fail-closed op
+   * checking is the one outcome worse than either behaviour.
+   *
+   * Note this is narrower than the "unknown keys are ignored" rule above: an
+   * unrecognized key is a later manifest shape an older core should tolerate,
+   * whereas this one is a key whose meaning changed.
    */
-  requiredOps: z.array(z.string().min(1)).optional(),
+  requiredOps: z
+    .undefined({
+      error:
+        'requiredOps moved from the package to each pattern — declare it on the ' +
+        'patterns[] entries that need host operations',
+    })
+    .optional(),
 })
 
 export type OrchestralManifest = z.infer<typeof OrchestralManifestSchema>
@@ -92,7 +119,12 @@ export type OrchestralManifest = z.infer<typeof OrchestralManifestSchema>
 export type ManifestErrorCode =
   /** The `"orchestral"` field does not match {@link OrchestralManifestSchema}. */
   | 'MANIFEST_INVALID'
-  /** A `requiredOps` entry is absent from the ops object the caller passed. */
+  /** `only` named an id the manifest does not declare — typo, or a moved pattern. */
+  | 'MANIFEST_UNKNOWN_PATTERN'
+  /**
+   * A pattern's `requiredOps` entry is absent from the ops object the caller
+   * passed, under the default `missingOps: 'throw'`.
+   */
   | 'MANIFEST_MISSING_OPS'
   /** No export by that name on the module — usually a renamed factory. */
   | 'MANIFEST_EXPORT_MISSING'

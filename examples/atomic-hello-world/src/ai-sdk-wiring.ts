@@ -15,6 +15,7 @@ import type {
   ModelTag,
   DispatchResult,
 } from '@orchestral/core'
+import { MODEL_SPEC_VERSION } from '@orchestral/core'
 
 // `ImageModel` from 'ai' is the broad `string | ImageModelV3` union (the bare
 // id form is accepted by helpers that resolve through a provider registry). The
@@ -115,6 +116,11 @@ export function createImageModels(
   specs: readonly ImageModelSpec[],
 ): (cap: Capability) => readonly ModelCapability[] {
   const envelopes: ModelCapability[] = specs.map((spec) => ({
+    // Which generation of the `call` contract this adapter implements. Import
+    // the constant rather than writing 'v1': a future runtime that cannot
+    // execute this generation refuses the envelope up front instead of calling
+    // into a signature it no longer matches.
+    specificationVersion: MODEL_SPEC_VERSION,
     capabilities: ['text-to-image'],
     provider: spec.provider,
     modelId: spec.modelId,

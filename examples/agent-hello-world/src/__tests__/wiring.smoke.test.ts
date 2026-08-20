@@ -9,7 +9,8 @@
 // the one that proves the loop actually recursed into the runtime — it spies the
 // image model's doGenerate to confirm the tool call round-tripped all the way to
 // the model. Same router / runtime / pattern path as src/main.ts, swapping only
-// the two model instances.
+// the two model instances — including the same host-local `../agent-runner`,
+// so this covers the reference AgentRunImpl a reader is meant to copy.
 
 import { describe, expect, it, vi } from 'vitest'
 import { MockImageModelV3, MockLanguageModelV3 } from 'ai/test'
@@ -18,9 +19,9 @@ import {
   InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
-import { createInProcessAgentRunImpl } from '@orchestral/agent'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
+import { createInProcessAgentRunImpl } from '../agent-runner'
 import { createImageModels } from '../ai-sdk-wiring'
 import {
   AGENT_HELLO_WORLD_PATTERN_ID,

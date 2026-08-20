@@ -9,6 +9,18 @@ import { ZodRawShape } from 'zod';
 import { ZodType } from 'zod';
 
 // @public
+export interface AddFromManifestOptions {
+    readonly missingOps?: 'throw' | 'skip';
+    readonly only?: readonly string[];
+}
+
+// @public
+export interface AddFromManifestResult {
+    readonly registered: readonly PatternId[];
+    readonly skipped: readonly SkippedManifestPattern[];
+}
+
+// @public
 export const AGENT_BASE_INPUT_SCHEMA: z.ZodObject<{
     description: z.ZodString;
     prompt: z.ZodString;
@@ -279,6 +291,13 @@ export interface AskUserRequest<TPayload = unknown> {
     payload: TPayload;
     sessionId?: string;
 }
+
+// @public
+export function assertSupportedModelSpecVersion(model: {
+    readonly specificationVersion?: ModelSpecVersion;
+    readonly provider: string;
+    readonly modelId: string;
+}): void;
 
 // @public
 export const ASSET_MARKER: unique symbol;
@@ -888,8 +907,8 @@ export interface JobSpec<TInput = unknown> {
 // @public (undocumented)
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 /**
-* Runtime found this row in 'running' at startup reconcile but could not
-* determine outcome — abandoned without knowing if the provider call landed.
+* Runtime found this row in 'running' at startup with no live controller
+* and abandoned it — no way to tell whether the provider call ever landed.
 */
 | 'stale';
 
@@ -973,7 +992,12 @@ export class ManifestError extends Error {
 export type ManifestErrorCode =
 /** The `"orchestral"` field does not match {@link OrchestralManifestSchema}. */
 'MANIFEST_INVALID'
-/** A `requiredOps` entry is absent from the ops object the caller passed. */
+/** `only` named an id the manifest does not declare — typo, or a moved pattern. */
+| 'MANIFEST_UNKNOWN_PATTERN'
+/**
+* A pattern's `requiredOps` entry is absent from the ops object the caller
+* passed, under the default `missingOps: 'throw'`.
+*/
 | 'MANIFEST_MISSING_OPS'
 /** No export by that name on the module — usually a renamed factory. */
 | 'MANIFEST_EXPORT_MISSING'
@@ -1008,9 +1032,13 @@ export function mintHandle(modality: AssetKind, priorCountOfModality: number): s
 export type Modality = 'text' | 'image' | 'audio' | 'video' | 'embedding';
 
 // @public
+export const MODEL_SPEC_VERSION: ModelSpecVersion;
+
+// @public
 export interface ModelCapability extends ModelCapabilityRecord {
     // (undocumented)
     call<I = unknown, O = unknown>(input: I, ctx: DispatchContext, events?: CallEvents): Promise<DispatchResult<O>>;
+    readonly specificationVersion?: ModelSpecVersion;
 }
 
 // @public
@@ -1094,6 +1122,23 @@ export interface ModelFacingOutputAsset {
 }
 
 // @public
+export type ModelSpecVersion = 'v1';
+
+// @public
+export class ModelSpecVersionUnsupportedError extends Error {
+    constructor(model: string, received: string);
+    // (undocumented)
+    readonly code = "MODEL_SPEC_VERSION_UNSUPPORTED";
+    // (undocumented)
+    readonly diagnostic: {
+        model: string;
+        received: string;
+        supported: readonly ModelSpecVersion[];
+        hint: string;
+    };
+}
+
+// @public
 export type ModelTag =
 /** Sub-second / step-distilled inference (distilled / few-step models). */
 'fast-distilled'
@@ -1140,6 +1185,7 @@ export const OrchestralManifestPatternSchema: z.ZodObject<{
         meta: "meta";
     }>;
     export: z.ZodString;
+    requiredOps: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>;
 
 // @public
@@ -1152,8 +1198,9 @@ export const OrchestralManifestSchema: z.ZodObject<{
             meta: "meta";
         }>;
         export: z.ZodString;
+        requiredOps: z.ZodOptional<z.ZodArray<z.ZodString>>;
     }, z.core.$strip>>;
-    requiredOps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    requiredOps: z.ZodOptional<z.ZodUndefined>;
 }, z.core.$strip>;
 
 // @public (undocumented)
@@ -1253,7 +1300,7 @@ export class PatternRegistry {
     add<I = unknown, O = unknown>(spec: Pattern<I, O> & {
         alternatives?: readonly Alternative<I, O>[];
     }): void;
-    addFromManifest(manifest: unknown, module: Readonly<Record<string, unknown>>, ops?: Readonly<Record<string, unknown>>): readonly PatternId[];
+    addFromManifest(manifest: unknown, module: Readonly<Record<string, unknown>>, ops?: Readonly<Record<string, unknown>>, options?: AddFromManifestOptions): AddFromManifestResult;
     attachAlternative<I, O>(parentId: PatternId, alt: Alternative<I, O>): Unsubscribe;
     byNamespace(ns: NamespaceId): readonly Pattern[];
     // (undocumented)
@@ -1473,13 +1520,13 @@ export type RoutingSelectionRule = 'pinned' | 'preferred-provider' | 'tier' | 'f
 
 // @public (undocumented)
 export interface Runtime {
+    abandonOrphanedJobs(): Promise<readonly Job[]>;
     // (undocumented)
     cancelJob(jobId: string, reason?: string): Promise<void>;
     // @alpha
     getAgentEnvelope?(jobId: string): AgentDispatchEnvelope | undefined;
     // (undocumented)
     pollJob<TIn = unknown, TOut = unknown>(jobId: string): Promise<Job<TIn, TOut>>;
-    reconcile(): Promise<readonly Job[]>;
     submitJob<TIn = unknown, TOut = unknown>(spec: JobSpec<TIn>): Promise<Job<TIn, TOut>>;
     // (undocumented)
     subscribe(jobId: string, cb: (ev: JobEvent) => void): Unsubscribe;
@@ -1523,6 +1570,13 @@ export type Semantics =
 
 // @alpha
 export function setAssetUriScheme(next: string): void;
+
+// @public
+export interface SkippedManifestPattern {
+    // (undocumented)
+    readonly id: PatternId;
+    readonly missingOps: readonly string[];
+}
 
 // @alpha
 export type SlashDispatchError = {
@@ -1580,6 +1634,9 @@ export type StopConditionDescriptor = {
 
 // @public (undocumented)
 export type StripReason = 'data-url' | 'binary-run' | 'control-chars';
+
+// @public
+export const SUPPORTED_MODEL_SPEC_VERSIONS: readonly ModelSpecVersion[];
 
 // @public
 export type SystemPromptContext<P = unknown> = Omit<DispatchContext<P>, 'assets'>;

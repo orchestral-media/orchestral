@@ -1,10 +1,11 @@
-// Crash-recovery reconcile — after an app restart, the store can hold job rows
+// Orphan abandonment — after an app restart, the store can hold job rows
 // stuck in `running` / `queued` with no controller left to settle them (the
-// process that owned them died). reconcile() sweeps those orphans to `stale`
-// and fans out a `job:stale` event so any reopened chat card stops spinning.
+// process that owned them died). abandonOrphanedJobs() sweeps those orphans to
+// `stale` and fans out a `job:stale` event so any reopened chat card stops
+// spinning. The work is not resumed.
 //
 // This pins both the transition (running/queued → stale) and the fanout, and
-// guards that reconcile() leaves already-terminal rows untouched.
+// guards that already-terminal rows are left untouched.
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -15,7 +16,7 @@ import { InlineRuntime } from '../inline'
 
 function makeRuntime(store: MemoryJobStore): InlineRuntime {
   return new InlineRuntime({
-    // reconcile only touches the store; router/registry are never reached.
+    // abandonOrphanedJobs only touches the store; router/registry are never reached.
     router: {} as never,
     registry: new PatternRegistry(),
     store: store as never,
@@ -38,20 +39,20 @@ function orphan(over: Partial<Job> = {}): Job {
   }
 }
 
-describe('runtime.reconcile (crash recovery)', () => {
+describe('runtime.abandonOrphanedJobs (after a crash)', () => {
   it('transitions orphaned running/queued rows to stale and returns them', async () => {
     const store = new MemoryJobStore()
     await store.insert(orphan({ id: 'r1', idempotencyKey: 'k1', status: 'running' }))
     await store.insert(orphan({ id: 'q1', idempotencyKey: 'k2', status: 'queued' }))
-    // A terminal row reconcile must NOT touch.
+    // A terminal row it must NOT touch.
     await store.insert(orphan({ id: 'd1', idempotencyKey: 'k3', status: 'done' }))
 
     const runtime = makeRuntime(store)
-    const recovered = await runtime.reconcile()
+    const abandoned = await runtime.abandonOrphanedJobs()
 
     // Both orphans came back; the done row did not.
-    expect(recovered.map((j) => j.id).sort()).toEqual(['q1', 'r1'])
-    expect(recovered.every((j) => j.status === 'stale')).toBe(true)
+    expect(abandoned.map((j) => j.id).sort()).toEqual(['q1', 'r1'])
+    expect(abandoned.every((j) => j.status === 'stale')).toBe(true)
 
     // The store rows are now stale; the terminal row is untouched.
     expect((await store.get('r1'))!.status).toBe('stale')
@@ -59,7 +60,7 @@ describe('runtime.reconcile (crash recovery)', () => {
     expect((await store.get('d1'))!.status).toBe('done')
   })
 
-  it('fans out a job:stale event for each recovered job', async () => {
+  it('fans out a job:stale event for each abandoned job', async () => {
     const store = new MemoryJobStore()
     await store.insert(orphan({ id: 'r1', idempotencyKey: 'k1', status: 'running' }))
     const runtime = makeRuntime(store)
@@ -67,7 +68,7 @@ describe('runtime.reconcile (crash recovery)', () => {
     const events: JobEvent[] = []
     runtime.subscribe('r1', (e) => events.push(e))
 
-    await runtime.reconcile()
+    await runtime.abandonOrphanedJobs()
 
     expect(events.some((e) => e.type === 'job:stale' && e.job.id === 'r1')).toBe(true)
   })
@@ -77,19 +78,19 @@ describe('runtime.reconcile (crash recovery)', () => {
     await store.insert(orphan({ id: 'd1', idempotencyKey: 'k1', status: 'done' }))
     const runtime = makeRuntime(store)
 
-    const recovered = await runtime.reconcile()
-    expect(recovered).toEqual([])
+    const abandoned = await runtime.abandonOrphanedJobs()
+    expect(abandoned).toEqual([])
     expect((await store.get('d1'))!.status).toBe('done')
   })
 
-  it('keeps going if one row fails to update (best-effort recovery)', async () => {
+  it('keeps going if one row fails to update (best-effort)', async () => {
     const store = new MemoryJobStore()
     await store.insert(orphan({ id: 'r1', idempotencyKey: 'k1', status: 'running' }))
     await store.insert(orphan({ id: 'r2', idempotencyKey: 'k2', status: 'running' }))
     const runtime = makeRuntime(store)
 
-    // r1's update throws; reconcile must catch and proceed to the other row.
-    // Keyed on the id, not on call order — reconcile does not promise which
+    // r1's update throws; the sweep must catch and proceed to the other row.
+    // Keyed on the id, not on call order — the sweep does not promise which
     // row it visits first, and call-order mocks flip under coverage timing.
     const realUpdate = store.update.bind(store)
     const spy = vi
@@ -99,11 +100,11 @@ describe('runtime.reconcile (crash recovery)', () => {
         return realUpdate(id, patch)
       })
 
-    const recovered = await runtime.reconcile()
-    // The failing row is skipped, the other recovered.
-    expect(recovered.map((j) => j.id)).toEqual(['r2'])
+    const abandoned = await runtime.abandonOrphanedJobs()
+    // The failing row is skipped, the other abandoned.
+    expect(abandoned.map((j) => j.id)).toEqual(['r2'])
     expect((await store.get('r2'))!.status).toBe('stale')
-    // r1's update never landed — it stays as reconcile found it.
+    // r1's update never landed — it stays as the sweep found it.
     expect((await store.get('r1'))!.status).toBe('running')
     spy.mockRestore()
   })

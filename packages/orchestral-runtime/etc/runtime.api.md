@@ -141,13 +141,13 @@ export class IdempotencyNotSerialisableError extends Error {
 // @public
 class InlineRuntime implements Runtime {
     constructor(init: InlineRuntimeInit);
+    abandonOrphanedJobs(): Promise<readonly Job[]>;
     // (undocumented)
     cancelJob(jobId: string, reason?: string): Promise<void>;
     disposeAgentEnvelope(jobId: string): void;
     getAgentEnvelope(jobId: string): AgentDispatchEnvelope | undefined;
     // (undocumented)
     pollJob<TIn = unknown, TOut = unknown>(jobId: string): Promise<Job<TIn, TOut>>;
-    reconcile(): Promise<readonly Job[]>;
     submitAgentAsync<TIn = unknown>(spec: JobSpec<TIn>): Promise<{
         jobId: string;
     }>;
