@@ -8,7 +8,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [0.1.0] — Initial public release
+## [0.1.0] - 2026-08-21 — Initial public release
 
 First public release. `@orchestral/core` is the substrate-agnostic vocabulary and
 contracts at the centre of Orchestral. It ships **no execution engine** and

@@ -1,8 +1,14 @@
 # Publishing Orchestral
 
-Maintainer handbook for pushing the repository and releasing the three packages
-to npm. Everything here is manual on purpose — there is no release automation
-and no publish workflow in CI.
+Maintainer handbook for releasing to npm. Everything here is manual on purpose
+— there is no release automation and no publish workflow in CI.
+
+Two version lines ship from this repo:
+
+- **`@orchestral/*`** — `core`, `discovery`, `runtime`, `patterns`, `agent`.
+  Five packages on one version line, released together.
+- **`@orchestral/dsh-plugin`** — the deepseek-harness bridge, versioned
+  independently against its dev-preview host (see §7).
 
 ## 0. First push (once)
 
@@ -108,37 +114,63 @@ pnpm docs:catalog
 git diff --exit-code packages/orchestral-patterns/README.md   # commit if it moved
 ```
 
+Set the release date. Each package's `CHANGELOG.md` heads its section with
+`## [0.1.0] — Initial public release` and no date, because the date is only
+true once the publish lands. Fill it in on the day:
+
+```sh
+# five packages, one line each
+grep -rn '^## \[0.1.0\]' packages/*/CHANGELOG.md
+```
+
 Version bump, when releasing something other than the current `0.1.0`:
 
-- All three packages move together; keep the version line identical.
+- The five `@orchestral/*` packages move together; keep the version line
+  identical. `@orchestral/dsh-plugin` does not — bump it on its own.
 - Update each package's `CHANGELOG.md`.
-- `@orchestral/patterns` and `@orchestral/runtime` depend on core through
-  `workspace:*`, so nothing else needs editing — pnpm resolves it at pack time.
+- Internal dependencies are all `workspace:*`, so nothing else needs editing —
+  pnpm resolves them to the real version at pack time.
 - Commit the bump before publishing; `pnpm publish` refuses a dirty tree.
 
 ## 4. Publish, in dependency order
 
-core → patterns → runtime. Each `pnpm publish` runs that package's `prepack`
-(a full `build`) first, so the dist in the tarball is always freshly built.
+Each `pnpm publish` runs that package's `prepack` (a full `build`) first, so
+the dist in the tarball is always freshly built.
 
 ```sh
 pnpm --filter @orchestral/core publish --access public
-pnpm --filter @orchestral/patterns publish --access public
+pnpm --filter @orchestral/discovery publish --access public
 pnpm --filter @orchestral/runtime publish --access public
+pnpm --filter @orchestral/patterns publish --access public
+pnpm --filter @orchestral/agent publish --access public
 ```
 
-Order matters because patterns and runtime ship a hard dependency on
-`@orchestral/core@<version>`. Publishing them first leaves a window in which
-`npm install @orchestral/runtime` cannot resolve.
+Order matters: every package ships a hard dependency on the `@orchestral/*`
+packages below it, so publishing one early leaves a window in which
+`npm install` cannot resolve it. The graph, which is what that order is a
+topological sort of:
+
+```
+core         (nothing)
+discovery    core
+runtime      core, discovery
+patterns     core
+agent        core, patterns, runtime
+```
+
+`patterns` only needs `core`, so it can go anywhere after it; it sits where it
+does to keep `agent` — the only package that needs all three of the others —
+last.
 
 - With 2FA enabled, append `--otp=<code>` (the code expires fast — publish one
   package per code if needed).
 - `pnpm publish` enforces a clean tree and the `main` branch by default. Fix
   the tree rather than reaching for `--no-git-checks`.
 - `pnpm -r publish --access public` publishes every non-private package in
-  topological order in one shot. It is correct, but the three explicit commands
-  fail more legibly, and `examples/*` being `private: true` is the only thing
-  keeping them out of it.
+  topological order in one shot. It is correct, but the explicit commands fail
+  more legibly, and it would sweep up `@orchestral/dsh-plugin` — which is on
+  its own version line — along with the five. `examples/*` being
+  `private: true` is the only thing keeping those out of it.
 - A mistaken publish can be undone within 72 hours (`npm unpublish
   @orchestral/core@0.1.0`). After that, the version is permanent — publish a
   new patch instead.
@@ -151,7 +183,7 @@ git push origin v0.1.0
 gh release create v0.1.0 --title "v0.1.0" --notes-file <notes>
 ```
 
-Notes are assembled by hand from the three `CHANGELOG.md` files. One tag and
+Notes are assembled by hand from the five `CHANGELOG.md` files. One tag and
 one GitHub Release per version line, since the packages move together.
 
 ## 6. Verify what consumers get
@@ -169,11 +201,40 @@ node --input-type=module -e "
   import { createTextToImagePattern } from '@orchestral/patterns'
   console.log(typeof PatternRegistry, typeof InMemoryJobStore, typeof InlineRuntime, typeof createTextToImagePattern)
 "
+
+# the two optional packages, which a host installs only if it wants them
+npm install @orchestral/discovery@0.1.0 @orchestral/agent@0.1.0
+node --input-type=module -e "
+  import { PatternSearchIndex } from '@orchestral/discovery'
+  import { createOrchestratorAgent } from '@orchestral/agent'
+  console.log(typeof PatternSearchIndex, typeof createOrchestratorAgent)
+"
 ```
 
-Four `function`s means the published entry points, the type surface and the
-cross-package resolution all landed. Also check the package pages render the
+Four `function`s (then two more) means the published entry points, the type
+surface and the cross-package resolution all landed. `@orchestral/runtime`
+pulling `@orchestral/discovery` in on its own is part of what the first block
+proves — it is a dependency, not something the host asks for. Also check the package pages render the
 README and show the Apache-2.0 license.
+
+## 7. `@orchestral/dsh-plugin`, separately
+
+The bridge is a leaf package on its own version line: it depends on
+`@orchestral/core` and `@orchestral/runtime`, and nothing depends on it. Publish
+it *after* the `@orchestral/*` line it pins, and only when you mean to — a
+deepseek-harness release can break it without anything else in this repo
+changing, which is exactly why it does not share the version line.
+
+```sh
+pnpm --filter @orchestral/dsh-plugin publish --access public
+```
+
+Before its first publish, run it against a real `dsh` at least once. The
+package's tests are a mock `ctx` plus a typecheck against the real
+`@deepseek-ai/*` types — enough to catch a signature drift, not enough to prove
+the plugin loads. Booting dsh needs its build scripts approved
+(`pnpm approve-builds` — `node-pty`, `esbuild`, and friends), which is a local
+decision, not something CI or the tests need.
 
 ## Not set up (deliberate)
 
@@ -181,4 +242,4 @@ README and show the Apache-2.0 license.
   with `id-token: write`; releases are manual, so there is no attestation.
 - **Automated releases.** No changesets, no release-please, no publish job.
 - **Prereleases / dist-tags.** Everything goes to `latest`. If that changes,
-  `--tag next` on all three at once.
+  `--tag next` on all five at once.
