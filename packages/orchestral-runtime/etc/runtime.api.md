@@ -11,7 +11,7 @@ import { AssetEvent } from '@orchestral/core';
 import { AssetNeed } from '@orchestral/core';
 import { AssetReferences } from '@orchestral/core';
 import { AssetResolutionError } from '@orchestral/core';
-import { BuildCatalogDescriptorsOptions } from '@orchestral/core';
+import type { BuildCatalogDescriptorsOptions } from '@orchestral/core';
 import type { CapabilityRouter } from '@orchestral/core';
 import type { DispatchContext } from '@orchestral/core';
 import type { DispatchMiddleware } from '@orchestral/core';
