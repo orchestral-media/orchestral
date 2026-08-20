@@ -27,12 +27,13 @@ Prompt constants derived from ViMax:
 | `src/meta/prose-chunking/prompts.ts` | `NARRATIVE_COMPRESSION_PROMPT`, `NARRATIVE_AGGREGATION_PROMPT` |
 | `src/meta/novel-to-events/prompts.ts` | `NEXT_EVENT_EXTRACTION_PROMPT` |
 | `src/meta/event-to-script/prompts.ts` | `NEXT_SCENE_EXTRACTION_PROMPT`, `CHARACTER_MERGE_SCENE_TO_EVENT_PROMPT`, `SCRIPT_ENHANCEMENT_PROMPT` |
-| `src/agent/long-form-video/prompts.ts` | `CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT` |
 
-Not derived from ViMax: `LONG_FORM_VIDEO_DIRECTOR_PROMPT`,
-`ORCHESTRATOR_SYSTEM_PROMPT`, and the short-form marketing prompts
-(`explainer-short`, `lyrics-to-mv`, `product-ad-short`, `product-photo-pack`,
-`ugc-testimonial`).
+Not derived from ViMax: the short-form marketing prompts (`explainer-short`,
+`lyrics-to-mv`, `product-ad-short`, `product-photo-pack`, `ugc-testimonial`).
+
+The agent prompts moved to `@orchestral/agent`, which carries its own
+`CREDITS.md` for the one ViMax-derived constant among them
+(`CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT`).
 
 ### License
 

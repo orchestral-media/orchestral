@@ -18,10 +18,10 @@ import {
   InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { createInProcessAgentRunImpl } from '@orchestral/agent'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createImageModels } from '../ai-sdk-wiring'
-import { createInProcessAgentRunImpl } from '../agent-runner'
 import {
   AGENT_HELLO_WORLD_PATTERN_ID,
   AgentImageOutputSchema,

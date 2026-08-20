@@ -55,9 +55,6 @@
     "test": "vitest run",
     "test:watch": "vitest watch"
   },
-  "dependencies": {
-    "minisearch": "^7.2.0"
-  },
   "peerDependencies": {
     "zod": ">=4.3 <5"
   },

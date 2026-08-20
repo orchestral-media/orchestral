@@ -1,7 +1,7 @@
 {
   "name": "@orchestral/patterns",
   "version": "0.1.0",
-  "description": "Orchestral first-party Pattern catalog — atomic capabilities + builtin meta/agent pipelines with inlined prompts. Depends on @orchestral/core.",
+  "description": "Orchestral first-party Pattern catalog — atomic capabilities + builtin meta pipelines with inlined prompts. Depends on @orchestral/core.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
   "homepage": "https://github.com/orchestral-media/orchestral#readme",
@@ -17,6 +17,7 @@
     "ai",
     "agents",
     "orchestration",
+    "orchestral-pattern",
     "text-to-image",
     "text-to-video",
     "text-to-speech",
@@ -27,6 +28,143 @@
     "multimodal",
     "typescript"
   ],
+  "orchestral": {
+    "patterns": [
+      {
+        "id": "text-to-image",
+        "kind": "atomic",
+        "export": "createTextToImagePattern"
+      },
+      {
+        "id": "image-to-image",
+        "kind": "atomic",
+        "export": "createImageToImagePattern"
+      },
+      {
+        "id": "image-to-text",
+        "kind": "atomic",
+        "export": "createImageToTextPattern"
+      },
+      {
+        "id": "text-to-video",
+        "kind": "atomic",
+        "export": "createTextToVideoPattern"
+      },
+      {
+        "id": "image-to-video",
+        "kind": "atomic",
+        "export": "createImageToVideoPattern"
+      },
+      {
+        "id": "video-to-video",
+        "kind": "atomic",
+        "export": "createVideoToVideoPattern"
+      },
+      {
+        "id": "text-to-speech",
+        "kind": "atomic",
+        "export": "createTextToSpeechPattern"
+      },
+      {
+        "id": "text-to-audio",
+        "kind": "atomic",
+        "export": "createTextToAudioPattern"
+      },
+      {
+        "id": "automatic-speech-recognition",
+        "kind": "atomic",
+        "export": "createAutomaticSpeechRecognitionPattern"
+      },
+      {
+        "id": "text-generation",
+        "kind": "atomic",
+        "export": "createTextGenerationPattern"
+      },
+      {
+        "id": "meta_image-to-image-via-caption",
+        "kind": "meta",
+        "export": "createImageToImageViaCaptionPattern"
+      },
+      {
+        "id": "meta_script-planning",
+        "kind": "meta",
+        "export": "createScriptPlanningMeta"
+      },
+      {
+        "id": "meta_reference-image-cascade",
+        "kind": "meta",
+        "export": "createReferenceImageCascadeMeta"
+      },
+      {
+        "id": "meta_script2video",
+        "kind": "meta",
+        "export": "createScript2VideoMeta"
+      },
+      {
+        "id": "meta_idea2video",
+        "kind": "meta",
+        "export": "createIdea2VideoMeta"
+      },
+      {
+        "id": "meta_prose-chunking",
+        "kind": "meta",
+        "export": "createProseChunkingMeta"
+      },
+      {
+        "id": "meta_novel-to-events",
+        "kind": "meta",
+        "export": "createNovelToEventsMeta"
+      },
+      {
+        "id": "meta_event-to-script",
+        "kind": "meta",
+        "export": "createEventToScriptMeta"
+      },
+      {
+        "id": "meta_image-best-of-n",
+        "kind": "meta",
+        "export": "createImageBestOfNMeta"
+      },
+      {
+        "id": "meta_storyboard",
+        "kind": "meta",
+        "export": "createStoryboardMeta"
+      },
+      {
+        "id": "meta_product-ad-short",
+        "kind": "meta",
+        "export": "createProductAdShortMeta"
+      },
+      {
+        "id": "meta_product-photo-pack",
+        "kind": "meta",
+        "export": "createProductPhotoPackMeta"
+      },
+      {
+        "id": "meta_ugc-testimonial",
+        "kind": "meta",
+        "export": "createUgcTestimonialMeta"
+      },
+      {
+        "id": "meta_explainer-short",
+        "kind": "meta",
+        "export": "createExplainerShortMeta"
+      },
+      {
+        "id": "meta_lyrics-to-mv",
+        "kind": "meta",
+        "export": "createLyricsToMvMeta"
+      }
+    ],
+    "requiredOps": [
+      "concatVideos",
+      "stillToVideo",
+      "addBackgroundAudio",
+      "addSubtitles",
+      "createSubtitleAsset",
+      "recordSessionAsset"
+    ]
+  },
   "type": "module",
   "sideEffects": false,
   "main": "./src/index.ts",
@@ -66,6 +204,7 @@
     "zod": ">=4.3 <5"
   },
   "devDependencies": {
+    "@orchestral/discovery": "workspace:*",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2",
     "vitest": "^3.2.6",

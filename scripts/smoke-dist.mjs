@@ -1,5 +1,4 @@
-// Publish-artifact smoke test for @orchestral/core, @orchestral/patterns, and
-// @orchestral/runtime.
+// Publish-artifact smoke test for the published @orchestral/* packages.
 //
 // Why this exists: every unit test and the atomic-hello-world example resolve
 // the three packages through `workspace:*`, and each package's top-level
@@ -32,8 +31,10 @@ import { fileURLToPath } from 'node:url'
 // from publishConfig and has no dist artifact, so it is not exercised here.
 const PACKAGES = [
   { name: '@orchestral/core', dir: 'orchestral-core' },
+  { name: '@orchestral/discovery', dir: 'orchestral-discovery' },
   { name: '@orchestral/patterns', dir: 'orchestral-patterns' },
   { name: '@orchestral/runtime', dir: 'orchestral-runtime' },
+  { name: '@orchestral/agent', dir: 'orchestral-agent' },
 ]
 
 const distUrlFor = (dir) =>
@@ -91,10 +92,12 @@ function check(pkg, label, ok) {
 // Import the published dist directly by file URL (top-level entries); the hook
 // covers each package's transitive `@orchestral/*` imports.
 const core = await import(distUrlFor('orchestral-core').href)
+const discovery = await import(distUrlFor('orchestral-discovery').href)
 const patterns = await import(distUrlFor('orchestral-patterns').href)
 const runtime = await import(distUrlFor('orchestral-runtime').href)
+const agent = await import(distUrlFor('orchestral-agent').href)
 
-console.log('smoke:dist — exercising built dist/index.js of all three packages\n')
+console.log('smoke:dist — exercising built dist/index.js of the published packages\n')
 
 // 1. Key exports are present and of the right kind. If any is missing the flow
 //    below can't run, so bail early with a precise message.
@@ -106,6 +109,11 @@ check('@orchestral/patterns', 'createTextToImagePattern is a function', typeof p
 check('@orchestral/patterns', 'TEXT_TO_IMAGE_PATTERN_ID === "text-to-image"', patterns.TEXT_TO_IMAGE_PATTERN_ID === 'text-to-image')
 check('@orchestral/patterns', 'TextToImageOutputSchema.parse is a function', typeof patterns.TextToImageOutputSchema?.parse === 'function')
 check('@orchestral/runtime', 'InlineRuntime is a constructor', typeof runtime.InlineRuntime === 'function')
+check('@orchestral/discovery', 'PatternSearchIndex is a constructor', typeof discovery.PatternSearchIndex === 'function')
+check('@orchestral/discovery', 'handleFindPattern is a function', typeof discovery.handleFindPattern === 'function')
+check('@orchestral/agent', 'createLongFormVideoAgent is a function', typeof agent.createLongFormVideoAgent === 'function')
+check('@orchestral/agent', 'createOrchestratorAgent is a function', typeof agent.createOrchestratorAgent === 'function')
+check('@orchestral/agent', 'createInProcessAgentRunImpl is a function', typeof agent.createInProcessAgentRunImpl === 'function')
 
 if (failures > 0) {
   console.error(`\nsmoke:dist FAILED — ${failures} missing/invalid export(s); cannot run the dispatch flow.`)
@@ -201,4 +209,4 @@ if (failures > 0) {
   console.error(`\nsmoke:dist FAILED — ${failures} assertion(s) failed against the built dist.`)
   process.exit(1)
 }
-console.log('\nsmoke:dist PASSED — all three dist bundles link and dispatch end to end.')
+console.log('\nsmoke:dist PASSED — all dist bundles link and dispatch end to end.')

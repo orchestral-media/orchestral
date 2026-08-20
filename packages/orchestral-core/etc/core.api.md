@@ -97,12 +97,10 @@ export interface AgentToolDescriptor {
 // @public
 export interface Alternative<I = unknown, O = unknown> {
     appliesWhen: AlternativeAppliesWhen;
-    costMultiplier?: number;
     description: string;
     id: string;
     losses?: readonly Semantics[];
     preserves?: readonly Semantics[];
-    qualityDelta?: number;
     via: {
         patternId: PatternId;
         mapInput: (parentInput: I) => unknown;
@@ -120,15 +118,6 @@ export type AlternativeAppliesWhen =
     {
     kind: 'capability-unavailable';
     requiredTags?: readonly ModelTag[];
-}
-/**
-* Budget remaining is below `threshold` cents — switch to a cheaper
-* implementation path. Requires a host that evaluates budget when picking
-* alternatives; the default resolver in 0.1.0 does not (declaration-only).
-*/
-| {
-    kind: 'budget-below';
-    threshold: number;
 }
 /**
 * Planner / user requested one or more semantic dimensions be preserved.
@@ -463,18 +452,6 @@ export function auditOutputsSchema(schema: ZodType): OutputsSchemaAudit;
 // @public
 export function boundedText(max: number): z.ZodString;
 
-// @alpha
-export interface BudgetGuard {
-    // (undocumented)
-    consume(usd: number): Promise<void>;
-    // (undocumented)
-    remaining(): Promise<{
-        usd: number;
-        jobs: number;
-    } | null>;
-    throwIfExceeded(): Promise<void>;
-}
-
 // @public
 export function buildAlwaysLoadDescriptors(patterns: Iterable<Pattern>, opts?: {
     deriveProviderOptionsZod?: (id: string, baseSchema: z.ZodObject<z.ZodRawShape>) => z.ZodObject<z.ZodRawShape> | undefined;
@@ -512,6 +489,7 @@ export type Capability = 'text-generation' | 'summarization' | 'translation' | '
 // @public
 export interface CapabilityRouter {
     checkSatisfiable(capability: Capability, requiredTags: readonly ModelTag[], ctx: ResolveContext): SatisfiableResult;
+    explain?(capability: Capability, requiredTags?: readonly ModelTag[], ctx?: ResolveContext): RoutingExplanation;
     resolve(capability: Capability, requiredTags: readonly ModelTag[], ctx: ResolveContext): ModelCapability;
 }
 
@@ -688,18 +666,12 @@ export interface DispatchResult<O = unknown> {
 // @public
 export interface ExecutionContext<S = unknown, P = unknown, W = unknown> extends DispatchContext<P> {
     askUser: AskUser;
-    // Warning: (ae-incompatible-release-tags) The symbol "budget" is marked as @public, but its signature references "BudgetGuard" which is marked as @alpha
-    //
-    // (undocumented)
-    budget?: BudgetGuard;
     compute: CtxComputeFn;
     // (undocumented)
     session?: S;
     step: CtxStepFn;
     stepIndex: number;
     submitJob<TIn = unknown, TOut = unknown>(spec: JobSpec<TIn>): Promise<Job<TIn, TOut>>;
-    // (undocumented)
-    tracer?: Tracer;
     // (undocumented)
     workflow?: W;
 }
@@ -727,67 +699,13 @@ export const FindPatternInputSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public
-export interface FindPatternMatch {
-    // (undocumented)
-    kind: 'atomic' | 'meta' | 'agent';
-    namespace?: string;
-    outputs?: FindPatternOutputsSummary;
-    // (undocumented)
-    patternId: string;
-    primary: {
-        toolDescription: string;
-        inputSchema: unknown;
-    };
-}
-
-// @public
-export interface FindPatternOutputsSummary {
-    modality?: 'text' | 'image' | 'video' | 'audio';
-    producesAssets: boolean;
-}
-
-// @public (undocumented)
-export interface FindPatternResult {
-    diagnostic?: {
-        droppedBy: {
-            exposure: number;
-            satisfiability: number;
-            hostOnly: number;
-            modality: number;
-        };
-        suggestion: string;
-    };
-    filtersApplied: {
-        kind?: string;
-        modality?: string;
-    };
-    // (undocumented)
-    matches: readonly FindPatternMatch[];
-    query: string;
-    satisfiabilityFiltered: boolean;
-    totalCandidates: number;
-}
+export function formatRoutingExplanation(explanation: RoutingExplanation): string;
 
 // @public
 export function fromAssetUri(ref: string): string;
 
 // @public
 export type Handle = string;
-
-// @public
-export function handleFindPattern(index: PatternSearchIndex, input: FindPatternInput, options?: HandleFindPatternOptions): FindPatternResult;
-
-// @public (undocumented)
-export interface HandleFindPatternOptions {
-    audience?: 'chat-turn' | 'agent-loop';
-    deriveProviderOptionsZod?: (patternId: string, baseSchema: z.ZodObject<z.ZodRawShape>) => z.ZodObject<z.ZodRawShape> | undefined;
-    directToolIds?: ReadonlySet<string>;
-    excludeIds?: ReadonlySet<string>;
-    includeOnly?: ReadonlySet<string>;
-    k?: number;
-    resolveCtx?: ResolveContext;
-    router?: CapabilityRouter;
-}
 
 // @public
 export interface HandleSnapshot {
@@ -918,7 +836,6 @@ export type JobEvent<TInput = unknown, TOutput = unknown> = {
     targetPatternId: PatternId;
     preserves?: readonly Semantics[];
     losses?: readonly Semantics[];
-    qualityDelta?: number;
 } | {
     type: 'job:completed';
     job: Job<TInput, TOutput>;
@@ -1046,6 +963,26 @@ export interface ListContextFilter {
 }
 
 // @public
+export class ManifestError extends Error {
+    constructor(code: ManifestErrorCode, detail: string);
+    // (undocumented)
+    readonly code: ManifestErrorCode;
+}
+
+// @public (undocumented)
+export type ManifestErrorCode =
+/** The `"orchestral"` field does not match {@link OrchestralManifestSchema}. */
+'MANIFEST_INVALID'
+/** A `requiredOps` entry is absent from the ops object the caller passed. */
+| 'MANIFEST_MISSING_OPS'
+/** No export by that name on the module — usually a renamed factory. */
+| 'MANIFEST_EXPORT_MISSING'
+/** The export exists but is not callable. */
+| 'MANIFEST_EXPORT_NOT_A_FACTORY'
+/** The factory ran but produced a different id / kind than declared. */
+| 'MANIFEST_PATTERN_MISMATCH';
+
+// @public
 export const metaEnvelopeShape: {
     readonly cost: z.ZodNumber;
     readonly latencyMs: z.ZodNumber;
@@ -1081,17 +1018,9 @@ export interface ModelCapabilityBlob {
     capabilities: readonly Capability[];
     // (undocumented)
     contextWindow?: number;
-    cost?: {
-        perCall?: number;
-        perMP?: number;
-        perToken?: number;
-    };
     // (undocumented)
     deprecated?: boolean;
     inputs: readonly Modality[];
-    // (undocumented)
-    latencyMs?: number;
-    maxConcurrency?: number;
     // (undocumented)
     outputs: readonly Modality[];
     providerOptions?: JsonSchema;
@@ -1101,7 +1030,6 @@ export interface ModelCapabilityBlob {
     // (undocumented)
     structuredOutput?: boolean;
     tags?: readonly ModelTag[];
-    // (undocumented)
     tier?: 'fast' | 'balanced' | 'premium';
     // (undocumented)
     toolUse?: boolean;
@@ -1196,6 +1124,37 @@ export type OnStrip = (info: {
 
 // @public
 export function opaqueToken(max?: number): z.ZodString;
+
+// @public (undocumented)
+export type OrchestralManifest = z.infer<typeof OrchestralManifestSchema>;
+
+// @public (undocumented)
+export type OrchestralManifestPattern = z.infer<typeof OrchestralManifestPatternSchema>;
+
+// @public
+export const OrchestralManifestPatternSchema: z.ZodObject<{
+    id: z.ZodString;
+    kind: z.ZodEnum<{
+        agent: "agent";
+        atomic: "atomic";
+        meta: "meta";
+    }>;
+    export: z.ZodString;
+}, z.core.$strip>;
+
+// @public
+export const OrchestralManifestSchema: z.ZodObject<{
+    patterns: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        kind: z.ZodEnum<{
+            agent: "agent";
+            atomic: "atomic";
+            meta: "meta";
+        }>;
+        export: z.ZodString;
+    }, z.core.$strip>>;
+    requiredOps: z.ZodOptional<z.ZodArray<z.ZodString>>;
+}, z.core.$strip>;
 
 // @public (undocumented)
 export interface OutputsSchemaAudit {
@@ -1294,6 +1253,7 @@ export class PatternRegistry {
     add<I = unknown, O = unknown>(spec: Pattern<I, O> & {
         alternatives?: readonly Alternative<I, O>[];
     }): void;
+    addFromManifest(manifest: unknown, module: Readonly<Record<string, unknown>>, ops?: Readonly<Record<string, unknown>>): readonly PatternId[];
     attachAlternative<I, O>(parentId: PatternId, alt: Alternative<I, O>): Unsubscribe;
     byNamespace(ns: NamespaceId): readonly Pattern[];
     // (undocumented)
@@ -1318,35 +1278,6 @@ export class PatternRegistry {
     unregister(id: PatternId): boolean;
     // (undocumented)
     values(): IterableIterator<Pattern>;
-}
-
-// @public (undocumented)
-export interface PatternSearchFilter {
-    excludeIds?: ReadonlySet<string>;
-    includeOnly?: ReadonlySet<string>;
-    kind?: 'atomic' | 'meta' | 'agent';
-    modality?: 'image' | 'video' | 'audio' | 'text';
-}
-
-// @public
-export class PatternSearchIndex {
-    constructor(registry: PatternRegistry);
-    // (undocumented)
-    add<I = unknown, O = unknown>(pattern: Pattern<I, O>): void;
-    applyFilter(patterns: readonly Pattern[], filter?: PatternSearchFilter): readonly Pattern[];
-    byNamespace(namespace: string): readonly Pattern[];
-    byPrefix(prefix: string): readonly Pattern[];
-    getById(id: string): Pattern | undefined;
-    // (undocumented)
-    getEntry(patternId: Pattern['id']): RegistryEntry | undefined;
-    matchesFilter(pattern: Pattern, filter: PatternSearchFilter): boolean;
-    rebuild(registry: PatternRegistry): void;
-    // (undocumented)
-    remove(patternId: string): void;
-    resolveShortName(short: string): Pattern | undefined;
-    search(query: string, filter?: PatternSearchFilter, k?: number): readonly Pattern[];
-    get size(): number;
-    get skipped(): readonly SkippedPatternRecord[];
 }
 
 // @public
@@ -1495,6 +1426,51 @@ export type RetryPolicy = {
     delayMs: number;
 };
 
+// Warning: (ae-forgotten-export) The symbol "RoutingCandidateBase" needs to be exported by the entry point index.d.ts
+//
+// @public
+export type RoutingCandidate = (RoutingCandidateBase & {
+    kept: true;
+}) | (RoutingCandidateBase & {
+    kept: false;
+    droppedBy: RoutingDropStage;
+});
+
+// @public
+export type RoutingDropStage = 'capability-not-declared' | 'not-enabled' | 'not-ranked' | 'excluded-provider' | 'excluded-model' | 'tag-mismatch';
+
+// @public
+export interface RoutingExplanation {
+    candidates: readonly RoutingCandidate[];
+    // (undocumented)
+    capability: Capability;
+    context: ResolveContext;
+    enablementDefaulted: boolean;
+    order: readonly string[];
+    // (undocumented)
+    outcome: RoutingOutcome;
+    // (undocumented)
+    requiredTags: readonly ModelTag[];
+    satisfiable: boolean;
+}
+
+// @public
+export type RoutingOutcome = {
+    kind: 'selected';
+    model: string;
+    by: RoutingSelectionRule;
+} | {
+    kind: 'no-candidate';
+    reason: UnavailabilityReason;
+} | {
+    kind: 'pin-excluded';
+    pinnedModel: string;
+    excludedByRetry: boolean;
+};
+
+// @public
+export type RoutingSelectionRule = 'pinned' | 'preferred-provider' | 'tier' | 'first-candidate';
+
 // @public (undocumented)
 export interface Runtime {
     // (undocumented)
@@ -1548,16 +1524,6 @@ export type Semantics =
 // @alpha
 export function setAssetUriScheme(next: string): void;
 
-// @public
-export interface SkippedPatternRecord {
-    // (undocumented)
-    error: unknown;
-    // (undocumented)
-    id: string;
-    // (undocumented)
-    source: 'constructor' | 'rebuild' | 'add';
-}
-
 // @alpha
 export type SlashDispatchError = {
     code: 'SLASH_PATTERN_NOT_FOUND';
@@ -1577,16 +1543,6 @@ export type SlashDispatchResolution = {
     ok: false;
     error: SlashDispatchError;
 };
-
-// @alpha
-export interface Span {
-    // (undocumented)
-    end(): void;
-    // (undocumented)
-    setAttribute(key: string, value: unknown): void;
-    // (undocumented)
-    setStatus(status: 'ok' | 'error', message?: string): void;
-}
 
 // @public (undocumented)
 export interface StepMeta {
@@ -1643,14 +1599,6 @@ export interface ToolDescriptor<I = unknown> {
     longDescription?: string;
 }
 
-// @public (undocumented)
-export interface Tracer {
-    // Warning: (ae-incompatible-release-tags) The symbol "startSpan" is marked as @public, but its signature references "Span" which is marked as @alpha
-    //
-    // (undocumented)
-    startSpan(name: string, attrs?: Record<string, unknown>): Span;
-}
-
 // @public
 export interface TranscriptMessage {
     kind: 'assistant' | 'tool-result' | 'progress' | 'compact-boundary';
@@ -1698,9 +1646,6 @@ export function urlField(max?: number): z.ZodString;
 
 // @public
 export const whenAlways: AlternativeAppliesWhen;
-
-// @public
-export const whenBudgetBelow: (threshold: number) => AlternativeAppliesWhen;
 
 // @public
 export const whenCapabilityUnavailable: (...requiredTags: readonly ModelTag[]) => AlternativeAppliesWhen;

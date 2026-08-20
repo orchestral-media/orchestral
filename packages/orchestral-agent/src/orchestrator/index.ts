@@ -28,7 +28,7 @@ import { z } from 'zod'
 import type { AgentPattern, AssetNeed } from '@orchestral/core'
 import { agentInputSchema, extendInputsWithReferences } from '@orchestral/core'
 
-import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from '../../atomic/image-to-image-via-caption'
+import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from '@orchestral/patterns'
 
 import { ORCHESTRATOR_SYSTEM_PROMPT } from './prompts'
 

@@ -111,20 +111,11 @@ export interface ModelCapabilityBlob {
   contextWindow?: number
 
   /**
-   * Routing preference dimensions. Declaration-only in 0.1.0: the default
-   * router does not rank or filter by them — enforce in your own
-   * getModels ordering or a custom router if you need cost/latency routing.
+   * Routing preference dimension. Read only when the caller passes
+   * `ResolveContext.tier`, and best-effort: the first tier match wins,
+   * otherwise the resolver falls through to the remaining candidates.
    */
-  cost?: { perCall?: number; perMP?: number; perToken?: number }
-  latencyMs?: number
   tier?: 'fast' | 'balanced' | 'premium'
-
-  /**
-   * Self-throttle for provider quota (e.g. fal 2-concurrent limit).
-   * Declaration-only in 0.1.0: neither the default router nor the inline
-   * runtime enforces it — the host's dispatch layer must apply the limit.
-   */
-  maxConcurrency?: number
 
   /** Provenance — influences router trust score. */
   source: CapabilitySource

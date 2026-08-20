@@ -1,12 +1,20 @@
-// Host-local AgentRunImpl — the in-process ai-sdk tool-loop. This is the
-// agent-side analogue of the atomic example's ai-sdk-wiring.ts: the @orchestral
-// packages don't ship it because driving an LLM loop (and resolving a model
-// from a BYOK key) is host territory. The runtime calls `run()` once per
-// AgentPattern dispatch; everything host-agnostic — wrapping each tool, the
-// onToolCall bridge back into the runtime, system → instructions, abort/timeout
-// plumbing — lives here. The two genuinely host-shaped seams (resolving model
-// tags to a concrete LanguageModel, and the loop stop condition) are the deps
-// this example fills in directly in main.ts.
+// Reference AgentRunImpl — the in-process ai-sdk tool-loop, the runner side of
+// this package's agent support. The runtime calls `run()` once per AgentPattern
+// dispatch; everything host-agnostic — wrapping each tool, the onToolCall bridge
+// back into the runtime, system → instructions, abort/timeout plumbing — lives
+// here, so a host that just wants an LLM loop in this process injects this
+// instead of writing it.
+//
+// `ai` is a PEER dependency, never a bundled one: the iron rule is that
+// orchestral ships no provider SDK, and resolving a model from a BYOK key stays
+// host territory. The host installs `ai` (and its provider packages) itself, so
+// there is exactly one copy of the SDK in the tree — the one it already built
+// its model instances with.
+//
+// The two genuinely host-shaped seams — resolving model tags to a concrete
+// LanguageModel, and the loop stop condition — are the deps a host fills in.
+// A production host (worker over IPC, persisted message history, host-granted
+// tools) writes its own AgentRunImpl instead; the seam is the same either way.
 
 import {
   jsonSchema,

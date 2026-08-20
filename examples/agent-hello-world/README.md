@@ -8,12 +8,12 @@ API key — there is **zero host engine code**: no worker, no IPC, no database.
 
 This is the agent-battery companion to
 [`../atomic-hello-world`](../atomic-hello-world). The new piece is
-`createInProcessAgentRunImpl`, a host-local in-process `AgentRunImpl` (in
-[`src/agent-runner.ts`](./src/agent-runner.ts)) that drives the ai-sdk
-`ToolLoopAgent` (this example pins `ai@^7`) and bridges its tool calls back
-into the runtime. Like the
-`call` adapter, driving the LLM loop is host territory — the @orchestral
-packages ship no provider runner.
+`createInProcessAgentRunImpl` from the optional
+[`@orchestral/agent`](../../packages/orchestral-agent) package: an in-process
+`AgentRunImpl` that drives the ai-sdk `ToolLoopAgent` and bridges its tool calls
+back into the runtime. That package declares `ai` as a **peer** dependency —
+this example installs it (`ai@^7`) along with its own provider SDK, because the
+@orchestral packages never ship a provider SDK themselves.
 
 > **`@alpha`.** The agent seam (`AgentRunImpl`) is still evolving; a 0.1 → 0.2
 > reshape of this export is not a breaking change.
@@ -59,13 +59,14 @@ repo's `pnpm test:run`.
 - **The tool's `ModelCapability.call`** (text-to-image) is bridged by the
   host-local [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts), exactly as in the
   atomic example.
-- **The agent loop** is driven by `createInProcessAgentRunImpl` (host-local, in
-  [`src/agent-runner.ts`](./src/agent-runner.ts)). Its only host-shaped seam is
-  `resolveModel`: map the loop's `modelTags` to a concrete ai-sdk LLM instance
-  you built with your own key (BYOK territory). An optional `stopWhen` callback
-  overrides the default 16-step cap. Everything else — tool wrapping, the
-  `onToolCall` bridge back into the runtime, `system` → `instructions`,
-  abort/timeout plumbing — is host-agnostic boilerplate you copy once.
+- **The agent loop** is driven by `createInProcessAgentRunImpl` from
+  [`@orchestral/agent`](../../packages/orchestral-agent). Its only host-shaped
+  seam is `resolveModel`: map the loop's `modelTags` to a concrete ai-sdk LLM
+  instance you built with your own key (BYOK territory). An optional `stopWhen`
+  callback overrides the default 16-step cap. Everything else — tool wrapping,
+  the `onToolCall` bridge back into the runtime, `system` → `instructions`,
+  abort/timeout plumbing — is host-agnostic boilerplate, which is why it ships
+  in that package instead of being copied into every host.
 - **Typed output.** The agent pattern declares `loop.outputExtractor`, which
   tells the runtime to skip injecting its default finish tool for this
   dispatch; the in-process runner then returns the natural-finish `{ text }`

@@ -4,9 +4,10 @@
 // @orchestral/* packages plus its own ai-sdk model instances (built with its
 // own API key) and the small host-local adapters that bridge them. The agent
 // path adds one piece beyond the atomic example: an AgentRunImpl that drives the
-// LLM tool-loop. Driving that loop (and resolving a model from a key) is host
-// territory, so it lives here in `./agent-runner`, not in a published package —
-// pass it your model resolver and you're done. No worker, no IPC, no DB.
+// LLM tool-loop. Resolving a model from a key stays host territory (BYOK), but
+// the loop driver itself is boilerplate, so the optional @orchestral/agent
+// package ships one — `createInProcessAgentRunImpl`. Pass it your model
+// resolver and you're done. No worker, no IPC, no DB.
 //
 // Two models are in play:
 //   • the agent loop's LLM (resolved by `resolveModel`), which decides to call
@@ -20,10 +21,10 @@ import {
   InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { createInProcessAgentRunImpl } from '@orchestral/agent'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createImageModels } from './ai-sdk-wiring'
-import { createInProcessAgentRunImpl } from './agent-runner'
 import {
   AGENT_HELLO_WORLD_PATTERN_ID,
   createAgentHelloWorldPattern,
@@ -58,10 +59,11 @@ const getModels = createImageModels([
 ])
 const router = createDefaultCapabilityRouter({ getModels })
 
-// 3. The in-process AgentRunImpl. Its only host-shaped seam is `resolveModel`:
-//    map the loop's modelTags to a concrete ai-sdk LLM instance (BYOK). This
-//    demo serves one chat model regardless of tags. `stopWhen` defaults to a
-//    16-step cap — fine for a single-tool loop.
+// 3. The in-process AgentRunImpl from @orchestral/agent (the optional agent
+//    battery; `ai` is its peer dependency, installed here). Its only
+//    host-shaped seam is `resolveModel`: map the loop's modelTags to a concrete
+//    ai-sdk LLM instance (BYOK). This demo serves one chat model regardless of
+//    tags. `stopWhen` defaults to a 16-step cap — fine for a single-tool loop.
 const agentRunImpl = createInProcessAgentRunImpl({
   resolveModel: () => openai('gpt-4o'),
 })

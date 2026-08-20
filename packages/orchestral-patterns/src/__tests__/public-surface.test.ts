@@ -11,10 +11,7 @@ describe('@orchestral/patterns public surface', () => {
   it('value exports are frozen', () => {
     expect(Object.keys(api).sort()).toMatchInlineSnapshot(`
       [
-        "AGENT_LONG_FORM_VIDEO_PATTERN_ID",
-        "AGENT_ORCHESTRATOR_PATTERN_ID",
         "AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID",
-        "AgentLongFormVideoInputSchema",
         "AutomaticSpeechRecognitionOutputSchema",
         "AutomaticSpeechRecognitionPrimaryInputSchema",
         "CharacterInEventSchema",
@@ -56,7 +53,6 @@ describe('@orchestral/patterns public surface', () => {
         "NOVEL_TO_EVENTS_PATTERN_ID",
         "NovelToEventsInputSchema",
         "NovelToEventsOutputSchema",
-        "OrchestratorInputSchema",
         "PRODUCT_AD_SHORT_DEFAULT_PROMPTS",
         "PRODUCT_AD_SHORT_PATTERN_ID",
         "PRODUCT_PHOTO_PACK_DEFAULT_PROMPTS",
@@ -121,10 +117,8 @@ describe('@orchestral/patterns public surface', () => {
         "createImageToImageViaCaptionPattern",
         "createImageToTextPattern",
         "createImageToVideoPattern",
-        "createLongFormVideoAgent",
         "createLyricsToMvMeta",
         "createNovelToEventsMeta",
-        "createOrchestratorAgent",
         "createProductAdShortMeta",
         "createProductPhotoPackMeta",
         "createProseChunkingMeta",

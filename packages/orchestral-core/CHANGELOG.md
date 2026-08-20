@@ -8,6 +8,99 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
+## [Unreleased]
+
+### Breaking (0.x)
+
+- **The discovery layer moved out to `@orchestral/discovery`.** `PatternSearchIndex`,
+  `handleFindPattern` and their types (`PatternSearchFilter`,
+  `SkippedPatternRecord`, `FindPatternResult`, `FindPatternMatch`,
+  `FindPatternOutputsSummary`, `HandleFindPatternOptions`) are no longer
+  exported from this package. Add `@orchestral/discovery` and import them from
+  there — the code is unchanged, so the fix is the import line:
+
+  ```diff
+  - import { PatternSearchIndex, handleFindPattern } from '@orchestral/core'
+  + import { PatternSearchIndex, handleFindPattern } from '@orchestral/discovery'
+  ```
+
+  `@orchestral/runtime` already depends on the new package, so a host that
+  drives its agent loop through `InlineRuntime` needs no change.
+
+  Core is the contract; which retrieval algorithm ranks a catalog is a product
+  decision a host may want to replace (embeddings, a hosted search service, a
+  hand-written router), and it dragged a search dependency into a package that
+  otherwise has none. **`minisearch` is no longer a dependency of
+  `@orchestral/core`.**
+
+  **What deliberately stayed:** `FindPatternInputSchema` / `FindPatternInput`
+  are still exported here, alongside `DispatchPatternInputSchema`. They are the
+  find_pattern *wire contract* — `buildCatalogDescriptors` serialises the
+  schema into the fixed tool definition and a host validates an incoming tool
+  call against it, neither of which needs a search index. `buildCatalogDescriptors`
+  and `buildAlwaysLoadDescriptors` also stay: catalog rendering is contract
+  work, and `AgentToolDescriptor` is the shape `buildFinishDescriptor` returns.
+
+### Added
+
+- **Routing visibility (`CapabilityRouter.explain`).** An optional third method
+  on the interface — `createDefaultCapabilityRouter` implements it — returning a
+  `RoutingExplanation`: every model `getModels` returned, the filter stage that
+  dropped each one (`not-enabled` / `not-ranked` / `excluded-provider` /
+  `excluded-model` / `tag-mismatch` / `capability-not-declared`), the surviving
+  fallback order, and what `resolve` would do with the same arguments (a model
+  plus the rule that picked it, `NO_MODEL_FOR_CAPABILITY` with its
+  `UnavailabilityReason`, or `MODEL_EXCLUDED` for a pin that is not a
+  candidate). `formatRoutingExplanation(explanation)` renders it as plain text
+  for a CLI or log; the library still prints nothing itself.
+
+  The default router computes candidates, diagnosis and explanation from ONE
+  screening pass, so an explanation cannot disagree with the routing it
+  describes. `explain` is optional because a host that implements
+  `CapabilityRouter` directly should not have to — feature-detect with
+  `router.explain?.(...)`. `tier` appears as a selection rule and never as a
+  drop stage, matching the fact that it biases selection without eliminating
+  anyone.
+
+- **Pattern-package convention (`"orchestral"` in package.json) and
+  `PatternRegistry.addFromManifest(manifest, module, ops?)`.** A package
+  declares `patterns: [{ id, kind, export }]` (plus optional `requiredOps`) so
+  what it contributes is readable with `npm view <pkg> orchestral` — no install,
+  no execution. `OrchestralManifestSchema` validates the field;
+  `addFromManifest` looks each `export` up on the module, calls it with `ops`,
+  verifies the built pattern's `id` and `kind` against the declaration, and
+  registers the lot, throwing a coded `ManifestError` (`MANIFEST_INVALID` /
+  `MANIFEST_MISSING_OPS` / `MANIFEST_EXPORT_MISSING` /
+  `MANIFEST_EXPORT_NOT_A_FACTORY` / `MANIFEST_PATTERN_MISMATCH`) before
+  registering anything when they disagree.
+
+  Discovery is a query rather than a registration: npm keyword
+  `orchestral-pattern`, GitHub topic of the same name, `orchestral-pattern-*`
+  package names. No central index exists. This is a convention plus a loader,
+  not a plugin framework — no lifecycle, sandbox, version negotiation or lazy
+  activation, and loading a package still runs its code like any import.
+  `@orchestral/patterns` is the first package to carry the field.
+
+### Breaking (0.x)
+
+- **Removed all declaration-only metadata.** These fields and types were
+  documented as "declared but not implemented" — nothing in the library read
+  them, so they promised behaviour that never existed:
+  - `ModelCapability.cost` / `.latencyMs` / `.maxConcurrency` (media
+    generation cost is not reliably computable up front; cost-aware routing
+    belongs in the host's `getModels` ordering or a custom router).
+  - `Alternative.costMultiplier` / `.qualityDelta`, and the `qualityDelta`
+    field on the `job:alternative-selected` event.
+  - The `'budget-below'` arm of `AlternativeAppliesWhen` and its builder
+    `whenBudgetBelow` (there was never a budget source to evaluate it).
+  - The `BudgetGuard`, `Tracer`, and `Span` interfaces, and the
+    `ExecutionContext.budget` / `.tracer` fields (both `@alpha`,
+    never called by the library).
+
+  `ModelCapability.tier` stays: the router genuinely reads it when
+  `ResolveContext.tier` is passed. If a removed field returns, it will land
+  together with the behaviour that enforces it.
+
 ## [0.1.0] - 2026-08-16 — Initial public release
 
 First public release. `@orchestral/core` is the substrate-agnostic vocabulary and

@@ -5,7 +5,9 @@
 // `getCapabilityOrder` supplies the per-capability enablement order.
 // Everything else — the enablement gate, exclude / tag / tier filtering, ranked
 // ordering, selection precedence, and diagnosis — lives here so any host (or a
-// pure in-memory test) gets identical routing behaviour.
+// pure in-memory test) gets identical routing behaviour. `explain` reports that
+// same machinery instead of re-deriving it: one screening pass feeds the
+// candidate list, the diagnosis and the dump alike.
 
 import type { Capability } from './capability'
 import type {
@@ -19,6 +21,13 @@ import type {
 } from './capability-router'
 import type { ModelTag } from './model-tag'
 import type { UnavailabilityReason } from './alternative'
+import type {
+  RoutingCandidate,
+  RoutingDropStage,
+  RoutingExplanation,
+  RoutingOutcome,
+  RoutingSelectionRule,
+} from './routing-explanation'
 
 export interface DefaultCapabilityRouterDeps {
   /**
@@ -63,14 +72,10 @@ class DefaultCapabilityRouter implements CapabilityRouter {
     requiredTags: readonly ModelTag[],
     rawCtx: ResolveContext,
   ): SatisfiableResult {
-    const { ctx, enablementDefaulted } = this.effectiveCtx(cap, rawCtx)
-    const candidates = this.listCandidates(cap, requiredTags, ctx)
+    const screening = this.screen(cap, requiredTags, rawCtx)
+    const { candidates } = screening
     if (candidates.length === 0) {
-      return {
-        ok: false,
-        reason: this.diagnoseReason(cap, requiredTags, ctx, enablementDefaulted),
-        candidates,
-      }
+      return { ok: false, reason: diagnoseReason(screening), candidates }
     }
     return { ok: true, candidates }
   }
@@ -80,48 +85,95 @@ class DefaultCapabilityRouter implements CapabilityRouter {
     requiredTags: readonly ModelTag[],
     rawCtx: ResolveContext,
   ): ModelCapability {
-    const { ctx, enablementDefaulted } = this.effectiveCtx(cap, rawCtx)
-    const candidates = this.listCandidates(cap, requiredTags, ctx)
+    const screening = this.screen(cap, requiredTags, rawCtx)
+    const { ctx, candidates } = screening
     if (candidates.length === 0) {
-      const reason = this.diagnoseReason(cap, requiredTags, ctx, enablementDefaulted)
-      throw new NoModelForCapabilityError(cap, requiredTags, reason)
-    }
-    // Pinned model wins outright if explicitly requested.
-    if (ctx.pinnedModel) {
-      const pinned = candidates.find(
-        (c) => `${c.provider}:${c.modelId}` === ctx.pinnedModel,
+      throw new NoModelForCapabilityError(
+        cap,
+        requiredTags,
+        diagnoseReason(screening),
       )
-      if (!pinned) {
-        // Diagnosis travels on the error, not to stdout — a library has no
-        // business writing to the host's console. `excludedByRetry`
-        // distinguishes "excluded after a prior dispatch failure"
-        // (ResolveContext.excludeModel hit) from "never a candidate"
-        // (capability / tag rejection); the two have very different fixes.
-        throw new ModelExcludedError(ctx.pinnedModel, {
-          capability: cap,
-          requiredTags,
-          excludedByRetry: (ctx.excludeModel ?? []).includes(ctx.pinnedModel),
-          excludeModel: ctx.excludeModel ?? [],
-          candidates: candidates.map((c) => `${c.provider}:${c.modelId}`),
-        })
-      }
-      return pinned
     }
-    // Provider preference next.
-    if (ctx.preferProvider) {
-      const prefer = candidates.find((c) => c.provider === ctx.preferProvider)
-      if (prefer) return prefer
+    const selection = selectCandidate(candidates, ctx)
+    if (selection.kind === 'pin-excluded') {
+      // Diagnosis travels on the error, not to stdout — a library has no
+      // business writing to the host's console. `excludedByRetry`
+      // distinguishes "excluded after a prior dispatch failure"
+      // (ResolveContext.excludeModel hit) from "never a candidate"
+      // (capability / tag rejection); the two have very different fixes.
+      throw new ModelExcludedError(selection.pinnedModel, {
+        capability: cap,
+        requiredTags,
+        excludedByRetry: selection.excludedByRetry,
+        excludeModel: ctx.excludeModel ?? [],
+        candidates: candidates.map(fullId),
+      })
     }
-    // Tier filter (best-effort — if no tier match, fall through).
-    if (ctx.tier) {
-      const tierMatch = candidates.find((c) => c.tier === ctx.tier)
-      if (tierMatch) return tierMatch
+    return selection.record
+  }
+
+  explain(
+    cap: Capability,
+    requiredTags: readonly ModelTag[] = [],
+    rawCtx: ResolveContext = {},
+  ): RoutingExplanation {
+    const screening = this.screen(cap, requiredTags, rawCtx)
+    const { ctx, enablementDefaulted, screened, candidates } = screening
+    return {
+      capability: cap,
+      requiredTags,
+      context: ctx,
+      enablementDefaulted,
+      satisfiable: candidates.length > 0,
+      candidates: screened.map(toRoutingCandidate),
+      order: candidates.map(fullId),
+      outcome:
+        candidates.length === 0
+          ? { kind: 'no-candidate', reason: diagnoseReason(screening) }
+          : toRoutingOutcome(selectCandidate(candidates, ctx)),
     }
-    // Declared order is the default ranking (TODO: latency/cost rank).
-    return candidates[0]!
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
+
+  /**
+   * The one pass every public entry runs: resolve the effective context, ask
+   * the host for the declared models, and screen each one. `resolve`,
+   * `checkSatisfiable` and `explain` differ only in what they read off the
+   * result — the filters themselves exist once, so a diagnosis can never
+   * disagree with the candidate list it explains.
+   */
+  private screen(
+    cap: Capability,
+    requiredTags: readonly ModelTag[],
+    rawCtx: ResolveContext,
+  ): Screening {
+    const { ctx, enablementDefaulted } = this.effectiveCtx(cap, rawCtx)
+    const rank = rankIndex(ctx)
+    // No adapter-compatibility pre-filtering here by design. Deciding at
+    // expose time whether a provider is "runnable" is a model-centric guess
+    // that wrongly drops records — most visibly for providers that proxy many
+    // upstream models under one name. Dispatch fails loudly instead: the
+    // host's `call` adapter throws and the caller surfaces it.
+    const screened = this.deps.getModels(cap).map((record) => ({
+      record,
+      droppedBy: dropStageFor(
+        record,
+        cap,
+        requiredTags,
+        ctx,
+        rank,
+        enablementDefaulted,
+      ),
+    }))
+    return {
+      ctx,
+      requiredTags,
+      enablementDefaulted,
+      screened,
+      candidates: keptInOrder(screened, rank),
+    }
+  }
 
   /**
    * Enablement gate. An explicit pin is enablement by selection and an
@@ -129,7 +181,7 @@ class DefaultCapabilityRouter implements CapabilityRouter {
    * order. Otherwise `deps.getCapabilityOrder(cap)` becomes the ranking: an
    * empty array reads as no route, so a host whose enablement store is still
    * empty must configure it before dispatching. Computed ONCE per public
-   * entry (resolve / checkSatisfiable); the `enablementDefaulted` flag tells
+   * entry, inside `screen()`; the `enablementDefaulted` flag tells
    * `diagnoseReason` the ranking came from the enablement default, so a
    * zero-candidate result reads 'not-enabled' rather than the caller's
    * ordering problem. Pin check is truthy on purpose: an empty-string pin
@@ -155,115 +207,215 @@ class DefaultCapabilityRouter implements CapabilityRouter {
       enablementDefaulted: true,
     }
   }
-
-  /**
-   * In-memory filtering over the host-declared candidate set. `getModels`
-   * returns every model declaring the capability (with `call` wired in); the
-   * exclude / tag filters + ranked ordering run here. `ctx` is the EFFECTIVE
-   * context — the public entry already ran effectiveCtx.
-   */
-  private listCandidates(
-    cap: Capability,
-    requiredTags: readonly ModelTag[],
-    ctx: ResolveContext,
-  ): readonly ModelCapability[] {
-    const out: ModelCapability[] = []
-    for (const record of this.deps.getModels(cap)) {
-      if (!record.capabilities.includes(cap)) continue
-      // No adapter-compatibility pre-filtering here by design. Deciding at
-      // expose time whether a provider is "runnable" is a model-centric
-      // guess that wrongly drops records — most visibly for providers that
-      // proxy many upstream models under one name. Dispatch fails loudly
-      // instead: the host's `call` adapter throws and the caller surfaces it.
-      if (ctx.excludeProvider?.includes(record.provider)) continue
-      const fullId = `${record.provider}:${record.modelId}`
-      if (ctx.excludeModel?.includes(fullId)) continue
-      if (requiredTags.length > 0) {
-        const hasAll = requiredTags.every((t) => record.tags.includes(t))
-        if (!hasAll) continue
-      }
-      out.push(record)
-    }
-    return applyRankedOrder(out, ctx)
-  }
-
-  /**
-   * Step-by-step elimination to identify the narrowest reason no candidate
-   * survived. Used by checkSatisfiable() so the planner / Alternative
-   * evaluator can pick the right fallback path. `ctx` is the EFFECTIVE
-   * context; `enablementDefaulted` says its ranking came from the stored
-   * enablement order rather than the caller.
-   */
-  private diagnoseReason(
-    cap: Capability,
-    requiredTags: readonly ModelTag[],
-    ctx: ResolveContext,
-    enablementDefaulted: boolean,
-  ): UnavailabilityReason {
-    const declared = this.deps
-      .getModels(cap)
-      .filter((r) => r.capabilities.includes(cap))
-    const all = applyRankedOrder(declared, ctx)
-
-    if (all.length === 0) {
-      // Capable rows exist but the ENABLEMENT DEFAULT (the stored
-      // getCapabilityOrder ranking, not a caller-supplied one) filtered them
-      // to zero: declared-but-not-enabled. A caller-owned rankedModels
-      // filtering to zero is the caller's ordering, not the enablement gate,
-      // so it reports no-model-in-catalog instead.
-      if (declared.length > 0 && enablementDefaulted) return 'not-enabled'
-      return 'no-model-in-catalog'
-    }
-
-    const afterExcl = all.filter((r) => {
-      if (ctx.excludeProvider?.includes(r.provider)) return false
-      const fullId = `${r.provider}:${r.modelId}`
-      if (ctx.excludeModel?.includes(fullId)) return false
-      return true
-    })
-    if (afterExcl.length === 0) return 'all-excluded'
-
-    if (requiredTags.length > 0) {
-      const afterTags = afterExcl.filter((r) =>
-        requiredTags.every((t) => r.tags.includes(t)),
-      )
-      if (afterTags.length === 0) return 'tag-mismatch'
-    }
-
-    if (ctx.tier) {
-      const afterTier = afterExcl.filter((r) => r.tier === ctx.tier)
-      if (afterTier.length === 0) return 'tier-mismatch'
-    }
-
-    return 'no-model-in-catalog'
-  }
 }
 
-// ── Ranking ────────────────────────────────────────────────────────────────
+// ── Screening ──────────────────────────────────────────────────────────────
+
+interface ScreenedModel {
+  record: ModelCapability
+  /** `undefined` = survived every filter. */
+  droppedBy?: RoutingDropStage
+}
+
+/** One screening pass, shared by resolve / checkSatisfiable / explain. */
+interface Screening {
+  /** EFFECTIVE context — effectiveCtx has already run. */
+  ctx: ResolveContext
+  requiredTags: readonly ModelTag[]
+  enablementDefaulted: boolean
+  /** Every record getModels returned, in the order it returned them. */
+  screened: readonly ScreenedModel[]
+  /** Survivors in resolution order. */
+  candidates: readonly ModelCapability[]
+}
 
 /**
- * Restrict + order candidates by `ctx.rankedModels` (caller-supplied, or the
- * stored enablement order `effectiveCtx` injected). `undefined` = unrestricted —
- * after effectiveCtx that only happens on the explicit-pin path; an empty array
- * = no route. Exclusion / tag / tier filtering has already run, so this only
- * intersects with the ranked set and sorts by its index (0 = default). The
- * runtime's excludeModel retry then walks the order: the failed top model is
- * excluded on re-resolve, surfacing the next ranked one.
+ * The first filter that rejects `record`, or `undefined` if it survives.
+ *
+ * Order matters only for ATTRIBUTION (which stage gets the blame, and hence
+ * which reason `diagnoseReason` narrows to) — the surviving set is an
+ * intersection and is order-independent. Ranking is checked first so that a
+ * model the host never enabled reports `not-enabled` rather than whichever
+ * later filter also happened to reject it.
  */
-function applyRankedOrder<T extends ModelCapabilityRecord>(
-  records: readonly T[],
+function dropStageFor(
+  record: ModelCapabilityRecord,
+  cap: Capability,
+  requiredTags: readonly ModelTag[],
   ctx: ResolveContext,
-): readonly T[] {
+  rank: ReadonlyMap<string, number> | undefined,
+  enablementDefaulted: boolean,
+): RoutingDropStage | undefined {
+  if (!record.capabilities.includes(cap)) return 'capability-not-declared'
+  const id = fullId(record)
+  // `rank` undefined = unrestricted; after effectiveCtx that only happens on
+  // the explicit-pin path or with no enablement gate wired in.
+  if (rank && !rank.has(id)) {
+    return enablementDefaulted ? 'not-enabled' : 'not-ranked'
+  }
+  if (ctx.excludeProvider?.includes(record.provider)) return 'excluded-provider'
+  if (ctx.excludeModel?.includes(id)) return 'excluded-model'
+  if (
+    requiredTags.length > 0 &&
+    !requiredTags.every((t) => record.tags.includes(t))
+  ) {
+    return 'tag-mismatch'
+  }
+  return undefined
+}
+
+/**
+ * Survivors ordered by `ctx.rankedModels` index (0 = default), or left in
+ * declared order when no ranking applies. The runtime's excludeModel retry
+ * walks this order: the failed top model is excluded on re-resolve, surfacing
+ * the next one.
+ */
+function keptInOrder(
+  screened: readonly ScreenedModel[],
+  rank: ReadonlyMap<string, number> | undefined,
+): readonly ModelCapability[] {
+  const kept = screened
+    .filter((s) => s.droppedBy === undefined)
+    .map((s) => s.record)
+  if (!rank) return kept
+  return kept.sort((a, b) => rank.get(fullId(a))! - rank.get(fullId(b))!)
+}
+
+function rankIndex(
+  ctx: ResolveContext,
+): ReadonlyMap<string, number> | undefined {
   const ranked = ctx.rankedModels
-  if (!ranked) return records
-  const rank = new Map(ranked.map((id, i) => [id, i] as const))
-  return records
-    .filter((r) => rank.has(`${r.provider}:${r.modelId}`))
-    .sort(
-      (a, b) =>
-        rank.get(`${a.provider}:${a.modelId}`)! -
-        rank.get(`${b.provider}:${b.modelId}`)!,
+  if (!ranked) return undefined
+  return new Map(ranked.map((id, i) => [id, i] as const))
+}
+
+/**
+ * Step-by-step elimination to identify the narrowest reason no candidate
+ * survived — read off the screening verdicts, in the same stage order
+ * `dropStageFor` applied them. The planner / Alternative evaluator picks its
+ * fallback path from this.
+ */
+function diagnoseReason(screening: Screening): UnavailabilityReason {
+  const { ctx, requiredTags, enablementDefaulted, screened } = screening
+  const survived = (
+    stages: readonly RoutingDropStage[],
+  ): readonly ScreenedModel[] =>
+    screened.filter(
+      (s) => s.droppedBy === undefined || !stages.includes(s.droppedBy),
     )
+
+  const declared = survived(['capability-not-declared'])
+  if (declared.length === 0) return 'no-model-in-catalog'
+
+  // Capable rows exist but the ENABLEMENT DEFAULT (the stored
+  // getCapabilityOrder ranking, not a caller-supplied one) filtered them to
+  // zero: declared-but-not-enabled. A caller-owned rankedModels filtering to
+  // zero is the caller's ordering, not the enablement gate, so it reports
+  // no-model-in-catalog instead.
+  const afterRank = survived([
+    'capability-not-declared',
+    'not-enabled',
+    'not-ranked',
+  ])
+  if (afterRank.length === 0) {
+    return enablementDefaulted ? 'not-enabled' : 'no-model-in-catalog'
+  }
+
+  const afterExcl = survived([
+    'capability-not-declared',
+    'not-enabled',
+    'not-ranked',
+    'excluded-provider',
+    'excluded-model',
+  ])
+  if (afterExcl.length === 0) return 'all-excluded'
+
+  if (
+    requiredTags.length > 0 &&
+    afterExcl.every((s) => s.droppedBy === 'tag-mismatch')
+  ) {
+    return 'tag-mismatch'
+  }
+
+  // Tier never eliminates a candidate (see selectCandidate), so this is only
+  // reachable when the set was already empty for another reason.
+  if (ctx.tier && !afterExcl.some((s) => s.record.tier === ctx.tier)) {
+    return 'tier-mismatch'
+  }
+
+  return 'no-model-in-catalog'
+}
+
+// ── Selection ──────────────────────────────────────────────────────────────
+
+type Selection =
+  | { kind: 'selected'; record: ModelCapability; by: RoutingSelectionRule }
+  | { kind: 'pin-excluded'; pinnedModel: string; excludedByRetry: boolean }
+
+/**
+ * `resolve`'s precedence over a NON-EMPTY candidate list, factored out so
+ * `explain` reports the rule that would fire rather than re-deriving it.
+ */
+function selectCandidate(
+  candidates: readonly ModelCapability[],
+  ctx: ResolveContext,
+): Selection {
+  // Pinned model wins outright if explicitly requested.
+  if (ctx.pinnedModel) {
+    const pinned = candidates.find((c) => fullId(c) === ctx.pinnedModel)
+    if (!pinned) {
+      return {
+        kind: 'pin-excluded',
+        pinnedModel: ctx.pinnedModel,
+        excludedByRetry: (ctx.excludeModel ?? []).includes(ctx.pinnedModel),
+      }
+    }
+    return { kind: 'selected', record: pinned, by: 'pinned' }
+  }
+  // Provider preference next.
+  if (ctx.preferProvider) {
+    const prefer = candidates.find((c) => c.provider === ctx.preferProvider)
+    if (prefer) {
+      return { kind: 'selected', record: prefer, by: 'preferred-provider' }
+    }
+  }
+  // Tier filter (best-effort — if no tier match, fall through).
+  if (ctx.tier) {
+    const tierMatch = candidates.find((c) => c.tier === ctx.tier)
+    if (tierMatch) return { kind: 'selected', record: tierMatch, by: 'tier' }
+  }
+  // Declared order is the default ranking (TODO: latency/cost rank).
+  return { kind: 'selected', record: candidates[0]!, by: 'first-candidate' }
+}
+
+// ── Explanation mapping ────────────────────────────────────────────────────
+
+function toRoutingCandidate(screened: ScreenedModel): RoutingCandidate {
+  const { record, droppedBy } = screened
+  const base = {
+    model: fullId(record),
+    provider: record.provider,
+    modelId: record.modelId,
+    tags: record.tags,
+    tier: record.tier,
+  }
+  return droppedBy === undefined
+    ? { ...base, kept: true }
+    : { ...base, kept: false, droppedBy }
+}
+
+function toRoutingOutcome(selection: Selection): RoutingOutcome {
+  return selection.kind === 'selected'
+    ? { kind: 'selected', model: fullId(selection.record), by: selection.by }
+    : {
+        kind: 'pin-excluded',
+        pinnedModel: selection.pinnedModel,
+        excludedByRetry: selection.excludedByRetry,
+      }
+}
+
+function fullId(record: ModelCapabilityRecord): string {
+  return `${record.provider}:${record.modelId}`
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────

@@ -15,40 +15,6 @@ import type { ZodSchema } from './foundational'
 import type { AskUserRequest, AskUserKind } from './pause'
 import type { AskUser } from './ask-user'
 
-/**
- * Tracing surface (OTel-shaped). Declaration only: the default runtime never
- * starts a span. Inject a Tracer and call it from your own compose() / host
- * code, backed by whatever exporter you use.
- *
- * @alpha
- */
-export interface Span {
-  setAttribute(key: string, value: unknown): void
-  setStatus(status: 'ok' | 'error', message?: string): void
-  end(): void
-}
-
-export interface Tracer {
-  startSpan(name: string, attrs?: Record<string, unknown>): Span
-}
-
-/**
- * BudgetGuard — a host-injected spend ceiling, trimmed to "consume + ask" so an
- * implementation can be a counter or a no-op.
- *
- * Declaration only through 0.1.x: the default runtime never calls consume(),
- * remaining(), or throwIfExceeded(). Nothing is metered unless your own
- * compose() / host code calls it.
- *
- * @alpha
- */
-export interface BudgetGuard {
-  consume(usd: number): Promise<void>
-  remaining(): Promise<{ usd: number; jobs: number } | null>
-  /** Throw early if the budget would be exhausted by the next consume(). */
-  throwIfExceeded(): Promise<void>
-}
-
 // ── Step / Compute primitives ──────────────────────────────────────────────
 
 /**
@@ -64,7 +30,7 @@ export type RetryPolicy =
 export interface StepOptions {
   /** Retry policy; default `{ kind: 'none' }`. */
   retry?: RetryPolicy
-  /** Free-form observability metadata flows into workflow.json + tracer. */
+  /** Free-form observability metadata flows into workflow.json. */
   metadata?: Record<string, unknown>
   /**
    * Override the auto-generated stepId. Default = `${patternId}#${seq}`
@@ -237,9 +203,6 @@ export interface ExecutionContext<S = unknown, P = unknown, W = unknown>
    * idempotency, just a plain await on a human.
    */
   askUser: AskUser
-
-  budget?: BudgetGuard
-  tracer?: Tracer
 
   /** Position within a MetaPattern step list — folded into idempotency hash. */
   stepIndex: number

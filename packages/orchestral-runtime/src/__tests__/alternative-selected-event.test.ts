@@ -1,7 +1,8 @@
 // The Alternative fallback is the runtime's signature degradation feature —
-// this pins that taking it is OBSERVABLE: a `job:alternative-selected` event
+// opt-in via `alternatives: 'auto'`, which every runtime below passes. This
+// pins that taking it is OBSERVABLE: a `job:alternative-selected` event
 // fires before the redirect dispatches, carrying the declared degradation
-// metadata (preserves / losses / qualityDelta), so a subscriber can tell a
+// metadata (preserves / losses), so a subscriber can tell a
 // degraded completion from a primary-path one.
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -69,7 +70,6 @@ describe('job:alternative-selected event', () => {
           id: 'caption-cascade',
           description: 'degrade to the fallback capability',
           appliesWhen: { kind: 'capability-unavailable' },
-          qualityDelta: -0.2,
           preserves: ['layout'],
           losses: ['subject-identity'],
           via: {
@@ -87,6 +87,7 @@ describe('job:alternative-selected event', () => {
       store: new MemoryJobStore() as never,
       registry,
       router,
+      alternatives: 'auto',
       onJobCreated: (jobId) => {
         rt.subscribe(jobId, (ev) => events.push(ev))
       },
@@ -105,7 +106,6 @@ describe('job:alternative-selected event', () => {
     expect(ev.alternativeId).toBe('caption-cascade')
     expect(ev.description).toBe('degrade to the fallback capability')
     expect(ev.targetPatternId).toBe('fallback_cap')
-    expect(ev.qualityDelta).toBe(-0.2)
     expect(ev.preserves).toEqual(['layout'])
     expect(ev.losses).toEqual(['subject-identity'])
     expect(ev.job.id).toBe(job.id)
@@ -168,6 +168,7 @@ describe('job:alternative-selected event', () => {
       store: new MemoryJobStore() as never,
       registry,
       router,
+      alternatives: 'auto',
     })
     const job = await rt.submitJob({
       patternId: 'parent_cap',
@@ -202,6 +203,9 @@ describe('job:alternative-selected event', () => {
 
     const events: JobEvent[] = []
     const rt = new InlineRuntime({
+      // Enabled, so "no event" is about the primary path succeeding rather
+      // than about redirects being switched off.
+      alternatives: 'auto',
       store: new MemoryJobStore() as never,
       registry,
       router,

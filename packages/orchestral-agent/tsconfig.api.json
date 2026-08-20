@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@orchestral/core": ["./node_modules/@orchestral/core/dist/index.d.ts"],
+      "@orchestral/patterns": ["./node_modules/@orchestral/patterns/dist/index.d.ts"],
+      "@orchestral/runtime": ["./node_modules/@orchestral/runtime/dist/index.d.ts"]
+    }
+  }
+}

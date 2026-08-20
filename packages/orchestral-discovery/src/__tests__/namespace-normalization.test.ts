@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import type { Pattern } from '@orchestral/core'
+import { PatternRegistry } from '@orchestral/core'
 import { handleFindPattern } from '../find-pattern'
-import type { Pattern } from '../pattern'
-import { PatternRegistry } from '../registry'
 import { PatternSearchIndex } from '../pattern-search-index'
 
 // Regression: the registry indexed a Pattern under `namespace ?? inferNamespace(id)`

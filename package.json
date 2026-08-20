@@ -2,7 +2,7 @@
   "name": "orchestral-monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "Orchestral — capability routing, in-process semantic fallback, and an asset-handle protocol for AI media applications.",
+  "description": "Orchestral — capability routing, opt-in semantic fallback, and an asset-handle protocol for AI media applications.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20.18",
@@ -16,8 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "biome lint .",
-    "api:check": "pnpm -r --filter \"./packages/*\" exec api-extractor run",
-    "api:update": "pnpm -r --filter \"./packages/*\" exec api-extractor run --local",
+    "api:check": "pnpm -r --filter \"./packages/*\" --filter \"!dsh-plugin-orchestral\" exec api-extractor run",
+    "api:update": "pnpm -r --filter \"./packages/*\" --filter \"!dsh-plugin-orchestral\" exec api-extractor run --local",
     "smoke:dist": "pnpm build && node scripts/smoke-dist.mjs",
     "docs:catalog": "node scripts/gen-pattern-catalog.mjs"
   },

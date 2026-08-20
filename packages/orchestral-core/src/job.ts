@@ -206,7 +206,7 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
        * alternative target dispatches — a completion after this event means
        * the degraded path produced the output. Carries the Alternative's
        * declared degradation metadata so a UI can warn the user
-       * ("identity preservation lost", "-0.2 quality").
+       * ("identity preservation lost").
        */
       type: 'job:alternative-selected'
       job: Job<TInput, TOutput>
@@ -218,7 +218,6 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
       targetPatternId: PatternId
       preserves?: readonly Semantics[]
       losses?: readonly Semantics[]
-      qualityDelta?: number
     }
   | { type: 'job:completed'; job: Job<TInput, TOutput> }
   | { type: 'job:failed'; job: Job<TInput, TOutput> }

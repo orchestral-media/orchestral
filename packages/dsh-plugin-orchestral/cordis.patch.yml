@@ -1,0 +1,23 @@
+# dsh bundle layer (referenced by `dsh.bundle.patch` in package.json).
+#
+# The row stays inert until the profile also mounts a host plugin that provides
+# an `orchestralHost` service. That is deliberate: this plugin does not build an
+# orchestral Runtime (see the package README) — it consumes one the host
+# constructed with its own JobStore, CapabilityRouter, and provider credentials.
+#
+# Loader mounts the composition once, waits for each row's declared injections,
+# and only then evaluates that row's `!!js` config against the injected context,
+# so a profile without a provider simply never activates this row.
+#
+# `!!js` expressions are parsed by `@deepseek-ai/cordis-plugin-include`, which
+# `@deepseek-ai/dsh-base` mounts.
+- insert:
+    - id: orchestral
+      name: dsh-plugin-orchestral
+      inject: [orchestralHost]
+      config:
+        runtime: !!js ctx.orchestralHost.runtime
+        registry: !!js ctx.orchestralHost.registry
+        surface: !!js ctx.orchestralHost.surface ?? 'chatTurn'
+        toolNamePrefix: !!js ctx.orchestralHost.toolNamePrefix ?? ''
+        resolveJobContext: !!js ctx.orchestralHost.resolveJobContext

@@ -3,6 +3,10 @@
 // parent capability, the 'capability-unavailable' alternative is taken —
 // i.e. 'not-enabled' counts as unavailable, same as any other reason, and
 // dispatch redirects through the registered fallback instead of throwing.
+//
+// Redirects themselves are opt-in (`alternatives: 'auto'`); the claim here is
+// about which *reasons* count as unavailable, so the switch is on throughout.
+// The default-off behaviour lives in alternatives-default-off.test.ts.
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -80,6 +84,7 @@ describe("alternatives — 'not-enabled' counts as capability-unavailable", () =
       store: new MemoryJobStore() as never,
       registry,
       router,
+      alternatives: 'auto',
     })
     const job = await rt.submitJob({
       patternId: 'parent_cap',

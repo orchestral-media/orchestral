@@ -105,9 +105,6 @@ const VIA_CAPTION_ALTERNATIVE: Alternative<
   description:
     'No image-to-image model is available: caption the source image, then re-render it from that caption plus the edit instruction. Subject identity and composition are lost, and a mask is ignored — the whole frame is regenerated.',
   appliesWhen: whenCapabilityUnavailable(),
-  // Two model calls (caption + render) replace one edit call.
-  costMultiplier: 2,
-  qualityDelta: -0.5,
   preserves: ['style'],
   // `mask-guidance` is listed because the redirect silently has no use for the
   // `mask` slot — see mapInput below. A caller that asked for a masked edit
@@ -134,7 +131,7 @@ const VIA_CAPTION_ALTERNATIVE: Alternative<
       // Lossless projection — the meta envelope is a superset of this
       // Pattern's. `degraded` is dropped: the degradation is already reported
       // out-of-band by the runtime's `job:alternative-selected` event, which
-      // carries this entry's `losses` / `qualityDelta`.
+      // carries this entry's `losses`.
       return {
         modality: 'image',
         assets: out.assets,

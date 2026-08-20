@@ -13,7 +13,7 @@
 import { z } from 'zod'
 
 import { DispatchPatternInputSchema } from './dispatch-pattern'
-import { FindPatternInputSchema } from './find-pattern'
+import { FindPatternInputSchema } from './find-pattern-schema'
 import type { Pattern } from './pattern'
 
 // zod v4 native JSON-Schema serialiser. The find_pattern / dispatch_pattern

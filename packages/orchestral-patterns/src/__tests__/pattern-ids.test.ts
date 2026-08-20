@@ -29,9 +29,6 @@ import {
   PRODUCT_AD_SHORT_PATTERN_ID,
   PRODUCT_PHOTO_PACK_PATTERN_ID,
   UGC_TESTIMONIAL_PATTERN_ID,
-  // agent (2)
-  AGENT_LONG_FORM_VIDEO_PATTERN_ID,
-  AGENT_ORCHESTRATOR_PATTERN_ID,
 } from '../index'
 
 // Phase 4 runtime-freeze gate. Pattern IDs are load-bearing string literals:
@@ -81,12 +78,10 @@ describe('first-party Pattern ID literals', () => {
     expect(UGC_TESTIMONIAL_PATTERN_ID).toBe('meta_ugc-testimonial')
   })
 
-  it('agent Pattern IDs are pinned (agent_ prefix drives the blocklist)', () => {
-    expect(AGENT_LONG_FORM_VIDEO_PATTERN_ID).toBe('agent_long-form-video')
-    expect(AGENT_ORCHESTRATOR_PATTERN_ID).toBe('agent_orchestrator')
-  })
+  // Agent Pattern IDs (`agent_long-form-video` / `agent_orchestrator`) are
+  // pinned by the same gate in @orchestral/agent, which now owns them.
 
-  it('every meta id carries the meta_ prefix, every agent id the agent_ prefix', () => {
+  it('every meta id carries the meta_ prefix', () => {
     const metaIds = [
       SCRIPT_PLANNING_PATTERN_ID,
       REFERENCE_IMAGE_CASCADE_PATTERN_ID,
@@ -105,13 +100,6 @@ describe('first-party Pattern ID literals', () => {
     ]
     for (const id of metaIds) {
       expect(id.startsWith('meta_'), `${id} must start with meta_`).toBe(true)
-    }
-    const agentIds = [
-      AGENT_LONG_FORM_VIDEO_PATTERN_ID,
-      AGENT_ORCHESTRATOR_PATTERN_ID,
-    ]
-    for (const id of agentIds) {
-      expect(id.startsWith('agent_'), `${id} must start with agent_`).toBe(true)
     }
   })
 })

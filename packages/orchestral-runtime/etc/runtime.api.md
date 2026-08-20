@@ -162,6 +162,7 @@ export { InlineRuntime as InlineRuntimeAdapter }
 export interface InlineRuntimeInit {
     // @alpha
     agentRunImpl?: AgentRunImpl;
+    alternatives?: 'auto' | 'off';
     askUser?: AskUserHandler;
     // @alpha
     assetBridge?: AgentAssetBridge;

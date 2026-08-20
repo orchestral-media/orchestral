@@ -10,10 +10,10 @@ import { z } from 'zod'
 import {
   defineAtomicPattern,
   PatternRegistry,
-  PatternSearchIndex,
   type ZodSchema,
   type Pattern,
 } from '@orchestral/core'
+import { PatternSearchIndex } from '@orchestral/discovery'
 import {
   createTextToImagePattern,
   createImageToImagePattern,
