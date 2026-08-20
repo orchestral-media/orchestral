@@ -98,43 +98,6 @@ importers:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.0)
 
-  packages/dsh-plugin-orchestral:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: 4.0.1
-        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-tools':
-        specifier: 0.1.0-rc.7
-        version: 0.1.0-rc.7(ac9081d1e007de8a90a707560a8ae1c3)
-      '@deepseek-ai/schemastery':
-        specifier: 3.18.1
-        version: 3.18.1
-      '@orchestral/core':
-        specifier: workspace:*
-        version: link:../orchestral-core
-      '@orchestral/runtime':
-        specifier: workspace:*
-        version: link:../orchestral-runtime
-    devDependencies:
-      '@deepseek-ai/dsh':
-        specifier: 0.1.0-rc.7
-        version: 0.1.0-rc.7(5c8076505d89ea515db29537750a23e8)
-      '@orchestral/patterns':
-        specifier: workspace:*
-        version: link:../orchestral-patterns
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.1
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.6
-        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.0)
-      zod:
-        specifier: ^4.3.6
-        version: 4.4.3
-
   packages/orchestral-agent:
     dependencies:
       '@orchestral/core':
@@ -187,6 +150,43 @@ importers:
         specifier: ^7.2.0
         version: 7.2.0
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
+
+  packages/orchestral-dsh-plugin:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/dsh-tools':
+        specifier: 0.1.0-rc.7
+        version: 0.1.0-rc.7(ac9081d1e007de8a90a707560a8ae1c3)
+      '@deepseek-ai/schemastery':
+        specifier: 3.18.1
+        version: 3.18.1
+      '@orchestral/core':
+        specifier: workspace:*
+        version: link:../orchestral-core
+      '@orchestral/runtime':
+        specifier: workspace:*
+        version: link:../orchestral-runtime
+    devDependencies:
+      '@deepseek-ai/dsh':
+        specifier: 0.1.0-rc.7
+        version: 0.1.0-rc.7(5c8076505d89ea515db29537750a23e8)
+      '@orchestral/patterns':
+        specifier: workspace:*
+        version: link:../orchestral-patterns
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.1
@@ -4934,7 +4934,7 @@ snapshots:
       '@aws-sdk/types': 3.974.4
       '@smithy/core': 3.33.2
       '@smithy/fetch-http-handler': 5.7.2
-      '@smithy/node-http-handler': 4.7.3
+      '@smithy/node-http-handler': 4.11.2
       '@smithy/types': 4.17.2
       tslib: 2.8.1
 

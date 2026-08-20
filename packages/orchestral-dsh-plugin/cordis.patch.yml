@@ -13,7 +13,7 @@
 # `@deepseek-ai/dsh-base` mounts.
 - insert:
     - id: orchestral
-      name: dsh-plugin-orchestral
+      name: @orchestral/dsh-plugin
       inject: [orchestralHost]
       config:
         runtime: !!js ctx.orchestralHost.runtime

@@ -172,10 +172,10 @@ over the AI SDK (`ai` as a peer dependency).
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
 | [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex` and the `find_pattern` tool handler. Core keeps the input contract; this package owns the searching. |
 | [`@orchestral/agent`](packages/orchestral-agent) | Optional. The two agent patterns plus `createInProcessAgentRunImpl`, a reference `AgentRunImpl` over the AI SDK's tool loop (`ai` is a peer dependency). |
-| [`dsh-plugin-orchestral`](packages/dsh-plugin-orchestral) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |
+| [`@orchestral/dsh-plugin`](packages/orchestral-dsh-plugin) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |
 
 All packages are Apache-2.0. The `@orchestral/*` packages are released together
-on one version line; `dsh-plugin-orchestral` versions independently.
+on one version line; `@orchestral/dsh-plugin` versions independently.
 
 ## Honest limitations
 
@@ -203,7 +203,7 @@ This is 0.x. Each package README states its own edges rather than hiding them:
 
 `0.x`: minor versions may contain breaking changes, patch versions never do.
 The `@orchestral/*` packages share one version line and are published together —
-pin the exact set you tested against. `dsh-plugin-orchestral` versions
+pin the exact set you tested against. `@orchestral/dsh-plugin` versions
 independently against its dev-preview host. The `1.0` line will follow semver
 strictly.
 
@@ -215,7 +215,7 @@ packages/orchestral-discovery/   @orchestral/discovery
 packages/orchestral-patterns/    @orchestral/patterns
 packages/orchestral-runtime/     @orchestral/runtime
 packages/orchestral-agent/       @orchestral/agent
-packages/dsh-plugin-orchestral/  dsh-plugin-orchestral (independent version line)
+packages/orchestral-dsh-plugin/  @orchestral/dsh-plugin (independent version line)
 examples/                        runnable hosts, ~50 lines each
 scripts/smoke-dist.mjs           executes the built dist bundles end to end
 ```

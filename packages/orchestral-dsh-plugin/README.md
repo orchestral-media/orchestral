@@ -1,4 +1,4 @@
-# dsh-plugin-orchestral
+# @orchestral/dsh-plugin
 
 > **Experimental.** Not part of the orchestral public API contract. Expect breaking changes at any version.
 
@@ -89,7 +89,7 @@ export default class OrchestralHost extends Service {
 **2. Install this bundle into a profile:**
 
 ```sh
-dsh plugin --profile demo add dsh-plugin-orchestral
+dsh plugin --profile demo add @orchestral/dsh-plugin
 ```
 
 The bundle's `cordis.patch.yml` inserts a row that declares `inject: [orchestralHost]`, so it stays inert

@@ -1,4 +1,4 @@
-// dsh-plugin-orchestral — supply orchestral's media-generation Patterns to a
+// @orchestral/dsh-plugin — supply orchestral's media-generation Patterns to a
 // DeepSeek Harness agent as ordinary dsh tools.
 //
 // Architecture constraint (hard, see README): this is a LEAF package. It
@@ -108,7 +108,7 @@ export function apply(ctx: Context, config: Config): void {
     return () => {
       for (const dispose of disposers.reverse()) dispose()
     }
-  }, 'dsh-plugin-orchestral: pattern tools')
+  }, '@orchestral/dsh-plugin: pattern tools')
 }
 
 export {

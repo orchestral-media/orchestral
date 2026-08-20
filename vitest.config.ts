@@ -11,7 +11,7 @@ export default defineConfig({
       './packages/orchestral-patterns/vitest.config.ts',
       './packages/orchestral-runtime/vitest.config.ts',
       './packages/orchestral-agent/vitest.config.ts',
-      './packages/dsh-plugin-orchestral/vitest.config.ts',
+      './packages/orchestral-dsh-plugin/vitest.config.ts',
       './examples/atomic-hello-world/vitest.config.ts',
       './examples/agent-hello-world/vitest.config.ts',
     ],

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-orchestral",
+  "name": "@orchestral/dsh-plugin",
   "version": "0.0.1",
   "description": "Experimental DeepSeek Harness (dsh) bundle exposing orchestral media-generation Patterns as agent tools. Leaf bridge — orchestral never depends on this package.",
   "license": "Apache-2.0",
@@ -10,7 +10,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/orchestral-media/orchestral.git",
-    "directory": "packages/dsh-plugin-orchestral"
+    "directory": "packages/orchestral-dsh-plugin"
   },
   "bugs": {
     "url": "https://github.com/orchestral-media/orchestral/issues"
