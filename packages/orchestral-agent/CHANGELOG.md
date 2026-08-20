@@ -8,57 +8,96 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [Unreleased]
+## [0.1.0] — Initial public release
+
+First public release. `@orchestral/agent` is the optional agent extension: two
+first-party `AgentPattern` declarations, and nothing else. Agent support is not
+part of the core surface — nothing in `@orchestral/core`, `@orchestral/runtime`
+or `@orchestral/patterns` depends on this package, so a host that never runs an
+LLM loop never installs it.
 
 ### Added
 
-- **New package — agent support is now an optional extension.** `@orchestral/agent`
-  collects the first-party agent Patterns that used to sit in the catalog, so
-  `@orchestral/patterns` is atomic + meta only and nothing in core / runtime /
-  patterns depends on this package.
-
-- **Two first-party `AgentPattern`s, moved from `@orchestral/patterns`**
-  (unchanged behaviour, new home):
+- **Two first-party `AgentPattern`s.**
   - `agent_long-form-video` — `createLongFormVideoAgent`, the novel →
-    multi-event video director, with the director and character-merge SKILL
-    bodies inlined as the cache-stable system prefix.
+    multi-event video director. The director and character-merge SKILL bodies
+    are inlined as string constants and baked into `loop.system` at factory
+    time, forming a cache-stable system prefix; the per-dispatch extras
+    (`style`, `maxEvents`) are appended after it. Its tool catalog is the
+    narrative chain — `meta_prose-chunking`, `meta_novel-to-events`,
+    `meta_event-to-script`, `meta_script2video`, `meta_image-best-of-n`, and
+    `text-generation`.
   - `agent_orchestrator` — `createOrchestratorAgent`, the general open-ended
-    media orchestrator, with its per-modality `references` asset slots.
+    media orchestrator. No embedded SKILL and no domain workflow: it plans a
+    multi-step media task as it goes, over all 25 patterns in
+    `@orchestral/patterns`. It declares three per-modality `references` asset
+    slots (`images`, `videos`, `audios`), which are the only way a caller hands
+    it assets — it deliberately does not inherit the parent's, so a subagent
+    sees exactly what it was given.
 
-  Their ids, schemas, prompts, and tool catalogs are byte-identical to the ones
-  `@orchestral/patterns` 0.1.0 shipped; only the import path changes.
+  Both are pure declarations — ids, zod input schemas, prompts, tool lists — and
+  both compose the atomic + meta catalog in `@orchestral/patterns` by pattern
+  id. Both take their input through core's `agentInputSchema()`, and neither
+  declares `outputs` or `finish`, so the registry backfills core's default
+  finish envelope (`{ assets, summary, stepCount }`) and the runtime's finish
+  broker injects `complete_task`.
+
+  Exports: `createLongFormVideoAgent` / `AGENT_LONG_FORM_VIDEO_PATTERN_ID` /
+  `AgentLongFormVideoInputSchema` / `AgentLongFormVideoInput`, and
+  `createOrchestratorAgent` / `AGENT_ORCHESTRATOR_PATTERN_ID` /
+  `OrchestratorInputSchema` / `OrchestratorInput`.
 
 - **`"orchestral"` manifest + `orchestral-pattern` keyword.** The package
   declares its two agent patterns as `{ id, kind, export }` for
   `registry.addFromManifest(pkg.orchestral, agent)`. No `requiredOps` — neither
-  agent takes host operations.
+  agent takes host operations, so the call needs no ops argument and skips
+  nothing.
 
-### Changed
+- **`CREDITS.md`** records the provenance of the one prompt constant derived
+  from HKUDS/ViMax (MIT) — `CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT` — and
+  reproduces the MIT license text in full. The file ships inside the published
+  tarball. `LONG_FORM_VIDEO_DIRECTOR_PROMPT` and `ORCHESTRATOR_SYSTEM_PROMPT`
+  are not derived from it.
 
-- **No tool-loop runner ships in this package.** During development this package
-  briefly carried `createInProcessAgentRunImpl` (an ai-sdk `ToolLoopAgent`
-  wrapper) with `ai` as a peer dependency. It was **never published** — this
-  package's first release is the one being prepared here — and it has been
-  moved back to `examples/agent-hello-world/src/agent-runner.ts`, where it
-  started. There is nothing for a consumer to migrate.
+### What this package deliberately does not ship
 
-  The reason: `AgentRunImpl` is the same kind of seam as
-  `ModelCapability.call` — the library declares it, the host fills it. Shipping
-  a loop would have meant this package picking an agent framework on the host's
-  behalf and dragging its SDK into every install, including installs that only
-  want the two declarative patterns. The runner is still a working reference
-  implementation, still exercised by the example's offline smoke test; it is
-  just documentation you copy rather than a dependency you inherit.
+- **No tool-loop runner, no agent framework, no provider SDK.** The
+  `AgentRunImpl` that drives the LLM tool loop is injected by the host. This is
+  the same iron rule as `ModelCapability.call`: the library declares the seam,
+  the host fills it. Shipping a loop would mean this package picking an agent
+  framework on the host's behalf and dragging its SDK into every install,
+  including installs that only want the two declarative patterns. A
+  copy-pasteable reference implementation over the Vercel AI SDK's
+  `ToolLoopAgent` lives in `examples/agent-hello-world/src/agent-runner.ts`
+  (~150 lines, with `resolveModel` / `stopWhen` left injected, exercised offline
+  against a mock LLM by the example's smoke test) — documentation you copy, not
+  a dependency you inherit.
 
-### Notes
+- **The agent machinery itself.** `@orchestral/core` owns `AgentPattern` /
+  `agentInputSchema` / the finish envelope, and `@orchestral/runtime` owns
+  `dispatchAgent` and the `AgentRunImpl` interface — dormant until a host
+  injects a runner. This package supplies Patterns for that machinery to run;
+  the host supplies the runner.
 
-- **No provider SDK, and no agent framework, in the dependency tree.** The only
-  peer is `zod` (`>=4.3 <5`), so that the schemas here are the host's zod
-  instance. Whatever SDK a host's runner uses is the host's own install.
-- **The agent seam itself did not move.** `@orchestral/core` still owns
-  `AgentPattern` / `agentInputSchema` / the finish envelope, and
-  `@orchestral/runtime` still owns `dispatchAgent` and the `AgentRunImpl`
-  interface — dormant until a host injects a runner. This package supplies
-  Patterns for that machinery to run; the host supplies the runner.
-- **`@alpha`.** The agent seam is still evolving; a 0.1 → 0.2 reshape of these
-  exports is not a breaking change under the 0.x policy above.
+### Peer dependencies
+
+- `zod` (`>=4.3 <5`) is a **peer** dependency, for the same reason it is one in
+  `@orchestral/patterns`: the schemas here are on the public API, so they must
+  be the host's zod instance. Whatever SDK a host's runner uses is the host's
+  own install, at the host's chosen version.
+
+### Known limitations
+
+- **Neither agent bounds its own spend.** An `AgentPattern` has no `ctx.askUser`
+  and no cost gate, and neither of these two declares a `stopWhen` — the
+  step-count cap belongs to whoever runs the agent. Cost is not in the finish
+  envelope either: the runtime fills `stepCount`, and no per-run accounting
+  exists to report. Size the cap against the pattern's own input bound rather
+  than a chat turn (`agent_long-form-video` costs roughly `maxEvents` × ~7
+  iterations plus ~10 for framing, so at the schema's `maxEvents` cap of 500 a
+  complete run is ~3500 steps), and enforce any real budget ceiling in the
+  `ModelCapability` your host registers.
+
+- **`@alpha`.** The agent seam is still evolving; `createLongFormVideoAgent` and
+  `createOrchestratorAgent` are marked `@alpha`, and a 0.1 → 0.2 reshape of
+  these exports is not a breaking change under the 0.x policy above.

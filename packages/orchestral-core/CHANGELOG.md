@@ -8,57 +8,31 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [Unreleased]
+## [0.1.0] — Initial public release
 
-### Breaking (0.x)
-
-- **`Runtime.reconcile()` is now `Runtime.abandonOrphanedJobs()`.** Same
-  signature, same behaviour — the old name lied. "Reconcile" reads, in a
-  distributed-systems context, as *converge to the desired state*, so callers
-  assumed a crashed job would be picked back up. It never was: the call finds
-  job rows left `queued` / `running` with no live controller and marks them
-  terminal `'stale'`, emitting `job:stale`. Nothing is resumed.
-
-  ```diff
-  - const stale = await runtime.reconcile()
-  + const stale = await runtime.abandonOrphanedJobs()
-  ```
-
-  The interface doc no longer hedges that a durable substrate "may re-attach
-  and resume" behind this method: a substrate that can genuinely resume lost
-  work should expose that as its own call, so the rows this one returns are
-  always safe to read as dead.
-
-- **The discovery layer moved out to `@orchestral/discovery`.** `PatternSearchIndex`,
-  `handleFindPattern` and their types (`PatternSearchFilter`,
-  `SkippedPatternRecord`, `FindPatternResult`, `FindPatternMatch`,
-  `FindPatternOutputsSummary`, `HandleFindPatternOptions`) are no longer
-  exported from this package. Add `@orchestral/discovery` and import them from
-  there — the code is unchanged, so the fix is the import line:
-
-  ```diff
-  - import { PatternSearchIndex, handleFindPattern } from '@orchestral/core'
-  + import { PatternSearchIndex, handleFindPattern } from '@orchestral/discovery'
-  ```
-
-  `@orchestral/runtime` already depends on the new package, so a host that
-  drives its agent loop through `InlineRuntime` needs no change.
-
-  Core is the contract; which retrieval algorithm ranks a catalog is a product
-  decision a host may want to replace (embeddings, a hosted search service, a
-  hand-written router), and it dragged a search dependency into a package that
-  otherwise has none. **`minisearch` is no longer a dependency of
-  `@orchestral/core`.**
-
-  **What deliberately stayed:** `FindPatternInputSchema` / `FindPatternInput`
-  are still exported here, alongside `DispatchPatternInputSchema`. They are the
-  find_pattern *wire contract* — `buildCatalogDescriptors` serialises the
-  schema into the fixed tool definition and a host validates an incoming tool
-  call against it, neither of which needs a search index. `buildCatalogDescriptors`
-  and `buildAlwaysLoadDescriptors` also stay: catalog rendering is contract
-  work, and `AgentToolDescriptor` is the shape `buildFinishDescriptor` returns.
+First public release. `@orchestral/core` is the substrate-agnostic vocabulary and
+contracts at the centre of Orchestral. It ships **no execution engine** and
+imports **no provider SDK**: you bring a runtime (`@orchestral/runtime`), a
+pattern catalog (`@orchestral/patterns`), and a small `ModelCapability.call`
+adapter over whichever provider SDK you use.
 
 ### Added
+
+- **The Pattern model.** `Pattern` is a union of three kinds — atomic
+  (one capability call), meta (a composed pipeline), and agent (a tool loop).
+  Atomic patterns are authored with `defineAtomicPattern(init)`; inputs and
+  outputs are zod schemas, so the same definition drives runtime validation and
+  the JSON Schema handed to an LLM (`toJsonSchema`).
+
+- **Capability routing and semantic fallback.** `ModelCapability` describes what
+  a model can do; `createDefaultCapabilityRouter` resolves a pattern to one.
+  When no model can serve a capability, a Pattern's declared `Alternative`s name
+  a different Pattern that reaches a degraded but real result, with the
+  degradation declared up front (`preserves` / `losses`). Declaring a path does
+  not make it fire: whether a runtime redirects through one is the runtime's
+  policy, and `@orchestral/runtime` keeps automatic redirects off by default
+  (`InlineRuntimeInit.alternatives`), failing with the applicable paths named
+  instead. These types describe the paths; they do not promise one is taken.
 
 - **Routing visibility (`CapabilityRouter.explain`).** An optional third method
   on the interface — `createDefaultCapabilityRouter` implements it — returning a
@@ -78,6 +52,42 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `router.explain?.(...)`. `tier` appears as a selection rule and never as a
   drop stage, matching the fact that it biases selection without eliminating
   anyone.
+
+- **Adapter-contract versioning.** `ModelCapability.specificationVersion`
+  declares which generation of the `call` contract a host adapter implements;
+  `MODEL_SPEC_VERSION` is the constant a new adapter references, and
+  `SUPPORTED_MODEL_SPEC_VERSIONS` is every generation this build can execute.
+  The dispatch path runs `assertSupportedModelSpecVersion(model)` immediately
+  before `call`, so an adapter compiled against a newer `@orchestral/core`,
+  shipped separately and wired into an older runtime, fails with a structured
+  `MODEL_SPEC_VERSION_UNSUPPORTED` (`ModelSpecVersionUnsupportedError`, whose
+  `diagnostic` carries the received and supported versions) instead of reaching
+  a signature the runtime no longer matches. An envelope that declares nothing
+  is read as the pre-versioning generation and dispatches unchanged. The field
+  sits on the runtime envelope rather than on `ModelCapabilityRecord`: it
+  describes the host code that implements `call`, not the model, so none of it
+  is persistable. Hosts driving their own dispatch loop should call the guard at
+  the same seam.
+
+- **Job lifecycle contracts.** `Job` / `JobStore` / `Runtime`, plus
+  `InMemoryJobStore` as the reference store. `JobEvent` covers creation,
+  progress, completion, failure, and `job:alternative-selected` — fired once per
+  redirect hop with the alternative's id, description, target pattern, and
+  declared degradation (`preserves` / `losses`), so a subscriber can say "we
+  degraded to X" instead of seeing an indistinguishable completion.
+  `Runtime.abandonOrphanedJobs()` is abandonment with bookkeeping on every
+  substrate: rows a dead process left `queued` / `running` are marked terminal
+  `'stale'` and emitted as `job:stale`, and nothing is resumed. A substrate that
+  can genuinely resume lost work exposes that as its own call, so the rows this
+  one returns are always safe to read as dead.
+
+- **Registry.** `PatternRegistry` registers patterns, strips authoring-side
+  `alternatives` into an attachment table, and warns on suspect output schemas
+  (`OUTPUTS_UNBOUNDED_FIELDS`). `resolveNamespace` is the one normalization
+  (`namespace ?? inferNamespace(id)`) the registry and a search index share; use
+  it rather than `inferNamespace`, which ignores an explicit `pattern.namespace`.
+  Patterns whose modality group cannot be inferred land in the `uncategorized`
+  namespace instead of a wrong one.
 
 - **Pattern-package convention (`"orchestral"` in package.json) and
   `PatternRegistry.addFromManifest(manifest, module, ops?, options?)`.** A
@@ -110,67 +120,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   activation, and loading a package still runs its code like any import.
   `@orchestral/patterns` and `@orchestral/agent` both carry the field.
 
-### Breaking (0.x)
-
-- **Removed all declaration-only metadata.** These fields and types were
-  documented as "declared but not implemented" — nothing in the library read
-  them, so they promised behaviour that never existed:
-  - `ModelCapability.cost` / `.latencyMs` / `.maxConcurrency` (media
-    generation cost is not reliably computable up front; cost-aware routing
-    belongs in the host's `getModels` ordering or a custom router).
-  - `Alternative.costMultiplier` / `.qualityDelta`, and the `qualityDelta`
-    field on the `job:alternative-selected` event.
-  - The `'budget-below'` arm of `AlternativeAppliesWhen` and its builder
-    `whenBudgetBelow` (there was never a budget source to evaluate it).
-  - The `BudgetGuard`, `Tracer`, and `Span` interfaces, and the
-    `ExecutionContext.budget` / `.tracer` fields (both `@alpha`,
-    never called by the library).
-
-  `ModelCapability.tier` stays: the router genuinely reads it when
-  `ResolveContext.tier` is passed. If a removed field returns, it will land
-  together with the behaviour that enforces it.
-
-## [0.1.0] - 2026-08-16 — Initial public release
-
-First public release. `@orchestral/core` is the substrate-agnostic vocabulary and
-contracts at the centre of Orchestral. It ships **no execution engine** and
-imports **no provider SDK**: you bring a runtime (`@orchestral/runtime`), a
-pattern catalog (`@orchestral/patterns`), and a small `ModelCapability.call`
-adapter over whichever provider SDK you use.
-
-### Added
-
-- **The Pattern model.** `Pattern` is a union of three kinds — atomic
-  (one capability call), meta (a composed pipeline), and agent (a tool loop).
-  Atomic patterns are authored with `defineAtomicPattern(init)`; inputs and
-  outputs are zod schemas, so the same definition drives runtime validation and
-  the JSON Schema handed to an LLM (`toJsonSchema`).
-
-- **Capability routing and semantic fallback.** `ModelCapability` describes what
-  a model can do; `createDefaultCapabilityRouter` resolves a pattern to one.
-  When no model can serve a capability, a Pattern's declared `Alternative`s
-  redirect the job to a different Pattern that reaches a degraded but real
-  result, with the degradation declared up front (`preserves` / `losses` /
-  `qualityDelta`).
-
-- **Job lifecycle contracts.** `Job` / `JobStore` / `Runtime`, plus
-  `InMemoryJobStore` as the reference store. `JobEvent` covers creation,
-  progress, completion, failure, and `job:alternative-selected` — fired once per
-  redirect hop with the alternative's id, description, target pattern, and
-  declared degradation, so a subscriber can say "we degraded to X" instead of
-  seeing an indistinguishable completion.
-
-- **Registry and discovery.** `PatternRegistry` registers patterns, strips
-  authoring-side `alternatives` into an attachment table, and warns on suspect
-  output schemas. `PatternSearchIndex.search(query, filters, k)` backs a
-  `find_pattern` tool; `FindPatternResult.diagnostic.droppedBy` reports which
-  filter ate the candidates (including `modality`) — the most actionable thing
-  to tell an LLM staring at an empty result list. `resolveNamespace` is the one
-  normalization (`namespace ?? inferNamespace(id)`) the registry and index
-  share; use it rather than `inferNamespace`, which ignores an explicit
-  `pattern.namespace`. Patterns whose modality group cannot be inferred land in
-  the `uncategorized` namespace instead of a wrong one.
-
 - **Tool-surface builders.** `buildCatalogDescriptors` renders registered
   patterns into LLM-facing tool descriptors (`BuildCatalogDescriptorsOptions`
   lets a host that replaced the reference resolver correct the
@@ -180,6 +129,21 @@ adapter over whichever provider SDK you use.
   compiled in. `auditOutputsSchema` returns `{ unbounded, notTraversed }` —
   boundedness is proven only when both lists are empty, since an unresolved
   `$ref` or an open object can hide a string of any length.
+
+- **Router tool wire contracts (`FindPatternInputSchema` /
+  `DispatchPatternInputSchema`).** The input schemas of the two fixed router
+  tools: `buildCatalogDescriptors` serialises them into the tool definitions and
+  a host validates an incoming tool call against them, neither of which needs a
+  search index. The retrieval that *answers* a validated `find_pattern` call —
+  the BM25 index over the registry plus the `handleFindPattern` handler, and the
+  diagnostic naming which filter ate the candidates — is provided by
+  [`@orchestral/discovery`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-discovery).
+  Core is the contract; which retrieval algorithm ranks a catalog is a product
+  decision a host may want to replace (embeddings, a hosted search service, a
+  hand-written router), and keeping it out is why this package has **no runtime
+  dependencies at all**. `@orchestral/runtime` already depends on discovery, so
+  a host that drives its agent loop through `InlineRuntime` never installs it by
+  hand.
 
 - **Assets.** Asset-ledger primitives plus `toAssetUri` / `isAssetUri` /
   `fromAssetUri` over the neutral default `asset://` scheme, and
@@ -217,23 +181,35 @@ Marked `@alpha`; may change in a minor release without a deprecation cycle:
   match plain handles.
 - `deriveReferencesSchema` — a test seam. Production code goes through
   `extendInputsWithReferences`.
+- The asset-store surface (`AssetStore` / `InMemoryAssetStore` /
+  `RecordAssetInput` / `AssetRecord` / `ListContextFilter`), slash-command
+  dispatch (`resolveSlashDispatch` and its result types), per-surface exposure
+  resolution (`resolveExposure` / `ResolvedExposure`), `StopConditionDescriptor`,
+  and the agent sidecar (`AgentDispatchEnvelope`, `Runtime.getAgentEnvelope?`).
+  Each carries the marker in the API report; grep `@alpha` in `etc/core.api.md`
+  for the authoritative list.
 
 ### Known limitations
 
 Fields that exist on the public types but are not acted on in 0.x — declared for
-planners and UIs, not enforced by this library:
+hosts, planners and UIs, not enforced by this library:
 
 | Field | Status in 0.x |
 | --- | --- |
-| `ModelCapability.cost` / `.latencyMs` | Never read. The default router does not rank by cost or latency. |
 | `ModelCapability.tier` | Read only when the caller passes `ResolveContext.tier`, and then best-effort: first tier match wins, otherwise it falls through. |
-| `ModelCapability.maxConcurrency` | Never enforced — neither the router nor `InlineRuntime` throttles. Your dispatch layer must apply the limit. |
-| `Alternative.costMultiplier` / `.qualityDelta` | Planner / UI metadata only; they do not reorder alternatives. |
-| `appliesWhen: whenBudgetBelow(...)` | Never matches. No budget source is wired in, so this arm always evaluates false. |
+| `ModelCapabilityBlob.streaming` / `.structuredOutput` / `.toolUse` / `.contextWindow` / `.deprecated` | Catalog metadata for the host's own Settings UI and dispatch heuristics. Neither the router nor the reference runtime reads them. |
+| `ResolveContext.maxRetries` | One counter for two jobs. A model that fails — even transiently — is added to `excludeModel` for the rest of the dispatch, so it is skipped rather than retried; "retry the same model N times, then fall back" is not expressible. |
 
-With none of these in play, the default router's ranking is: pinned model →
-preferred provider → tier match (if requested) → first candidate in declared
-order. Ordering what `getModels` returns is how you control routing today.
+There is deliberately no cost or latency metadata on these types: media
+generation cost is not reliably computable up front, so anything cost-aware
+belongs in your own `getModels` ordering or a custom router. If such a field
+ever lands, it lands together with the behaviour that enforces it.
+
+Routing today is therefore ordering plus a small precedence. Candidates are
+filtered and ordered by the stored enablement order (`getCapabilityOrder`) or by
+the caller's own `ResolveContext.rankedModels`, falling back to the order
+`getModels` returned; selection over what survives is pinned model → preferred
+provider → tier match (if requested) → first candidate.
 
 There is no per-step timeout and no job TTL. Cancellation is by `AbortSignal`
 (`ctx.signal`); wall-clock deadlines are the host's to impose.

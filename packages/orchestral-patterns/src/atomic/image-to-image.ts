@@ -94,8 +94,13 @@ export interface ImageToImagePatternInit {
  * round-trip — subject identity and composition do not — and an inpaint `mask`
  * has no meaning on the redirect target, which regenerates the whole frame.
  *
- * The redirect target must be registered alongside this Pattern; the runtime
- * raises ALTERNATIVE_PATTERN_NOT_REGISTERED when it is not.
+ * Declaring the path does not take it: @orchestral/runtime only redirects when
+ * constructed with `alternatives: 'auto'`, and raises
+ * ALTERNATIVE_PATTERN_NOT_REGISTERED in that mode if the target is not
+ * registered alongside this Pattern. Under the default `'off'` the dispatch
+ * fails with ALTERNATIVES_NOT_ENABLED, which names this path rather than
+ * running it, so the target need not be registered for that failure to be
+ * well-formed.
  */
 const VIA_CAPTION_ALTERNATIVE: Alternative<
   ImageToImageInput,

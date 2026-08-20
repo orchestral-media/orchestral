@@ -31,7 +31,7 @@ Prompt constants derived from ViMax:
 Not derived from ViMax: the short-form marketing prompts (`explainer-short`,
 `lyrics-to-mv`, `product-ad-short`, `product-photo-pack`, `ugc-testimonial`).
 
-The agent prompts moved to `@orchestral/agent`, which carries its own
+The agent prompts live in `@orchestral/agent`, which carries its own
 `CREDITS.md` for the one ViMax-derived constant among them
 (`CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT`).
 

@@ -20,8 +20,10 @@ It ships two tiers, all building on `@orchestral/core`:
 
 Agent-kind patterns are **not** here: they live in the optional
 [`@orchestral/agent`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-agent)
-package, together with a reference `AgentRunImpl`. Agent support is an opt-in
-extension; this catalog is atomic + meta.
+package, which ships the pattern declarations only — the `AgentRunImpl` that
+drives their tool loop is yours to inject, with a reference wiring in
+`examples/agent-hello-world`. Agent support is an opt-in extension; this catalog
+is atomic + meta.
 
 ```ts
 import { PatternRegistry } from '@orchestral/core'
@@ -123,7 +125,7 @@ from the five exemplars: `src/meta/product-ad-short/`,
 
 Every helper they import from `../_shared/meta-utils` (`firstAssetId`,
 `parseJsonWithSchema`, `resolvePrompts`, `styleTag`, `sumCosts`,
-`toJsonSchema`, and the `MetaCommonDeps` type) is re-exported from the
+`toJsonSchemaCached`, and the `MetaCommonDeps` type) is re-exported from the
 package root, so a copied exemplar compiles once you rewrite that one relative
 import to `@orchestral/patterns`.
 

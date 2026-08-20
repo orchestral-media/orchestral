@@ -8,62 +8,29 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [Unreleased]
-
-### Added
-
-- **Ships an `"orchestral"` manifest in package.json** — the pattern-package
-  convention core defines (`OrchestralManifestSchema`). It declares all 25
-  patterns as `{ id, kind, export }`, and the six deliverable metas that need
-  ffmpeg-shaped host operations name their own on the entry
-  (`meta_explainer-short` → `concatVideos` + `stillToVideo`,
-  `meta_ugc-testimonial` → four, and so on). The other nineteen declare none,
-  so a host with no multimedia backend still loads them:
-  `registry.addFromManifest(pkg.orchestral, patterns, undefined, { missingOps: 'skip' })`
-  registers those nineteen and reports the six it left out. With the ops in
-  hand, `registry.addFromManifest(pkg.orchestral, patterns, ops)` takes the lot.
-  `npm view @orchestral/patterns orchestral` prints all of it without
-  installing; the `orchestral-pattern` npm keyword is there for the same reason.
-  No source change — the factories the manifest names are the ones already
-  exported.
-
-### Breaking (0.x)
-
-- **The two agent Patterns moved to `@orchestral/agent`.**
-  `createLongFormVideoAgent` / `AGENT_LONG_FORM_VIDEO_PATTERN_ID` /
-  `AgentLongFormVideoInputSchema` / `AgentLongFormVideoInput` and
-  `createOrchestratorAgent` / `AGENT_ORCHESTRATOR_PATTERN_ID` /
-  `OrchestratorInputSchema` / `OrchestratorInput` are no longer exported here,
-  and the `"orchestral"` manifest declares 25 patterns instead of 27. This
-  package is now atomic + meta only: agent support is an optional extension, not
-  part of the catalog. The patterns themselves are unchanged — install
-  `@orchestral/agent` and change the import path. (`@orchestral/agent` depends
-  on this package: its agents still compose this catalog by pattern id.)
-
-- Follows core's removal of declaration-only metadata: the `image-to-image`
-  via-caption alternative no longer declares `costMultiplier` /
-  `qualityDelta`. Its `preserves` / `losses` degradation notice is unchanged.
-
-## [0.1.0] - 2026-08-16 — Initial public release
+## [0.1.0] — Initial public release
 
 First public release. `@orchestral/patterns` is the first-party Pattern catalog
-for Orchestral: atomic capability patterns, composed meta pipelines, and agent
-loops, with their prompts inlined and their inputs/outputs zod-typed. It calls
-no provider SDK — every model call goes through the `ModelCapability` your host
-registers.
+for Orchestral: atomic capability patterns and composed meta pipelines, with
+their prompts inlined and their inputs/outputs zod-typed. It calls no provider
+SDK — every model call goes through the `ModelCapability` your host registers.
+Agent-kind patterns are not part of this catalog; they ship in the optional
+`@orchestral/agent`, which composes this catalog by pattern id.
 
 ### Added
 
-- **Atomic capability patterns.** Text-to-image, image-to-image, text-to-video,
-  image-to-video, text-to-speech, text-to-audio, image-to-text,
-  automatic-speech-recognition, text-generation, and more — one pattern per
-  capability, each a thin typed envelope over the resolved model call.
+- **Ten atomic capability patterns.** `text-to-image`, `image-to-image`,
+  `image-to-text`, `text-to-video`, `image-to-video`, `video-to-video`,
+  `text-to-speech`, `text-to-audio`, `automatic-speech-recognition`, and
+  `text-generation` — one pattern per capability, each a thin typed envelope
+  over the resolved model call.
 
-- **Meta pipelines and agents.** Composed deliverables (storyboard, script
-  planning, idea-to-video, explainer short, product ad short, lyrics-to-MV,
-  best-of-N image selection, prose chunking, and others) plus agent patterns
-  (long-form video, orchestrator) that drive a tool loop instead of a fixed
-  graph.
+- **Fifteen meta pipelines.** Composed deliverables (explainer short, product ad
+  short, product photo pack, UGC testimonial, lyrics-to-MV, idea-to-video)
+  alongside the planning and utility pipelines they and your own metas build on
+  (storyboard, script planning, script-to-video, novel-to-events,
+  event-to-script, prose chunking, reference-image cascade, best-of-N image
+  selection, and the `via-caption` image-edit fallback).
 
 - **Typed pattern functions.** `textGeneration`, `textToImage`, `imageToText`,
   `textToSpeech`, `textToAudio`, `imageToVideo`, `imageToImage`,
@@ -83,22 +50,37 @@ registers.
 
 - **Uniform cost envelope.** Every meta output carries `cost` / `latencyMs`
   (aggregated across sub-steps; wall-clock compose time), so a generic consumer
-  can rely on those fields on any dispatch. Agent patterns keep their distinct
-  reserved-cost envelope contract.
+  can rely on those fields on any dispatch.
 
 - **Meta authoring surface.** `MetaCommonDeps` (the host-op contract every
   deliverable meta `Pick`s from), plus `firstAssetId`, `parseJsonWithSchema`,
-  `styleTag`, `sumCosts`, and `toJsonSchemaCached` — the helpers a third-party
-  meta needs to build the same cost envelope and prompt fragments the
-  first-party metas do. (`toJsonSchemaCached` is memoised and returns a shared
-  object per schema — treat the result as immutable; the `-Cached` suffix keeps
-  it distinct from `@orchestral/core`'s uncached `toJsonSchema`.)
+  `resolvePrompts`, `styleTag`, `sumCosts`, and `toJsonSchemaCached` — the
+  helpers a third-party meta needs to build the same cost envelope and prompt
+  fragments the first-party metas do. (`toJsonSchemaCached` is memoised and
+  returns a shared object per schema — treat the result as immutable; the
+  `-Cached` suffix keeps it distinct from `@orchestral/core`'s uncached
+  `toJsonSchema`.)
 
 - **Cost gates on the deliverable metas.** Six metas — `meta_explainer-short`,
   `meta_idea2video`, `meta_lyrics-to-mv`, `meta_product-ad-short`,
   `meta_product-photo-pack`, and `meta_ugc-testimonial` — put their paid
   multi-generation steps behind a `ctx.askUser` checkpoint. The pipeline metas
-  and the agent patterns do not; see *Known limitations*.
+  do not; see *Known limitations*.
+
+- **Ships an `"orchestral"` manifest in package.json** — the pattern-package
+  convention core defines (`OrchestralManifestSchema`). It declares all 25
+  patterns as `{ id, kind, export }`, and `requiredOps` is declared *per
+  pattern*: only six metas name host operations
+  (`meta_explainer-short` → `concatVideos` + `stillToVideo`,
+  `meta_ugc-testimonial` → four, `meta_lyrics-to-mv` → two,
+  `meta_product-ad-short` → two, `meta_script2video` and `meta_idea2video` →
+  `concatVideos`). The other nineteen declare none, so a host with no
+  multimedia backend still loads them:
+  `registry.addFromManifest(pkg.orchestral, patterns, undefined, { missingOps: 'skip' })`
+  registers those nineteen and reports the six it left out. With the ops in
+  hand, `registry.addFromManifest(pkg.orchestral, patterns, ops)` takes the lot.
+  `npm view @orchestral/patterns orchestral` prints all of it without
+  installing; the `orchestral-pattern` npm keyword is there for the same reason.
 
 - **`CREDITS.md`** records the provenance of prompt text derived from
   HKUDS/ViMax (MIT): the affected constants are listed file by file and the MIT
@@ -114,12 +96,21 @@ registers.
 
 ### Registration requirements
 
-- `image-to-image` ships a default `via-caption` Alternative, so
-  **`meta_image-to-image-via-caption` must be registered alongside it**. A host
-  that registers `image-to-image` without the redirect target fails the job with
-  `ALTERNATIVE_PATTERN_NOT_REGISTERED` the first time the fallback fires. Pass
-  `alternatives: []` to `createImageToImagePattern` if you do not want the
-  fallback.
+- `image-to-image` is the only pattern here that ships a default Alternative
+  (`via-caption` → `meta_image-to-image-via-caption`). Whether it is ever taken
+  is the runtime's call, not this package's: `InlineRuntime`'s
+  `alternatives: 'auto' | 'off'` switch **defaults to `'off'`**, so out of the
+  box an unservable `image-to-image` fails with the structured
+  `ALTERNATIVES_NOT_ENABLED` error that names `meta_image-to-image-via-caption`
+  as a path you could dispatch yourself — nothing is redirected, and nothing
+  extra has to be registered for that failure to be well-formed.
+  **`meta_image-to-image-via-caption` must be registered alongside
+  `image-to-image` only if you construct the runtime with
+  `alternatives: 'auto'`**; in that mode a missing redirect target fails the job
+  with `ALTERNATIVE_PATTERN_NOT_REGISTERED` the first time the fallback fires.
+  Pass `alternatives: []` to `createImageToImagePattern` to drop the declaration
+  altogether — the failure is then the router's plain `NO_MODEL_FOR_CAPABILITY`,
+  with no degraded path offered.
 
 ### Known limitations
 
@@ -132,20 +123,18 @@ registers.
   side and back off the front), then one first frame and one clip per shot, and
   with `transitionMode: 'between-shots'` a further N-1 transition clips — so a
   script the model reads as twelve shots with five characters is 15 + 12 + 12
-  (+ 11) paid generations from a single dispatch. The two agent patterns
-  (`agent_long-form-video`, `agent_orchestrator`) likewise never call
-  `ctx.askUser`; they rely on the reserved-cost envelope the host enforces. If
-  your host bills real money, enforce a budget ceiling in the `ModelCapability`
-  you register — these patterns will not stop on their own.
-  `meta_image-best-of-n` is the exception among the ungated metas: its `n` is
-  capped at 8 by the input schema.
+  (+ 11) paid generations from a single dispatch. If your host bills real money,
+  enforce a budget ceiling in the `ModelCapability` you register — these
+  patterns will not stop on their own. `meta_image-best-of-n` is the exception
+  among the ungated metas: its `n` is capped at 8 by the input schema.
 
-- **`via-caption` image editing is lossy by construction.** When no
-  image-to-image model is available, the job redirects to
-  `meta_image-to-image-via-caption`, which captions the source and re-renders it
-  from that caption plus the edit instruction: style survives, subject identity
-  and composition do not, and an inpaint `mask` is ignored because the whole
-  frame is regenerated. The output sets `degraded` to literal `true` and echoes
-  the resolution it asked for as `requestedSize`, so an adapter that ignores the
-  requested size shows up as a visible discrepancy rather than a silent
-  downgrade.
+- **`via-caption` image editing is lossy by construction.** When a host has
+  opted into automatic alternatives and no image-to-image model is available,
+  the job redirects to `meta_image-to-image-via-caption`, which captions the
+  source and re-renders it from that caption plus the edit instruction: style
+  survives, subject identity and composition do not, and an inpaint `mask` is
+  ignored because the whole frame is regenerated. The output sets `degraded` to
+  literal `true` and echoes the resolution it asked for as `requestedSize`, so
+  an adapter that ignores the requested size shows up as a visible discrepancy
+  rather than a silent downgrade. Dispatching the meta directly has the same
+  properties — the losses are the path's, not the redirect's.

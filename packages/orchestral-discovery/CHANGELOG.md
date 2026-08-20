@@ -8,14 +8,14 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [Unreleased]
+## [0.1.0] — Initial public release
 
 ### Added
 
-- **Initial release — the Pattern discovery layer, extracted from
-  `@orchestral/core`.** Everything here previously shipped on the core barrel;
-  nothing changed but the package it lives in (see core's `## [Unreleased]`
-  for the matching removal).
+- **The Pattern discovery layer.** Retrieval over a `PatternRegistry`, kept out
+  of `@orchestral/core` so the contract package carries no search engine and no
+  dependency beyond zod. A host that never puts a `find_pattern` tool in front
+  of a model never installs this.
 
   - `PatternSearchIndex` — BM25 (minisearch) over a `PatternRegistry`,
     indexing tool descriptions, `searchHint`, id tokens and slot vocabulary,
@@ -33,9 +33,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `FindPatternMatch`, `FindPatternOutputsSummary`,
     `HandleFindPatternOptions`.
 
-  The `find_pattern` **wire contract** deliberately stayed behind in
-  `@orchestral/core`: `FindPatternInputSchema` / `FindPatternInput` sit next to
+  The `find_pattern` **wire contract** lives in `@orchestral/core` instead:
+  `FindPatternInputSchema` / `FindPatternInput` sit next to
   `DispatchPatternInputSchema`, because rendering the fixed tool definition
-  (`buildCatalogDescriptors`) and validating an incoming call are contract
-  work that must not require a search index. This package owns only the
-  retrieval that answers a validated call.
+  (`buildCatalogDescriptors`) and validating an incoming call are contract work
+  that must not require a search index. This package owns only the retrieval
+  that answers a validated call.

@@ -218,9 +218,16 @@ persist one as an identifier.
 
 ## Semantic fallback (`Alternative`)
 
-The capability-level fallback in the tagline is declarative data on a pattern.
-When the router reports the parent capability unsatisfiable, the runtime
-redirects the dispatch through another pattern instead of failing:
+The capability-level fallback in the tagline is declarative data on a pattern:
+when the router reports the parent capability unsatisfiable, an `Alternative`
+names another pattern that reaches a degraded but real result.
+
+Declaring one does not make it fire. Whether a runtime redirects through it is
+the runtime's policy, and `@orchestral/runtime` keeps automatic redirects
+**off** by default (`InlineRuntimeInit.alternatives`), failing with the
+applicable paths named instead — see
+[runtime § Alternative fallback is opt-in](../orchestral-runtime/README.md#alternative-fallback-is-opt-in).
+These types describe the paths; they do not promise one is taken:
 
 ```ts
 // Shipped on `image-to-image` in @orchestral/patterns: with no image-to-image
@@ -444,9 +451,13 @@ only if you drive the agent loop yourself.
 
 ## Routing knobs in 0.x
 
-The default router's ranking is: pinned model → preferred provider → tier match
-(if requested) → **first candidate in declared order**. Ordering `getModels`'
-return is how you control routing today.
+The default router's selection order is: pinned model → preferred provider →
+tier match (if requested) → **first surviving candidate**. What "first" means is
+the ranking, and the ranking is yours: `ResolveContext.rankedModels` when the
+caller supplies one, otherwise the enablement order from `getCapabilityOrder`,
+and only failing both does `getModels`' own return order decide. Use
+`router.explain?.(capability)` to see which of the three is in play for a given
+call rather than inferring it.
 
 The one soft knob is `ModelCapability.tier`: it is read **only** when the
 caller passes `ResolveContext.tier`, and then best-effort — the first tier
