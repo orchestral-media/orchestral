@@ -1,11 +1,10 @@
-// Shared storyboard-design prompt — the single inlined copy of the
-// `storyboard-design` SKILL.md body, used by every meta that decomposes a
+// Shared storyboard-design prompt — used by every meta that decomposes a
 // scene + character list into a shot-by-shot storyboard.
 //
 // Two metas consume it today: meta_script2video (Stage 3) and meta_storyboard
 // (its decomposition step). Keeping ONE copy here (rather than re-inlining per
-// meta) avoids the two drifting apart. This const is the authoritative,
-// self-contained copy of the storyboard-design prompt body.
+// meta) avoids the two drifting apart. This const is the authoritative copy;
+// upstream provenance is recorded in CREDITS.md.
 
 export const STORYBOARD_DESIGN_PROMPT = `# Storyboard Design
 

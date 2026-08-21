@@ -31,16 +31,16 @@ import { auditOutputsSchema } from './output-fields'
  *                              Pattern.extensible
  *   • `byNamespace()`        — catalog rendering grouped by namespace
  *
- * The older interface (`register` / `get` / `has` / `resolveShortName` /
- * `listForCatalog`) is retained with unchanged behavior.
+ * `register` / `get` / `has` / `resolveShortName` / `listForCatalog` are the
+ * lower-level accessors the above are built on.
  */
 export class PatternRegistry {
   private readonly byId = new Map<PatternId, Pattern>()
   private readonly byShortName = new Map<string, PatternId>()
   private readonly byNamespaceMap = new Map<NamespaceId, Set<PatternId>>()
-  // Source of truth for alternatives (replaces reading the Pattern.alternatives
-  // field; after the dispatch switchover the Pattern field is only a spec-sugar
-  // entry point — actual runtime data is read entirely from here).
+  // Source of truth for alternatives. `Pattern.alternatives` is a spec-sugar
+  // entry point only — `add()` / `register()` strip it into this map, and every
+  // runtime read goes through here.
   private readonly alternativesByParentId = new Map<
     PatternId,
     Alternative<unknown, unknown>[]
@@ -344,9 +344,8 @@ export class PatternRegistry {
   }
 
   /**
-   * Get the Pattern itself + all attachments (built-in + third-party). The
-   * dispatch path switched to this and no longer reads `pattern.alternatives`
-   * directly.
+   * Get the Pattern itself + all attachments (built-in + third-party). This is
+   * what the dispatch path reads; it never reads `pattern.alternatives`.
    */
   getEntry(id: PatternId): RegistryEntry | undefined {
     const pattern = this.byId.get(id)

@@ -6,6 +6,8 @@ export {
   type AgentAssetBridge,
   type InlineRuntimeInit,
   type ResolveCtxProvider,
+  type TransientFailureInfo,
+  type TransientRetryConfig,
 } from './inline'
 
 export { forkExecutionContext } from './fork-context'

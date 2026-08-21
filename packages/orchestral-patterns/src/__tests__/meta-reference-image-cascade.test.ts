@@ -9,7 +9,7 @@ import {
 
 /**
  * Pull the input-block tags a prompt body declares (backticked `<TAG>` /
- * `</TAG>` forms). Guards against prompt↔code tag drift: the SKILL body tells
+ * `</TAG>` forms). Guards against prompt↔code tag drift: the prompt body tells
  * the model which wrappers to read, so the dispatched user prompt must emit
  * exactly those.
  */

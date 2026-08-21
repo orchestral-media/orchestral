@@ -13,9 +13,9 @@
 //    collapse N "identical" dispatches into one.
 //  - Judge call uses `image-to-text` multi-image input (the worker supports
 //    multi-image + structured output).
-//  - The judge prompt is inlined as a string constant in ./prompts (copied
-//    verbatim from the source skill body). This meta is self-contained for its
-//    prompt: no SkillLoader, no host binding for prompt loading.
+//  - The judge prompt is inlined as a string constant in ./prompts. This meta
+//    is self-contained for its prompt: nothing is loaded at dispatch, no host
+//    binding for prompt loading.
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'

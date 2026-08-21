@@ -41,7 +41,7 @@ export const ImageToTextPrimaryInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Optional system preamble (e.g. a SKILL.md body fed by a meta Pattern). When provided, the host adapter sends this to the provider system slot and ignores the mode-default system text.',
+      'Optional system preamble — a meta Pattern typically passes the prompt body that governs the step. When provided, the host adapter sends this to the provider system slot and ignores the mode-default system text.',
     ),
   prompt: z
     .string()
@@ -59,9 +59,9 @@ export const ImageToTextPrimaryInputSchema = z.object({
     .describe(
       'Opaque JSON schema constraining `responseFormat: json` output; runtime adapter normalizes per provider.',
     ),
-  // `providerOptions` placeholder removed — derive injects typed schema at
-  // find_pattern render time based on the resolved model (e.g. Anthropic
-  // thinking, OpenAI reasoning_effort).
+  // No `providerOptions` field here on purpose: `deriveLlmFacingInputSchema`
+  // injects a typed one at find_pattern render time, based on the resolved
+  // model (e.g. Anthropic thinking, OpenAI reasoning_effort).
 })
 
 const ASSET_NEEDS = [

@@ -19,9 +19,9 @@
 //      directly. Optionally, bestOfN runs meta_image-best-of-n to generate N
 //      candidates and pick the best.
 //
-// Shares one storyboard-design prompt with meta_script2video (../_shared,
-// byte-equal to the SKILL.md and guarded by an equivalence test) — the
-// SKILL.md is the single source of truth for the prompt.
+// Shares one storyboard-design prompt with meta_script2video: both read
+// STORYBOARD_DESIGN_PROMPT from ../_shared/storyboard-design-prompt, which is
+// the single source of truth for that prompt.
 //
 // Key precondition: the runtime must resolve `input.references` handles on
 // meta SUB-steps, not just on top-level dispatches. This meta hands i2i a

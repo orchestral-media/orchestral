@@ -1,6 +1,6 @@
-// agent_long-form-video — the first production AgentPattern. It consumes the
-// character-merge-event-to-novel SKILL and the long-form-video-director
-// "director" SKILL.
+// agent_long-form-video — the first production AgentPattern. It embeds two
+// prompt bodies: the long-form-video "director" workflow, and the
+// character-merge-event-to-novel merge instructions.
 //
 // kind: 'agent' — the LLM decides the per-iteration plan: which sub-meta to
 // dispatch next, when to ask the user via a widget for quality / failure /
@@ -16,15 +16,17 @@
 //   where the LLM can read accumulated context and pick. Scheduling authority
 //   is what distinguishes a meta from an agent.
 //
-// Resume: transcript replay enables crash recovery — the SKILL's RESUME
-// AWARENESS section instructs the LLM to read prior tool calls out of the
-// transcript and skip already-completed events / scenes. No new
-// dispatch-level checkpoint infrastructure is needed.
+// Resume: a crashed or cancelled run is NOT restarted for you. A run resumes
+// only when the host re-dispatches it with `JobSpec.resumeFromRunId`, which
+// replays the recorded transcript back into the loop; the director prompt's
+// RESUME AWARENESS section then tells the LLM to read prior tool calls out of
+// that transcript and skip already-completed events / scenes. That replay is
+// the whole mechanism — no dispatch-level checkpoint infrastructure on top.
 //
-// The two SKILL bodies (director + character-merge) are inlined as string
-// constants in ./prompts (copied verbatim from the source SKILL.md bodies,
-// verified byte-identical by the equivalence test) and baked into loop.system
-// at factory time. No SkillLoader, no host binding for prompt loading.
+// Both prompt bodies (director + character-merge) are string constants in
+// ./prompts, which is their authoritative source — there is no on-disk copy to
+// stay in sync with and nothing is loaded at runtime. The factory bakes them
+// into loop.system. No SkillLoader, no host binding for prompt loading.
 
 import { z } from 'zod'
 import {
@@ -70,11 +72,12 @@ export const AGENT_LONG_FORM_VIDEO_PATTERN_ID = 'agent_long-form-video'
 
 // ── factory note ─────────────────────────────────────────────────────────
 //
-// The factory is no-arg. Prompts are inlined (./prompts) so there is no
-// SkillLoader dep, and the agent's host tool (concat_videos) lives host-side
-// — granted to the loop by patternId — so the Pattern no longer declares a
-// customTools array either. `complete_task` is not a host tool: see the
-// output-mechanism note below.
+// The factory is no-arg: the prompts are inlined (./prompts) so there is no
+// SkillLoader dep, and the Pattern declares no tools of its own. Its one host
+// tool, `concat_videos`, is supplied by the host that runs the loop — it is
+// named in the director prompt and in `loop`'s Stage 5 contract, but appears
+// nowhere in this package, core, or runtime. `complete_task` is not a host
+// tool at all: see the output-mechanism note below.
 //
 // Output mechanism: this pattern declares no `outputs` and no `finish`, so the
 // registry backfills the default finish envelope — outputs

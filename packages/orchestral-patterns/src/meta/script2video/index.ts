@@ -17,8 +17,9 @@
 //                                    child shot = image-to-image (parent frame
 //                                                 as source + missing_info hint))
 //   7. i2v-shot-single             (image-to-video, ∥ per shot, startFrame=frame;
-//                                   cross-shot transitions use i2v-shot-transition,
-//                                   reserved for future orchestration)
+//                                   under transitionMode 'between-shots', N-1
+//                                   extra clips render via i2v-shot-transition
+//                                   and interleave into the concat order)
 //   8. concatenate                 (host op — injected, no HF capability)
 //
 // FIDELITY NOTE: Stage 6 uses image-to-image primary for child shots (the
@@ -26,17 +27,15 @@
 // Subject identity flows naturally: parent shot already encodes characters
 // (themselves drawn via 3-view portrait references), so child shot inherits
 // identity via parent's first frame without re-injecting portrait references.
-// Cross-shot transition videos remain a fidelity follow-up.
 //
-// The 10 stage prompts are inlined as string constants in ./prompts (copied
-// verbatim from the source SKILL.md bodies). This meta is self-contained for
-// its prompts: no SkillLoader, no host binding for prompt loading. It still
-// takes one real host-injected dep — `concatVideos` (Stage 8 has no HF
-// capability). Each inlined prompt corresponds to exactly one atomic
-// dispatch's system/prompt content. `portrait-front/side/back` and
-// `i2v-shot-single/transition` are split pairs — the original
-// `multi-view-portrait` and `i2v-shot-render` SKILLs internally described
-// multi-call sequences, which violated the "Skill = one atomic call" principle.
+// The 10 stage prompts are inlined as string constants in ./prompts. This meta
+// is self-contained for its prompts: nothing is loaded at dispatch, no host
+// binding for prompt loading. It still takes one real host-injected dep —
+// `concatVideos` (Stage 8 has no HF capability). Each inlined prompt
+// corresponds to exactly one atomic dispatch's system/prompt content:
+// `portrait-front/side/back` and `i2v-shot-single/transition` are deliberate
+// splits of what upstream described as single multi-call stages, so that one
+// prompt never spans more than one atomic call.
 
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
@@ -59,7 +58,7 @@ import {
 } from './prompts'
 import { firstAssetId, parseJsonWithSchema, resolvePrompts, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
 
-// ── Per-step response models (mirror each SKILL.md's [Output]) ─────────────
+// ── Per-step response models (mirror each stage prompt's [Output]) ─────────
 
 /** @alpha */
 export const CharacterInSceneSchema = z.object({
@@ -96,7 +95,7 @@ const ShotDecompositionSchema = z.object({
 
 // Camera-tree response schema — Stage 5 output, consumed by Stage 6 to
 // route child shots through image-to-image with their parent's first frame.
-// Mirrors the SKILL.md `camera-tree-construction` [Output] shape:
+// Mirrors CAMERA_TREE_CONSTRUCTION_PROMPT's [Output] shape:
 //   { camera_parent_items: [
 //       { parent_cam_idx | null, parent_shot_idx | null,
 //         reason?, is_parent_fully_covers_child | null,
@@ -111,10 +110,10 @@ const CameraParentItemSchema = z.object({
   missing_info: z.string().nullable().optional(),
 })
 type CameraParentItem = z.infer<typeof CameraParentItemSchema>
-// SKILL.md explicitly allows "null entries ... for free-standing cameras" —
-// camera positions with no parent and no children. They appear at the same
-// array index as the corresponding `cam_idx`, just signalling "root /
-// orphan, no parent shot to consult".
+// CAMERA_TREE_CONSTRUCTION_PROMPT explicitly allows "null entries ... for
+// free-standing cameras" — camera positions with no parent and no children.
+// They appear at the same array index as the corresponding `cam_idx`, just
+// signalling "root / orphan, no parent shot to consult".
 const CameraTreeResponseSchema = z.object({
   camera_parent_items: z.array(CameraParentItemSchema.nullable()),
 })
@@ -258,7 +257,7 @@ export function createScript2VideoMeta(
       // image-to-image's `source` slot (assetNeeds: source[]) receives front.
       //
       // Image-gen atomics (text-to-image / image-to-image) have no system
-      // slot, so each per-view SKILL.md is folded into the prompt prefix.
+      // slot, so each per-view prompt is folded into the prompt prefix.
       const visible = characters.filter((c) => c.isVisible)
       const portraitByCharIdx = new Map<
         number,
@@ -354,7 +353,7 @@ export function createScript2VideoMeta(
       // `frameIds[i]` and `frameIdByShotIdx[shot.idx]` are kept in lock-step,
       // both carrying real assetIds. The array carries the storyboard-order
       // sequence Stage 7 consumes; the map handles parent lookup by
-      // SKILL-reported global `parent_shot_idx`, which is not guaranteed to
+      // model-reported global `parent_shot_idx`, which is not guaranteed to
       // equal the storyboard array position when the LLM emits non-contiguous
       // shot indices. Sub-step source/reference assets flow by assetId via the
       // internal-asset channel (ref.assets), not the LLM-facing handle layer.
@@ -390,9 +389,10 @@ export function createScript2VideoMeta(
           frameId = firstAssetId(childFrame, 'script2video: step')
         } else {
           // Root shot (no parent, or parent frame not yet computed —
-          // defensive: SKILL says the first camera must be the root, so
-          // index 0 is always root and processed first in this loop). The
-          // 3-view portraits feed text-to-image's `reference` slot by assetId.
+          // defensive: the camera-tree prompt says the first camera must be
+          // the root, so index 0 is always root and processed first in this
+          // loop). The 3-view portraits feed text-to-image's `reference` slot
+          // by assetId.
           const rootFrame = await textToImage(
             ctx,
             {
@@ -516,13 +516,11 @@ interface LoadedSkills {
   shotTransition: string
 }
 
-// Stage prompts are compile-time constants (inlined from SKILL.md, verified
-// byte-identical by the equiv test), so "loading" them is a plain object
-// literal — no ctx.compute, no async, no host SkillLoader. Kept as a single
-// helper so compose() reads the same `skills.X` shape it always did. The
-// override merge runs through the shared resolvePrompts (defaults from the
-// const), then this maps the public override keys onto the short compose-side
-// names.
+// Stage prompts are compile-time constants, so "loading" them is a plain
+// object literal — no ctx.compute, no async, nothing read at dispatch. Kept as
+// a single helper so compose() reads one `skills.X` shape. The override merge
+// runs through the shared resolvePrompts (defaults from the const), then this
+// maps the public override keys onto the short compose-side names.
 function loadSkills(overrides?: ScriptToVideoPromptOverrides): LoadedSkills {
   const p = resolvePrompts(SCRIPT2VIDEO_DEFAULT_PROMPTS, overrides)
   return {
@@ -541,10 +539,10 @@ function loadSkills(overrides?: ScriptToVideoPromptOverrides): LoadedSkills {
 
 /**
  * Compose the image-to-video transition prompt for a cut between two
- * adjacent storyboard shots. Mirrors the i2v-shot-transition SKILL.md
- * [Output] template — the SKILL body is layered on as the system-level
- * prefix, then the two shots' visual descriptions are injected into the
- * template structure the SKILL specifies.
+ * adjacent storyboard shots. Mirrors I2V_SHOT_TRANSITION_PROMPT's [Output]
+ * template — the prompt body is layered on as the system-level prefix, then
+ * the two shots' visual descriptions are injected into the template structure
+ * that body specifies.
  */
 function buildTransitionPrompt(
   skillSystem: string,
@@ -620,9 +618,10 @@ function characterLines(
 }
 
 /**
- * Build the `shot-visual-decomposition` user prompt. The SKILL body declares
- * two input blocks — the shot's visual description in `<VISUAL_DESC>` and the
- * candidate character list in `<CHARACTERS>` — and its output indexes
+ * Build the `shot-visual-decomposition` user prompt.
+ * SHOT_VISUAL_DECOMPOSITION_PROMPT declares two input blocks — the shot's
+ * visual description in `<VISUAL_DESC>` and the candidate character list in
+ * `<CHARACTERS>` — and its output indexes
  * characters by position in that list. Only visible characters are listed
  * (off-screen voices cannot appear in a frame), each labelled with its own
  * extraction index so `ff_vis_char_idxs` stays addressable by the portrait
@@ -641,16 +640,17 @@ function buildStoryboardPrompt(
   userRequirement: string | undefined,
 ): string {
   const chars = characterLines(characters, false)
-  // storyboard-design SKILL.md reads the optional requirement from
-  // <USER_REQUIREMENT> — emit that exact tag (was <REQUIREMENT>, which the
-  // prompt never looked for, so the requirement was silently ignored).
+  // STORYBOARD_DESIGN_PROMPT reads the optional requirement from
+  // <USER_REQUIREMENT> — emit that exact tag. Any other tag name is silently
+  // ignored: the prompt never looks for it and the model never sees the
+  // requirement, with no error anywhere.
   const req = userRequirement ? `\n\n<USER_REQUIREMENT>\n${userRequirement}\n</USER_REQUIREMENT>` : ''
   return `<SCRIPT>\n${script}\n</SCRIPT>\n\n<CHARACTERS>\n${chars}\n</CHARACTERS>${req}`
 }
 
 /**
  * Format storyboard into the `<CAMERA_SEQ><CAMERA_N>Shot N: ...</CAMERA_N></CAMERA_SEQ>`
- * shape that the `camera-tree-construction` SKILL.md expects as input.
+ * shape that CAMERA_TREE_CONSTRUCTION_PROMPT expects as input.
  * Shots are grouped by `cam_idx` (the camera-position index) and listed in
  * storyboard order within each group.
  */
@@ -679,8 +679,8 @@ function buildCameraTreePrompt(
 
 /**
  * Compose the image-to-image prompt for a child shot whose first frame
- * inherits from its parent's first frame. Layers the cinematic-shot-framing
- * SKILL on top of the shot's own `ff_desc`, then appends a hint block
+ * inherits from its parent's first frame. Layers CINEMATIC_SHOT_FRAMING_PROMPT
+ * on top of the shot's own `ff_desc`, then appends a hint block
  * derived from the camera-tree entry — `missing_info` tells the model
  * what's specifically new in the child shot relative to the parent (e.g.
  * "frontal view of Alice"), and `is_parent_fully_covers_child=false`

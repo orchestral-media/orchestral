@@ -17,8 +17,7 @@
 // alone doesn't warrant promoting this to an agent kind.
 //
 // The next-event-extraction prompt is inlined as a string constant in
-// ./prompts (copied verbatim from the source skill body, verified
-// byte-identical by the equivalence test). No SkillLoader at runtime.
+// ./prompts — nothing is loaded at dispatch.
 //
 // Exposure: 'agent-tool' — agent-only entry point; chat catalog hides.
 

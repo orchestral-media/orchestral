@@ -26,7 +26,6 @@ export const ProductAdShortOutputSchema = z.object({
 })
 export type ProductAdShortOutput = z.infer<typeof ProductAdShortOutputSchema>
 
-// Fix B: add .min(1) to reject empty arrays at parse time
 const HeroPromptsSchema = z.object({ prompts: z.array(z.string().min(1)).min(1) })
 
 /**
@@ -77,7 +76,7 @@ export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPatt
       // Wrap JSON.parse for a clear error on malformed JSON; let Zod throw for schema violations.
       const parsed = parseJsonWithSchema(gen.text, HeroPromptsSchema, 'product-ad-short')
 
-      // Fix B: clamp to variantCount so over-count prompts don't fire extra paid gens
+      // Clamp to variantCount so over-count prompts don't fire extra paid gens
       const prompts = parsed.prompts.slice(0, input.variantCount)
 
       // Stage 2 — generate draft heros via parallel text-to-image. Keep the
@@ -90,7 +89,7 @@ export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPatt
       )
 
       // Cheap-explore → commit gate: the user picks one hero before any expensive step.
-      // G5: when a sessionId is available (chat dispatch), mint handles so the
+      // When a sessionId is available (chat dispatch), mint handles so the
       // picker can render thumbnails; fall back to text labels for headless runs.
       const sessionId = ctx.sessionId
       let chosenHeroAssetId: string

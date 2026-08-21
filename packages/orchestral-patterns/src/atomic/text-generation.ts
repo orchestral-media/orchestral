@@ -12,11 +12,8 @@ import { z } from 'zod'
 import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative } from '@orchestral/core'
 
 // ── primary input schema ────────────────────────────────────────────────
-
-// - maxTokens → maxOutputTokens (matches ai-sdk v5+ generateText naming)
-// - added topK (standard Anthropic / Gemini sampling parameter)
-// - added providerOptions (passes through provider-specific fields like
-//   anthropic.thinking)
+// Sampling / decoding fields follow ai-sdk v5+ `generateText` naming, so an
+// adapter can forward them without a rename table.
 
 export const TextGenerationPrimaryInputSchema = z.object({
   prompt: z
@@ -74,9 +71,9 @@ export const TextGenerationPrimaryInputSchema = z.object({
     .describe(
       'Opaque JSON schema constraining `responseFormat: json` output. Shape varies per provider (Anthropic tool-use, OpenAI response_format json_schema, Gemini responseSchema); runtime adapter normalizes per call.',
     ),
-  // `providerOptions` placeholder removed — derive injects a typed schema at
-  // find_pattern render time based on the resolved model (e.g. Anthropic
-  // thinking config, OpenAI reasoning effort).
+  // No `providerOptions` field here on purpose: `deriveLlmFacingInputSchema`
+  // injects a typed one at find_pattern render time, based on the resolved
+  // model (e.g. Anthropic thinking config, OpenAI reasoning effort).
 })
 
 export type TextGenerationInput = z.infer<

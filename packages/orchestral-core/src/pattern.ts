@@ -12,7 +12,7 @@
 // Asset references: the LLM fills a handle in `inputs.references`, and the
 // resolution pass resolves + validates it via AssetIndex into `ctx.assets`;
 // host-injected context (projectId / providerOptions) flows through
-// `ExecutionContext`. `bindings` has been fully removed.
+// `ExecutionContext`.
 //
 // ── Important conventions ───────────────────────────────────────────────────
 //
@@ -220,7 +220,7 @@ export interface PatternBase<I = unknown, O = unknown> {
  * Note: this is a synchronous permission gate, NOT a HITL seam. Mid-run "ask the
  * user" lives only on MetaPattern.compose via ctx.askUser — atomic confirms
  * (e.g. cost) are a host dispatch-policy concern (the host knows the routed
- * model + cost, which checkPermissions does not). See the seam-ownership spec.
+ * model + cost, which checkPermissions does not).
  */
 export type PermissionResult =
   | { ok: true }
@@ -393,8 +393,6 @@ export interface AtomicPattern<I = unknown, O = unknown>
  * - `params.input` is visually separated from ctx.step({input})'s inner field
  * - ctx.step / ctx.compute / parallel() freely orchestrate sub-Patterns + host
  *   code
- * - it no longer returns a static MetaPlan; it uses ctx.step / ctx.compute to
- *   orchestrate sub-Patterns
  *
  * Meta puts the LLM-facing `tool` at the top level (no primary wrapper); at
  * catalog-render time it emits one tool just like an atomic's primary.

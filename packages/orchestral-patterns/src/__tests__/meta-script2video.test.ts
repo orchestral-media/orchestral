@@ -17,15 +17,15 @@ import {
 } from '../meta/script2video/prompts'
 
 // Image-gen + i2v atomics have no `system` slot, so the meta folds the inlined
-// SKILL prompt const into the `prompt` field as a PREFIX. Routing/identification
-// in these tests therefore matches the prompt prefix against the real prompt
-// constants (post-split the old `SKILL::<slug>` markers no longer exist).
+// prompt const into the `prompt` field as a PREFIX. Routing/identification in
+// these tests therefore matches the prompt prefix against the real prompt
+// constants.
 const promptStartsWith = (input: Record<string, unknown>, prefix: string) =>
   String((input as { prompt?: string }).prompt ?? '').startsWith(prefix)
 
 /**
  * Pull the input-block tags a prompt body declares (backticked `<TAG>` /
- * `</TAG>` forms). Guards against prompt↔code tag drift: the SKILL body tells
+ * `</TAG>` forms). Guards against prompt↔code tag drift: the prompt body tells
  * the model which wrappers to read, so the dispatched user prompt must emit
  * exactly those.
  */
@@ -35,13 +35,11 @@ function declaredTags(prompt: string): string[] {
   return [...found]
 }
 
-// Post-split routing: the meta bakes the real inlined prompt bodies into the
-// text-generation `system` field (no SkillLoader). The fake ctx therefore
-// routes text-generation by matching `system` against the exported prompt
-// constants instead of the old `system.includes('<slug>')` markers. The
-// per-step `prompt` strings (built by the source's prompt helpers — unchanged
-// by the split) still carry the literal markers the assertions check
-// ('portrait-front', 'first frame', 'i2v-shot-single', etc.).
+// The meta bakes the real inlined prompt bodies into the text-generation
+// `system` field, so the fake ctx routes text-generation by matching `system`
+// against the exported prompt constants. The per-step `prompt` strings still
+// carry the literal markers the assertions check ('portrait-front',
+// 'first frame', 'i2v-shot-single', etc.).
 
 // Recorded shape per ctx.step call. `assets` carries the internal-asset
 // channel (ref.assets) — source/reference/startFrame now flow there by
@@ -282,7 +280,7 @@ describe("meta_script2video (W-1')", () => {
         String(c.input.system) === STORYBOARD_DESIGN_PROMPT,
     )
     const prompt = String(storyboardCall!.input.prompt)
-    // storyboard-design SKILL.md reads <USER_REQUIREMENT>; the old <REQUIREMENT>
+    // STORYBOARD_DESIGN_PROMPT reads <USER_REQUIREMENT>; a <REQUIREMENT>
     // tag was never matched so the requirement was silently dropped.
     expect(prompt).toContain('<USER_REQUIREMENT>\nno more than 4 shots\n</USER_REQUIREMENT>')
     expect(prompt).not.toContain('<REQUIREMENT>')
@@ -412,7 +410,7 @@ describe("meta_script2video (W-1')", () => {
         String(c.input.system) === CAMERA_TREE_CONSTRUCTION_PROMPT,
     )
     expect(cameraTreeCalls).toHaveLength(1)
-    // Camera-tree prompt uses the SKILL.md-mandated <CAMERA_SEQ> shape.
+    // Camera-tree prompt uses the <CAMERA_SEQ> shape the prompt body mandates.
     const ctPrompt = String(cameraTreeCalls[0]!.input.prompt)
     expect(ctPrompt).toContain('<CAMERA_SEQ>')
     expect(ctPrompt).toContain('<CAMERA_0>')
@@ -725,7 +723,7 @@ describe("meta_script2video (W-1')", () => {
     )
     expect(decomposeCalls).toHaveLength(2) // one per storyboard shot
 
-    // The SKILL body declares <VISUAL_DESC> + <CHARACTERS>; the dispatched
+    // The prompt body declares <VISUAL_DESC> + <CHARACTERS>; the dispatched
     // user prompt must emit exactly those (it used to send <SHOT> and drop the
     // character list entirely, which desynced ff_vis_char_idxs from the
     // portrait registry).

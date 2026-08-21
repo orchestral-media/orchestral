@@ -1,8 +1,8 @@
 // The minimal AgentPattern this example dispatches. Self-contained — it does
-// not pull in any of @orchestral/patterns' production agents (those depend on
-// host metas / SKILL bodies). It exposes exactly one tool, the `text-to-image`
-// atomic, and instructs the loop's LLM to generate an image then report a
-// one-line JSON summary.
+// not pull in the production agents from @orchestral/agent (those depend on
+// host metas and their own inlined prompts). It exposes exactly one tool, the
+// `text-to-image` atomic, and instructs the loop's LLM to generate an image
+// then report a one-line JSON summary.
 //
 // Output strategy: this Pattern declares `loop.outputExtractor`, so the
 // runtime skips injecting its default finish tool for this dispatch and the

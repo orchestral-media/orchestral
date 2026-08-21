@@ -3,8 +3,9 @@
 // meta-nested-stepid-namespace.test.ts 锁的是 parent → child 两层:同一 child
 // meta 跑两遍时,固定显式 stepId 不互撞、stepCache 不交叉污染。本文件把它推到
 // 第三层(grandchild),因为命名空间前缀是「递归」拼的 —— 子 meta 把自己 step
-// 的 effectiveStepId 当成孙 meta 的 stepIdNamespace(inline.ts:1012 + meta-
-// execution-context.ts:309)。如果前缀只生效一层,sibling child 下的孙 step 会
+// 的 effectiveStepId 当成孙 meta 的 stepIdNamespace(dispatchMeta 把
+// spec.stepIdNamespace 传进 buildMetaExecutionContext,ctx.step 再把
+// effectiveStepId 盖到子 spec 上)。如果前缀只生效一层,sibling child 下的孙 step 会
 // 在祖父级共享 stepCache 里互相命中,产生静默 cross-contamination。
 //
 // 结构:meta_parent --[child-0, child-1]--> meta_child --[gc-0, gc-1]-->

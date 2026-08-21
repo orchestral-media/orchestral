@@ -31,7 +31,7 @@ import {
   UGC_TESTIMONIAL_PATTERN_ID,
 } from '../index'
 
-// Phase 4 runtime-freeze gate. Pattern IDs are load-bearing string literals:
+// Runtime-freeze gate. Pattern IDs are load-bearing string literals:
 // they are hashed into the idempotency key (so they persist into dedup
 // decisions), written into job rows, and their `agent_` / `meta_` prefixes
 // drive inferNamespace + DEFAULT_SUBAGENT_BLOCKLIST. Changing any one of

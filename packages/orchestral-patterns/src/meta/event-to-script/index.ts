@@ -22,9 +22,8 @@
 //
 // Exposure: 'agent-tool'.
 //
-// The 3 stage prompts are inlined as string constants in ./prompts (copied
-// verbatim from the source skill bodies, verified byte-identical by the
-// equivalence test). No SkillLoader. This meta has no host-injected deps.
+// The 3 stage prompts are inlined as string constants in ./prompts — nothing
+// is loaded at dispatch. This meta has no host-injected deps.
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'

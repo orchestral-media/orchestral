@@ -221,7 +221,8 @@ describe('handleFindPattern — prefix / namespace grouping', () => {
 
 describe('handleFindPattern — directToolIds diagnostic (P4)', () => {
   // Agent-loop setup: direct tools are in the index/registry but excluded
-  // from the search corpus via includeOnly (inline.ts findPatternIncludeOnly).
+  // from the search corpus via includeOnly (agent-dispatch.ts's
+  // findPatternIncludeOnly).
   const agentScope = {
     includeOnly: new Set(['meta_idea2video']),
     directToolIds: new Set(['image-to-image', 'text-to-image']),

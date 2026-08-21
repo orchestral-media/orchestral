@@ -2,14 +2,13 @@
 //
 // The pure-function unit tests (agent-inline-core.test.ts / agent-depth.test.ts)
 // only lock buildAgentInlineCore / countAgentAncestors in isolation. They do
-// NOT exercise dispatchAgent's onToolCall, which is exactly where review found
-// the gaps:
+// NOT exercise dispatchAgent's onToolCall, which is where both claims below
+// actually live:
 //
-//   • I1 (covers B1): an inline-core descriptor advertises a tool whose `name`
-//     is the pattern id (e.g. an always-load atomic). When the LLM calls it,
+//   • I1: an inline-core descriptor advertises a tool whose `name` is the
+//     pattern id (e.g. an always-load atomic). When the LLM calls it,
 //     onToolCall must route it through the dispatch_pattern path — NOT fall
-//     through to UNKNOWN_TOOL (the dead-tool bug). This test is RED before B1's
-//     normalization and GREEN after.
+//     through to UNKNOWN_TOOL (the dead-tool bug).
 //   • I2 (depth): an agent reached through 2 meta ancestors + 1 agent ancestor
 //     under maxAgentDepth=2 must NOT trip AGENT_DEPTH_EXCEEDED — the gate counts
 //     agent ancestors only (countAgentAncestors), not total visited size.

@@ -176,7 +176,7 @@ describe('buildAlwaysLoadDescriptors', () => {
       >
     }
     expect(schema.properties).toBeDefined()
-    // Phase 4c: the slim base is exactly { prompt, references }. With no host
+    // The slim base is exactly { prompt, references }. With no host
     // closure to lift per-model ai-sdk params, the degraded descriptor shows
     // ONLY those two fields — that is the intended standalone shape.
     expect(Object.keys(schema.properties!).sort()).toEqual(['prompt', 'references'])
@@ -195,7 +195,7 @@ describe('buildAlwaysLoadDescriptors', () => {
   })
 
   it('lifts providerOptions via deriveProviderOptionsZod into the input schema', () => {
-    // Phase 3 contract: the closure now returns the MERGED LLM-facing schema
+    // The closure returns the MERGED LLM-facing schema
     // (host invokes the lift). `guidanceScale` carries no LIFT_MARKER, so it
     // lands under the typed `providerOptions` object — buildAlwaysLoadDescriptors
     // just z2js-es the merged result.

@@ -119,12 +119,10 @@ describe('resolveDispatchTarget', () => {
       }
     })
 
-    // TODO(Phase 3 follow-up): regression test for the try/catch around
-    // schema.safeParse in resolveDispatchTarget — requires a zod-version-
-    // specific fixture that makes safeParse() actually throw (zod v4's
-    // safeParse is contractually never-throw, so the catch is defensive).
-    // Pair with the SUBAGENT_TOOL_OUT_OF_SCOPE / CIRCULAR_AGENT_TOOL
-    // regression suite landing in packages/orchestral-runtime/src/__tests__/.
+    // Not covered: the try/catch around schema.safeParse in
+    // resolveDispatchTarget. Exercising it needs a zod-version-specific
+    // fixture that makes safeParse() actually throw — zod v4's safeParse is
+    // contractually never-throw, so that catch is purely defensive.
 
     it("returns AGENT_HOST_ONLY when agent Pattern has no primary tool (host-only)", () => {
       // Construct an agent-like Pattern without a primary tool. Today's
@@ -226,8 +224,8 @@ describe('resolveDispatchTarget', () => {
       if (!isDispatchError(result)) {
         expect(result.pattern.id).toBe('text-to-image')
         expect(result.parsedInput.prompt).toBe('a sunset')
-        // Phase 4c: base is slimmed to { prompt, references } — the ai-sdk
-        // params (n / size / aspectRatio / seed) are no longer base fields, so
+        // Base is exactly { prompt, references } — the ai-sdk params
+        // (n / size / aspectRatio / seed) are not base fields, so
         // they don't appear (and don't get a default) on the standalone parse.
         // They arrive only via the per-model liftable lift in a hosted catalog.
         const keys = Object.keys(result.parsedInput as Record<string, unknown>)

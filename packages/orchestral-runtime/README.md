@@ -10,8 +10,9 @@ The in-process `InlineRuntime` for Orchestral — the reference implementation o
 
 `InlineRuntime` submits jobs, dispatches patterns through a `CapabilityRouter`,
 and runs the resolved `ModelCapability.call` synchronously in the caller's tick.
-It handles in-router retries, idempotency, and — when the host opts in —
-cross-pattern `Alternative` fallback; see
+It handles the model fallback walk, idempotency, and — when the host opts in —
+same-model transient retry and cross-pattern `Alternative` fallback; see
+[Retry and fallback are two budgets](#retry-and-fallback-are-two-budgets) and
 [Alternative fallback is opt-in](#alternative-fallback-is-opt-in).
 There is no durable queue — the host's lifecycle owns each job's
 lifetime. Resuming an agent job across processes requires the host to inject a
@@ -44,6 +45,53 @@ example.
 - **Node only.** The runtime uses `node:crypto` (idempotency hashing), so it
   requires a Node host (`engines.node >= 18`). `@orchestral/core` itself has
   no Node dependency and runs in renderer / worker / edge contexts.
+
+## Retry and fallback are two budgets
+
+Atomic dispatch has two ways to recover from a failed `model.call`, and they are
+bounded separately because they answer different questions.
+
+**The fallback walk** answers *"this provider is not going to work — who else?"*
+A model the dispatch gives up on is added to `ResolveContext.excludeModel` and
+the next hop resolves a different candidate. Depth is
+`InlineRuntimeInit.fallbackDepth` (default 3), or `ResolveContext.fallbackDepth`
+per dispatch — a host with a configured chain sets it to
+`rankedModels.length - 1` so the whole order gets walked and no further.
+
+**Transient retry** answers *"that was a blip — same provider, once more?"* It
+calls the same model again and is **off unless you wire it**:
+
+```ts
+const runtime = new InlineRuntime({
+  store, registry, router,
+  transientRetry: {
+    // Your provider SDK's error shapes, not ours.
+    isTransient: (err) => {
+      const status = (err as { status?: number }).status
+      return status === 429 || status === 503
+    },
+    // Core's RetryPolicy — maxAttempts counts TOTAL calls against one model.
+    policy: { kind: 'exponential', maxAttempts: 3, baseMs: 500, maxMs: 5_000 },
+  },
+})
+```
+
+Neither budget can spend the other's. Three retries against one provider still
+cost a single fallback hop; a five-model chain still gives every model the same
+attempt count. Backoff honours `ctx.signal` — cancelling mid-backoff rejects
+immediately rather than after the delay elapses.
+
+Why off by default, and why no built-in classifier: media generation calls run
+for tens of seconds and cost real money, so guessing wrong is expensive in
+*both* directions. A 429 read as fatal drops the dispatch onto a pricier or
+worse candidate. A content rejection read as a blip pays for the same refusal
+three times. Only code holding your provider SDK's own error shapes can tell
+those apart, so the judgement is yours; without `transientRetry` nothing is
+transient and every failure excludes its model immediately.
+
+`isTransient` receives the capability, the `provider:modelId`, and the 1-based
+attempt number, so a single runtime can still answer differently for a cheap
+image call and an expensive video one.
 
 ## Alternative fallback is opt-in
 

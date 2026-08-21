@@ -8,7 +8,8 @@
 //   • ctx.step({patternId: 'text-generation', input: {system, prompt,
 //     responseFormat: 'json', jsonSchema}}) reaches the atomic dispatcher
 //   • The meta carries its own inlined prompts (the system slot equals the
-//     prompt constant re-exported from @orchestral/patterns) — no SkillLoader
+//     prompt constant re-exported from @orchestral/patterns) — nothing is
+//     loaded from disk at dispatch time
 //   • Meta returns the documented output shape ({intent, plannedScript})
 //   • Errors in a step propagate up with the stepId in the chain
 //
@@ -187,11 +188,11 @@ describe('meta_script-planning — e2e dispatch (F1.c G1 acceptance)', () => {
     ).rejects.toThrow(/FAKE_PROVIDER_OOPS/)
 
     // Router stage succeeded (first capture). Branch stage was attempted at
-    // least once — runtime retries it up to `maxRouterRetries` times against
-    // the same model (since our fake router doesn't exclude on retry), so
-    // multiple branch captures are expected. The contract under test is
-    // "router stage runs, then branch stage runs and propagates its error",
-    // not the exact retry count.
+    // least once — the fallback walk hops up to `fallbackDepth` times and our
+    // fake router hands back the same model on every hop (it doesn't honour
+    // excludeModel), so multiple branch captures are expected. The contract
+    // under test is "router stage runs, then branch stage runs and propagates
+    // its error", not the exact hop count.
     expect(captured.length).toBeGreaterThanOrEqual(2)
     expect(captured[0].system).toBe(SCRIPT_INTENT_ROUTING_PROMPT)
     const branchCaptures = captured.filter(

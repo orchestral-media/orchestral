@@ -12,8 +12,10 @@
 // Design highlights:
 //  • The runtime resolves a ModelCapability via the Router and invokes
 //    `modelCap.call(effectiveInput, ctx)` — primary path only.
-//  • Transient retry happens inside the Router via
-//    `ResolveContext.excludeModel` accumulation.
+//  • A model the dispatch gives up on is accumulated into
+//    `ResolveContext.excludeModel`, so the next `resolve` walks to the next
+//    candidate. Retrying the SAME model first is separate and opt-in
+//    (`InlineRuntimeInit.transientRetry`) — the two budgets never mix.
 //  • Cross-Pattern recovery is declarative via `Pattern.alternatives[*]`
 //    evaluated in the satisfiability phase — opt-in, off by default
 //    (`InlineRuntimeInit.alternatives`).
@@ -48,6 +50,7 @@ import type {
   PatternRegistry,
   ResolveContext,
   ResolvedAssetRef,
+  RetryPolicy,
   Runtime,
   TranscriptStore,
   Unsubscribe,
@@ -65,8 +68,10 @@ import type {
   AgentRunImpl,
 } from './agent-run'
 import {
+  abortableSleep,
   buildMetaExecutionContext,
   makeFreshState,
+  nextRetryDelayMs,
   type MetaSharedState,
 } from './meta-execution-context'
 import { MiddlewareAfterFailure, normaliseError } from './errors'
@@ -93,10 +98,6 @@ import {
 const MAX_AGENT_ENVELOPES = 64
 
 /**
- * Event types after which no further event can fan out for that job. Used to
- * release the job's subscriber set — see `fanout`.
- */
-/**
  * The produced-media array off a step's output envelope, when it has one.
  * Read structurally rather than by pattern kind: every first-party output that
  * carries media uses `assets`, and a third-party Pattern that follows the same
@@ -117,6 +118,10 @@ function stepAssets(
   return usable.length > 0 ? usable : undefined
 }
 
+/**
+ * Event types after which no further event can fan out for that job. Used to
+ * release the job's subscriber set — see `fanout`.
+ */
 const TERMINAL_EVENTS: ReadonlySet<JobEvent['type']> = new Set([
   'job:completed',
   'job:failed',
@@ -133,8 +138,12 @@ const DEFAULT_MAX_ALTERNATIVE_DEPTH = 4
  */
 const DEFAULT_ALTERNATIVES_MODE = 'off' as const
 
-/** Default cap on in-Router retries after `excludeModel` accumulation. */
-const DEFAULT_MAX_ROUTER_RETRIES = 3
+/**
+ * Default depth of the model fallback walk — how many further candidates a
+ * dispatch resolves after giving up on the first. `ResolveContext.fallbackDepth`
+ * overrides it per dispatch.
+ */
+const DEFAULT_FALLBACK_DEPTH = 3
 
 /**
  * Default cap on agent/meta nesting depth.
@@ -150,6 +159,72 @@ const DEFAULT_MAX_ROUTER_RETRIES = 3
  */
 const DEFAULT_MAX_AGENT_DEPTH = 2
 
+
+/**
+ * What the runtime knows about the failure it is asking the host to classify.
+ * Passed to `TransientRetryConfig.isTransient` so one predicate can answer
+ * differently for a cheap image call and an expensive video one without the
+ * host constructing a second runtime.
+ */
+export interface TransientFailureInfo {
+  /** The capability being dispatched. */
+  readonly capability: Capability
+  /** The model whose `call` threw, as `provider:modelId`. */
+  readonly model: string
+  /** 1-based attempt against THIS model — `1` is the original call. */
+  readonly attempt: number
+}
+
+/**
+ * Opt-in same-model retry (`InlineRuntimeInit.transientRetry`). Both fields
+ * are required: a config missing either would be a field nobody reads, and
+ * this package does not ship those.
+ */
+export interface TransientRetryConfig {
+  /**
+   * Is this failure worth calling the SAME model again for? The library never
+   * answers this itself — see `InlineRuntimeInit.transientRetry` for why the
+   * judgement is the host's.
+   *
+   * Called once per failure, before any backoff. Return `false` for anything
+   * you cannot classify; a predicate that throws is logged and read as
+   * `false`, so a bug in here can never displace the provider error it was
+   * asked about.
+   */
+  isTransient: (error: unknown, info: TransientFailureInfo) => boolean
+  /**
+   * How many attempts against one model and how long to wait between them.
+   * Core's `RetryPolicy`, the same shape `ctx.step` / `ctx.compute` take, so
+   * `maxAttempts` counts TOTAL calls (`3` = the original plus two retries) and
+   * `{ kind: 'none' }` means the config is wired but inert.
+   */
+  policy: RetryPolicy
+}
+
+/**
+ * Run the host's transience predicate without letting it displace the provider
+ * error it was asked about. A predicate that throws (reading `err.response.status`
+ * off a string, say) is a host bug, and surfacing THAT instead of the real
+ * failure is the same masking the dispatch loop's lastErr guard exists to
+ * prevent — so it is reported loudly and read as "not transient", which is the
+ * fail-closed answer.
+ */
+function classifyTransient(
+  config: TransientRetryConfig,
+  error: unknown,
+  info: TransientFailureInfo,
+): boolean {
+  try {
+    return config.isTransient(error, info) === true
+  } catch (predicateError) {
+    console.error(
+      `[inline-runtime] transientRetry.isTransient threw for ${info.model} ` +
+        `(cap=${info.capability}); treating the failure as non-transient:`,
+      predicateError,
+    )
+    return false
+  }
+}
 
 /**
  * Host-supplied builder for the ResolveContext given a JobSpec. Called once
@@ -202,10 +277,40 @@ export interface InlineRuntimeInit {
    */
   maxAlternativeDepth?: number
   /**
-   * Cap on in-Router retries after `excludeModel` accumulation per
-   * dispatch attempt. Defaults to 3.
+   * Default depth of the model fallback walk: how many FURTHER candidates a
+   * dispatch may resolve after giving up on the first. Defaults to 3.
+   * `ResolveContext.fallbackDepth` overrides it per dispatch — a host with a
+   * configured chain sets it to `rankedModels.length - 1` so the whole order
+   * is walked and no further.
+   *
+   * Two neighbours it is deliberately not: `maxAlternativeDepth` bounds
+   * cross-Pattern `Alternative` redirects (a different Pattern), while this
+   * walks models within one Pattern; `transientRetry` re-calls a single model
+   * and never advances this walk.
    */
-  maxRouterRetries?: number
+  fallbackDepth?: number
+  /**
+   * Opt-in same-model retry. Absent — the default — a `model.call` failure is
+   * final for that model: it goes into `excludeModel` and the dispatch walks
+   * to the next candidate, exactly as it did before this option existed.
+   *
+   * Wired, the runtime asks `isTransient` about each failure and, while
+   * `policy` has attempts left, calls the SAME model again after the policy's
+   * backoff. Only a `false` answer or an exhausted policy excludes the model
+   * and lets the fallback walk advance.
+   *
+   * The library never guesses transience, because guessing wrong spends real
+   * money in both directions: a 429 read as fatal drops the dispatch onto a
+   * pricier or worse candidate, and a content rejection read as a blip pays
+   * for the same refusal three times. Only host code holding the provider
+   * SDK's own error shapes can tell those apart, so there is no built-in
+   * classifier to fall back on — without this field nothing is transient.
+   *
+   * Per runtime instance, like `alternatives`. `isTransient` receives the
+   * capability and model, so one instance still covers surfaces that want
+   * different answers.
+   */
+  transientRetry?: TransientRetryConfig
   /**
    * Cap on agent/meta nesting depth (ancestor chain length at `dispatchAgent`
    * entry). Defaults to 2.
@@ -292,7 +397,8 @@ export class InlineRuntime implements Runtime {
   private readonly onJobCreated?: (jobId: string, spec: JobSpec) => void
   private readonly alternativesMode: 'auto' | 'off'
   private readonly maxAlternativeDepth: number
-  private readonly maxRouterRetries: number
+  private readonly fallbackDepth: number
+  private readonly transientRetry?: TransientRetryConfig
   private readonly maxAgentDepth: number
   private readonly middleware: readonly DispatchMiddleware[]
   private readonly agentRunImpl?: AgentRunImpl
@@ -304,7 +410,8 @@ export class InlineRuntime implements Runtime {
    * Capture the per-dispatch envelope under the jobId of the agent dispatch.
    * Populated inside dispatchAgent on completion (both
    * success and error paths). Host retrieves via `getAgentEnvelope(jobId)`
-   * after observing the corresponding `job:settled` event.
+   * after observing the job's terminal event (`job:completed` /
+   * `job:failed`).
    *
    * Bounded (see MAX_AGENT_ENVELOPES): a host that reads the envelope and
    * calls `disposeAgentEnvelope(jobId)` keeps the map at the size of its
@@ -325,8 +432,8 @@ export class InlineRuntime implements Runtime {
     this.alternativesMode = init.alternatives ?? DEFAULT_ALTERNATIVES_MODE
     this.maxAlternativeDepth =
       init.maxAlternativeDepth ?? DEFAULT_MAX_ALTERNATIVE_DEPTH
-    this.maxRouterRetries =
-      init.maxRouterRetries ?? DEFAULT_MAX_ROUTER_RETRIES
+    this.fallbackDepth = init.fallbackDepth ?? DEFAULT_FALLBACK_DEPTH
+    this.transientRetry = init.transientRetry
     this.maxAgentDepth = init.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH
     this.middleware = init.middleware ?? []
     this.agentRunImpl = init.agentRunImpl
@@ -431,10 +538,11 @@ export class InlineRuntime implements Runtime {
    * controller subscribes to it so `cancelJob(parentJobId)` cascades into
    * every descendant. `undefined` means "top-level submit" — no cascade.
    *
-   * The previous implementation used a `parentSignals` Map keyed by sessionId,
-   * but no code path ever populated it; effectively cascade was dead. The
-   * explicit param threads the actual controller signal through the call
-   * chain so the cascade really works.
+   * It has to be an explicit parameter: the dispatching parent's controller is
+   * the only thing that knows the live signal, and threading it through the
+   * call chain is what makes the cascade real. Deriving it from a side table
+   * keyed by sessionId looks equivalent and is not — nothing would populate it
+   * for a nested dispatch, and the cascade would silently do nothing.
    */
   private async _submitJobInternal<TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,
@@ -842,8 +950,11 @@ export class InlineRuntime implements Runtime {
       )
     }
 
-    // Dispatch phase — Router resolve + ModelCapability.call with accumulated
-    // excludeModel for in-router retry on transient failures.
+    // Dispatch phase — Router resolve + ModelCapability.call, with the models
+    // this dispatch has given up on accumulated into excludeModel so each
+    // fallback hop resolves a different candidate. Seeded from the host's own
+    // baseCtx.excludeModel, which is therefore honoured on the very first
+    // resolve.
     const excludeModel: string[] = [...(baseCtx.excludeModel ?? [])]
     let lastErr: unknown = null
     // Build the CallEvents bridge once per dispatch — the call adapter
@@ -879,12 +990,22 @@ export class InlineRuntime implements Runtime {
       if (!perm.ok) throw new Error(`PERMISSION_DENIED: ${perm.reason}`)
     }
 
-    // Fallback-walk depth: the host sets baseCtx.maxRetries from the configured
-    // rankedModels length so the whole order is walked; otherwise the default
-    // transient-retry budget applies. (Single counter — conflates transient retry
-    // with fallback-to-next; see ResolveContext.maxRetries doc.)
-    const retryBound = baseCtx.maxRetries ?? this.maxRouterRetries
-    for (let attempt = 0; attempt <= retryBound; attempt++) {
+    // Two budgets, two loops, and neither can spend the other's.
+    //
+    // OUTER — the fallback walk. Each hop resolves the next candidate with the
+    // models this dispatch has given up on already in excludeModel. A host
+    // with a configured chain sets baseCtx.fallbackDepth from its length so the
+    // whole order is walked; otherwise the runtime default bounds it.
+    //
+    // INNER — same-model transient retry. Opt-in: without
+    // `InlineRuntimeInit.transientRetry` wired its body runs exactly once and
+    // falls straight through to the exclusion below, so the default path is
+    // unchanged by this option existing. A model is excluded only once this
+    // loop is done with it, so a retried blip never costs a fallback hop and a
+    // long fallback chain never buys extra attempts at one provider.
+    const fallbackBound = baseCtx.fallbackDepth ?? this.fallbackDepth
+    const transientRetry = this.transientRetry
+    for (let hop = 0; hop <= fallbackBound; hop++) {
       if (signal.aborted) throw new Error('CANCELLED')
       const ctx: ResolveContext = { ...baseCtx, excludeModel }
       let model
@@ -892,9 +1013,9 @@ export class InlineRuntime implements Runtime {
         model = this.router.resolve(atomic.id as Capability, requiredTags, ctx)
       } catch (e) {
         // Router exhausted — fall through to alternatives. Preserve any
-        // prior model.call error: when retry has pushed the pinned model into
-        // excludeModel, router throws MODEL_EXCLUDED as a symptom; the real
-        // cause is the underlying provider error from attempt 0's call
+        // prior model.call error: when the walk has pushed the pinned model
+        // into excludeModel, router throws MODEL_EXCLUDED as a symptom; the
+        // real cause is the underlying provider error from hop 0's call
         // (auth / endpoint / network / model not supported). Overwriting
         // lastErr here would mask that and chat UI shows the misleading
         // "model excluded" instead of "not supported model for image gen".
@@ -902,51 +1023,69 @@ export class InlineRuntime implements Runtime {
         break
       }
       // Adapter-contract gate — the last thing between a resolved envelope and
-      // its `call`, so every dispatch (primary, retry, fallback walk) passes
-      // through it. Deliberately OUTSIDE the try below: an envelope built for a
+      // its `call`, so every dispatch (primary, fallback hop) passes through
+      // it. Deliberately OUTSIDE the try below: an envelope built for a
       // contract generation this build cannot execute is a wiring error, not a
       // transient provider failure, so it must not be swallowed into
       // excludeModel and silently routed around. It throws
       // MODEL_SPEC_VERSION_UNSUPPORTED with a machine-readable diagnostic.
+      // It also sits outside the transient-retry loop: re-calling an envelope
+      // this build cannot execute would fail identically every time.
       assertSupportedModelSpecVersion(model)
-      try {
-        // Primary path only. Pass the DispatchContext — the adapter reads
-        // ctx.assets (resolved assetIds) + ctx.signal; the LLM never saw raw
-        // assetIds. events bridge
-        // progress/artifact callbacks into Job events; adapter authors that
-        // don't have progress info simply don't fire.
-        const result = await model.call<TIn, DispatchResult<TOut>>(
-          effectiveInput,
-          dispatchCtx,
-          events,
-        )
-        if (result && typeof result === 'object' && 'output' in result) {
-          return (result as DispatchResult<TOut>).output
+      const modelKey = `${model.provider}:${model.modelId}`
+      for (let attempt = 1; ; attempt++) {
+        try {
+          // Primary path only. Pass the DispatchContext — the adapter reads
+          // ctx.assets (resolved assetIds) + ctx.signal; the LLM never saw raw
+          // assetIds. events bridge
+          // progress/artifact callbacks into Job events; adapter authors that
+          // don't have progress info simply don't fire.
+          const result = await model.call<TIn, DispatchResult<TOut>>(
+            effectiveInput,
+            dispatchCtx,
+            events,
+          )
+          if (result && typeof result === 'object' && 'output' in result) {
+            return (result as DispatchResult<TOut>).output
+          }
+          return result as unknown as TOut
+        } catch (e) {
+          lastErr = e
+          // Stamp the failed model onto the error before the loop moves on —
+          // normaliseError lifts it (plus any httpStatus the host attached) into
+          // JobError.details so the host can derive the exclusion set for the
+          // LLM's retry without parsing the message text. ??= keeps the FIRST
+          // failure's model when later attempts re-throw the same object.
+          if (e instanceof Error) {
+            ;(e as Error & { failedModel?: string }).failedModel ??= modelKey
+          }
+          // Print the inner provider error before adding to excludeModel —
+          // otherwise the next hop throws MODEL_EXCLUDED (because pinned
+          // model is now in excludeModel) and the real cause (auth / network /
+          // model error) gets masked behind a misleading "model excluded" message.
+          console.error(
+            `[inline-runtime] model.call failed for ${modelKey} (cap=${atomic.id}, hop=${hop}, attempt=${attempt}):`,
+            e,
+          )
+          // Ask the host first, THEN the policy: a `false` verdict must cost
+          // nothing, so a fatal failure is not delayed by a backoff it was
+          // never going to use.
+          const delayMs =
+            transientRetry && classifyTransient(transientRetry, e, {
+              capability: atomic.id as Capability,
+              model: modelKey,
+              attempt,
+            })
+              ? nextRetryDelayMs(transientRetry.policy, attempt)
+              : null
+          if (delayMs === null) break
+          // Backoff — abortableSleep rejects with CANCELLED the moment the
+          // signal fires, so a cancel mid-backoff surfaces immediately instead
+          // of after the delay has been slept out.
+          await abortableSleep(delayMs, signal)
         }
-        return result as unknown as TOut
-      } catch (e) {
-        lastErr = e
-        // Stamp the failed model onto the error before the loop moves on —
-        // normaliseError lifts it (plus any httpStatus the host attached) into
-        // JobError.details so the host can derive the exclusion set for the
-        // LLM's retry without parsing the message text. ??= keeps the FIRST
-        // failure's model when later attempts re-throw the same object.
-        if (e instanceof Error) {
-          ;(e as Error & { failedModel?: string }).failedModel ??=
-            `${model.provider}:${model.modelId}`
-        }
-        // Print the inner provider error before adding to excludeModel —
-        // otherwise the next attempt throws MODEL_EXCLUDED (because pinned
-        // model is now in excludeModel) and the real cause (auth / network /
-        // model error) gets masked behind a misleading "model excluded" message.
-        console.error(
-          `[inline-runtime] model.call failed for ${model.provider}:${model.modelId} (cap=${atomic.id}, attempt=${attempt}):`,
-          e,
-        )
-        // Add failed model to excludeModel for next retry
-        excludeModel.push(`${model.provider}:${model.modelId}`)
-        continue
       }
+      excludeModel.push(modelKey)
     }
 
     // Router/model exhausted — fall through to Pattern.alternatives, if the
@@ -1095,9 +1234,9 @@ export class InlineRuntime implements Runtime {
       sharedState,
       // Propagate the stepId namespace a parent meta stamped onto this child
       // meta's spec (e.g. `panel-0`). Top-level meta dispatch leaves
-      // spec.stepIdNamespace undefined → ctx adds no prefix → behaviour
-      // byte-identical to before. A nested meta picks up its parent's effective
-      // step id and prefixes its own internal stepIds with it.
+      // spec.stepIdNamespace undefined → ctx adds no prefix. A nested meta
+      // picks up its parent's effective step id and prefixes its own internal
+      // stepIds with it.
       spec.stepIdNamespace,
     )
 
@@ -1125,8 +1264,8 @@ export class InlineRuntime implements Runtime {
    * jobIds, jobs that haven't settled yet, or after the entry was cleared
    * by `cancelJob` / explicit `disposeAgentEnvelope`.
    *
-   * Typical usage: after observing `job:done` / `job:error` for a job whose
-   * pattern is `kind: 'agent'`, call `runtime.getAgentEnvelope(job.id)` to
+   * Typical usage: after observing `job:completed` / `job:failed` for a job
+   * whose pattern is `kind: 'agent'`, call `runtime.getAgentEnvelope(job.id)` to
    * pull totalToolUseCount / totalDurationMs / usage / transcriptId for
    * the parent host's UI or telemetry.
    */

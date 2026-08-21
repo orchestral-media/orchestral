@@ -66,8 +66,8 @@ export type UgcTestimonialMetaDeps = Pick<
 }
 
 // ASR timed segment, in seconds. Derived from the pattern's output schema so
-// the field names stay locked to the canonical runtime shape
-// (`startSecond`/`endSecond` — see worker-runtime's `gateway:asr:transcribe:ok`).
+// the field names stay locked to the canonical shape it declares
+// (`startSecond`/`endSecond`, never `start`/`end`).
 type AsrSegment = NonNullable<AutomaticSpeechRecognitionOutput['segments']>[number]
 
 function srtTimecode(seconds: number): string {

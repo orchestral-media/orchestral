@@ -3,12 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { Job } from '../job'
 import { InMemoryJobStore } from '../job-store-memory'
 
-// Mirrors the host SqliteJobStore jobKind (v10) round-trip suite. The
-// load-bearing case is the omitted-default: SqliteJobStore.rowToJob folds a
-// missing job_kind to 'pattern' via the column DEFAULT, so the Map-backed peer
-// must read back the same narrow JobKind for an unset key — otherwise the
-// "byte-for-byte mirror" claim in the file header is false and an async-agent
-// row could silently demote to 'pattern' on read.
+// jobKind round-trip. The load-bearing case is the omitted-default: a durable
+// store folds a missing jobKind to 'pattern' via its column DEFAULT, so the
+// Map-backed store must read back the same narrow JobKind for an unset key.
+// Without that, `jobKind` is not portable across JobStore implementations and
+// an async-agent row could silently demote to 'pattern' on read.
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   const now = Date.now()
@@ -151,8 +150,8 @@ describe('InMemoryJobStore — insertIfAbsent (atomic dedup-or-create)', () => {
   it('rejects an invalid status even when the key is already taken', async () => {
     // The dedup hit must not become a validation bypass: a caller handing over
     // a status the store can never write is a bug regardless of whether some
-    // other row happens to own the key. SqliteJobStore checks before the
-    // canonical SELECT; the Map-backed peer must do the same.
+    // other row happens to own the key — validation comes before the
+    // canonical lookup in every conforming store.
     await store.insert(makeJob({ id: 'held', idempotencyKey: 'k-bad', status: 'running' }))
 
     await expect(

@@ -5,11 +5,9 @@
 // fidelity (only style descriptors survive the caption round-trip); the
 // `degraded: true` output flag surfaces this tradeoff to the UI.
 //
-// Composition model:
-//   • compose() is a plain `async (params, ctx) => Promise<O>` (no MetaPlan)
-//   • ctx.step orchestrates 2 sub-steps; the previous step's output feeds
-//     directly into the next step's input (typed State between steps)
-//   • Pattern id uses the underscore prefix: 'meta_image-to-image-via-caption'
+// Composition model: compose() is a plain
+// `async (params, ctx) => Promise<O>`; ctx.step orchestrates 2 sub-steps, with
+// the caption step's output feeding directly into the render step's input.
 //
 // Input mirrors the relevant subset of `image-to-image` so this Meta slots
 // cleanly into that Pattern's `alternatives[]` via declarative redirect.
@@ -88,9 +86,12 @@ export const ImageToImageViaCaptionOutputSchema = z.object({
    */
   requestedSize: boundedText(32).optional(),
   /**
-   * Always true for this path — runtime injects it to signal that subject /
+   * Always true for this path — compose() sets it to signal that subject /
    * composition fidelity was lost (only style descriptors survived the
-   * caption round-trip). UIs surface a degradation notice.
+   * caption round-trip). UIs surface a degradation notice. Note that the
+   * image-to-image redirect drops the flag on the way out (see that
+   * Pattern's `mapOutput`); the runtime reports the degradation out-of-band
+   * on the `job:alternative-selected` event instead.
    */
   degraded: z.literal(true),
 })
@@ -143,7 +144,7 @@ export function createImageToImageViaCaptionPattern(): MetaPattern<
     searchHint: 'edit an image via caption fallback chain',
     namespace: 'meta-pipelines',
     description:
-      'Approximate an image edit when no native image-to-image model is available: caption the source image, then text-to-image the caption combined with the edit instruction. Loses subject and composition fidelity — only style descriptors survive. Runtime sets `degraded: true` on the output.',
+      'Approximate an image edit when no native image-to-image model is available: caption the source image, then text-to-image the caption combined with the edit instruction. Loses subject and composition fidelity — only style descriptors survive. The output carries `degraded: true`.',
     tool: {
       description:
         'Edit an image without a native image-to-image model by chaining caption → text-to-image. Use as a degraded fallback when the user wants to modify an image but no identity-preserving / image-to-image model is available. Subject identity and composition will NOT be preserved.',
@@ -220,7 +221,6 @@ export function createImageToImageViaCaptionPattern(): MetaPattern<
         modality: 'image' as const,
         // Forward the final t2i step's produced assets[] verbatim (assetId +
         // modality; no handle — host attaches the canonical handle after record).
-        // t2i now only produces assets[].
         assets: image.assets ?? [],
         cost: sumCosts(caption, image),
         latencyMs: caption.latencyMs + image.latencyMs,

@@ -1,7 +1,7 @@
 // forkExecutionContext — the single factory all child dispatch derives its
 // DispatchContext from. Centralizes the inheritance policy so the "what does a
 // child see" decision lives in one tested place instead of inline object
-// literals scattered across dispatchAtomic / dispatchAgent.
+// literals scattered across the atomic dispatch path and dispatchAgent.
 //
 // Policy:
 //   • assets   — DEFAULT FRESH (`[]`). A child never inherits the parent's

@@ -1,7 +1,7 @@
 // AgentRunImpl — host injection point for AgentPattern's LLM loop.
 //
-// dispatchAgent (in inline.ts) does not know about ai-sdk / Anthropic SDK /
-// OpenAI SDK / etc. It calls AgentRunImpl.run() once per AgentPattern
+// dispatchAgent (in agent-dispatch.ts) does not know about ai-sdk / Anthropic
+// SDK / OpenAI SDK / etc. It calls AgentRunImpl.run() once per AgentPattern
 // dispatch. Host provides the concrete implementation (typical: ai-sdk
 // ToolLoopAgent over IPC to a worker process; alternatives: any class
 // implementing ai-sdk's Agent v1 interface).

@@ -26,10 +26,9 @@ export const AutomaticSpeechRecognitionPrimaryInputSchema = z.object({
     .describe(
       'Optional decoding hint to bias the recognizer toward proper nouns, acronyms, or domain jargon. Providers without prompt support silently ignore this.',
     ),
-  // `providerOptions` placeholder removed.
-  // `deriveLlmFacingInputSchema` injects a typed providerOptions object at
-  // find_pattern render time based on the resolved top-1 model's
-  // transcription ship-data.
+  // No `providerOptions` field here on purpose: `deriveLlmFacingInputSchema`
+  // injects a typed one at find_pattern render time, based on the resolved
+  // top-1 model's transcription ship-data.
 })
 
 const ASSET_NEEDS = [

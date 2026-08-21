@@ -34,6 +34,24 @@ adapter over whichever provider SDK you use.
   (`InlineRuntimeInit.alternatives`), failing with the applicable paths named
   instead. These types describe the paths; they do not promise one is taken.
 
+- **Two separately-bounded failure budgets.** `ResolveContext.fallbackDepth`
+  bounds one thing only: how many FURTHER candidates a dispatch may resolve
+  after giving up on the model in hand. Calling the *same* model again after a
+  blip is a different budget with a different owner — a host opts into it on
+  its runtime (`InlineRuntimeInit.transientRetry` in `@orchestral/runtime`) and
+  bounds it with a `RetryPolicy`, the same shape `ctx.step` / `ctx.compute`
+  already take. Neither budget can spend the other's: retries never cost a
+  fallback hop, and a long fallback chain never buys extra attempts at one
+  provider. `excludeModel` still carries the models a dispatch has given up on,
+  but "given up on" means "out of transient retries", not "failed once".
+
+  Nothing is transient unless the host says so. Media calls run for tens of
+  seconds and cost real money, and a wrong guess is expensive in both
+  directions — a 429 read as fatal drops the dispatch onto a pricier or worse
+  candidate, a content rejection read as a blip pays for the same refusal three
+  times — so the library ships no classifier to guess with and defaults to no
+  retries at all.
+
 - **Routing visibility (`CapabilityRouter.explain`).** An optional third method
   on the interface — `createDefaultCapabilityRouter` implements it — returning a
   `RoutingExplanation`: every model `getModels` returned, the filter stage that
@@ -210,7 +228,6 @@ hosts, planners and UIs, not enforced by this library:
 | --- | --- |
 | `ModelCapability.tier` | Read only when the caller passes `ResolveContext.tier`, and then best-effort: first tier match wins, otherwise it falls through. |
 | `ModelCapabilityBlob.streaming` / `.structuredOutput` / `.toolUse` / `.contextWindow` / `.deprecated` | Catalog metadata for the host's own Settings UI and dispatch heuristics. Neither the router nor the reference runtime reads them. |
-| `ResolveContext.maxRetries` | One counter for two jobs. A model that fails — even transiently — is added to `excludeModel` for the rest of the dispatch, so it is skipped rather than retried; "retry the same model N times, then fall back" is not expressible. |
 
 There is deliberately no cost or latency metadata on these types: media
 generation cost is not reliably computable up front, so anything cost-aware

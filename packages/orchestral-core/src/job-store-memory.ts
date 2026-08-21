@@ -1,8 +1,9 @@
 // InMemoryJobStore — process-local Map-backed JobStore. dev / test only;
 // everything is lost when the process exits.
 //
-// Mirrors the host SqliteJobStore's host-agnostic logic byte-for-byte:
-//   • eventForTransition — same lifecycle / 'job:submitted' / 'job:output' map
+// Reference implementation of the storage-agnostic half of the `JobStore`
+// contract — a durable host store must reproduce all of it:
+//   • eventForTransition — the lifecycle / 'job:submitted' / 'job:output' map
 //   • findByIdempotencyKey / insertIfAbsent — queued|running|done
 //     canonical-only dedup policy, and the same atomic dedup-or-create
 //   • JOB_STORE_INVALID_STATUS — rejected on the way in, before any lookup,
@@ -33,11 +34,10 @@ function assertJobStatus(status: unknown): asserts status is JobStatus {
   }
 }
 
-// Mirror SqliteJobStore.rowToJob's `jobKind: row.job_kind ?? 'pattern'` fold.
-// The sqlite column DEFAULTs to 'pattern' for omitted writes; the Map-backed
-// store has no schema, so an omitted `jobKind` would read back `undefined`.
-// Normalize at every store-out boundary so both stores return the same narrow
-// `JobKind` for an unset key — the "byte-for-byte mirror" claim depends on it.
+// A SQL-backed store gets this for free from a column DEFAULT of 'pattern';
+// the Map-backed store has no schema, so an omitted `jobKind` would read back
+// `undefined`. Normalize at every store-out boundary so any conforming store
+// returns the same narrow `JobKind` for an unset key.
 function normalizeJobKind(job: Job): Job {
   return job.jobKind === undefined ? { ...job, jobKind: 'pattern' } : job
 }
@@ -48,8 +48,8 @@ function normalizeJobKind(job: Job): Job {
  * to refetch. Returns null when the update doesn't map to any meaningful
  * event (e.g. a backward transition into 'queued').
  *
- * Mirrors SqliteJobStore.eventForTransition exactly — progress / artifact
- * signals are NOT produced here; those come from provider-side CallEvents in
+ * Progress / artifact signals are NOT produced here; those come from
+ * provider-side CallEvents in
  * the runtime. The store only emits lifecycle transitions and the
  * column-level 'job:output' update.
  */
@@ -80,7 +80,7 @@ function eventForTransition(prev: JobStatus | null, next: Job): JobEvent | null 
 }
 
 /**
- * Map-backed JobStore peer to the host SqliteJobStore. No real transactions:
+ * Map-backed `JobStore`. No real transactions:
  * each insert / update runs to completion synchronously on the single-threaded
  * event loop, so the read-modify-write is already atomic with respect to other
  * store calls — no transaction wrapper is needed.
@@ -108,10 +108,10 @@ export class InMemoryJobStore implements JobStore {
   }
 
   async insertIfAbsent(job: Job): Promise<Job> {
-    // Validate before the canonical lookup, exactly like SqliteJobStore: a
-    // malformed status must be rejected whether or not the key happens to be
-    // taken, otherwise dedup hits would silently accept rows the store can
-    // never write.
+    // Validate before the canonical lookup: a malformed status must be
+    // rejected whether or not the key happens to be taken, otherwise dedup
+    // hits would silently accept rows the store can never write. Any
+    // conforming store must order it the same way.
     assertJobStatus(job.status)
     // Check and write in one synchronous block: no await between the lookup
     // and the map write, so a concurrent submitter can never interleave and

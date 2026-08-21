@@ -5,10 +5,9 @@
 //   1. script-intent-routing      → { intent: narrative | motion | montage }
 //   2. <intent>-script-planning   → { planned_script }
 //
-// The router + 3 branch prompts are inlined as string constants in
-// ./prompts (copied verbatim from the source SKILL.md bodies). This meta is
-// self-contained: no SkillLoader, no host binding — the prompts ship with
-// the pattern.
+// The router + 3 branch prompts are inlined as string constants in ./prompts.
+// This meta is self-contained: nothing is loaded at dispatch, no host binding
+// — the prompts ship with the pattern.
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
@@ -25,7 +24,7 @@ import {
 const INTENTS = ['narrative', 'motion', 'montage'] as const
 type Intent = (typeof INTENTS)[number]
 
-// Router response shape (script-intent-routing SKILL.md).
+// Router response shape (matches SCRIPT_INTENT_ROUTING_PROMPT's output).
 const IntentRouterResponseSchema = z.object({
   intent: z.enum(INTENTS),
   rationale: z.string().optional(),

@@ -1,4 +1,4 @@
-// Breakpoint 1 — meta sub-step `input.references` handle resolution (§5.9).
+// Meta sub-step `input.references` handle resolution.
 //
 // A meta forwarding a caller handle to a sub-step (best-of-n's inner i2i
 // `references.source`, via-caption's source) used to leave that handle

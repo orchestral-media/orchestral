@@ -7,9 +7,9 @@
 // compatibility-breaking changes — when the bridge breaks, only the bridge is
 // repaired, and @orchestral/core|runtime|patterns never learn dsh exists.
 //
-// Function plugin form (`name` / `inject` / `Config` / `apply`), per
-// docs/user/develop/basic/index.md. `inject: ['tools']` makes Cordis wait for
-// the tool registry before `apply` runs.
+// Cordis function-plugin form (`name` / `inject` / `Config` / `apply`).
+// `inject: ['tools']` makes Cordis wait for the tool registry to exist before
+// `apply` runs.
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type { PatternRegistry, Runtime } from '@orchestral/core'

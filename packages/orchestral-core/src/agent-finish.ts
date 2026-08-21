@@ -54,11 +54,11 @@ export const defaultAgentFinishInputs = z.object({
 export type DefaultAgentFinishInput = z.infer<typeof defaultAgentFinishInputs>
 
 export const defaultAgentFinishOutputs = z.object({
-  // Canonical produced-asset channel: extractOutputAssetIds /
-  // recordJobOutputAssets recognise produced assets via assets[].assetId
-  // (assetId-only contract). Every string field carries an explicit upper
-  // bound (invariant #13 companion) so an unbounded base64 blob is
-  // unrepresentable at the source; the TS-visible type stays plain string.
+  // Canonical produced-asset channel: host asset-recording code recognises
+  // produced assets by `assets[].assetId` and nothing else (assetId-only
+  // contract). Every string field carries an explicit upper bound so an
+  // unbounded base64 blob is unrepresentable at the source; the TS-visible
+  // type stays plain string.
   // modality is a short enum-like value — consumers still gate with their
   // own isAssetKind check.
   assets: z.array(

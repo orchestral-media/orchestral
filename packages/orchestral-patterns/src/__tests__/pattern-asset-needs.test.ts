@@ -1,9 +1,9 @@
-// AssetLedger — library-only additive coverage.
+// AssetLedger coverage.
 //
-// Asserts each first-party Pattern factory now carries `assetNeeds` derived
-// from its bindings schema (§5.5), and that media-producing patterns' outputs
-// schemas accept the additive `assets[]` array (§6) while still accepting the
-// legacy single `assetId` shape (coexistence, old path untouched).
+// Asserts each first-party Pattern factory carries `assetNeeds` derived from
+// its bindings schema, and that media-producing patterns' outputs schemas
+// REQUIRE the `assets[]` array — the legacy single `assetId` / `<x>Url` shape
+// is gone and is rejected on parse (see the rejection cases below).
 
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'

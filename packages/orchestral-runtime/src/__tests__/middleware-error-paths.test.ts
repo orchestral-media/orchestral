@@ -1,16 +1,21 @@
-// DispatchMiddleware 错误分支回归 (inline.ts beforeDispatch / afterDispatch /
-// onError)。submit-agent-async.test.ts 只覆盖了 beforeDispatch 的 short-circuit
-// 顺路;三条错误分支此前零覆盖:
+// DispatchMiddleware error-branch regression (beforeDispatch / afterDispatch /
+// onError, all driven from inline.ts). submit-agent-async.test.ts covers the
+// beforeDispatch short-circuit in passing; these three error branches had no
+// coverage at all:
 //
-//   1. beforeDispatch throw → runOnErrorChain 从 i+1 起跑(抛错的那个 hook 不
-//      观测自己的失败),再 markErrored + rethrow。  (inline.ts:606-623)
-//   2. afterDispatch throw → 包成 MiddlewareAfterFailure,outer catch 据此把
-//      错误码覆盖成 MIDDLEWARE_AFTER_FAILED。              (inline.ts:696-708,727-733)
-//   3. onError 隔离 → 一个 onError 抛错只 console.error,不阻塞后续 onError。
-//      (inline.ts:753-769)
+//   1. beforeDispatch throws → `runOnErrorChain` starts at i+1 (the hook that
+//      raised must NOT observe its own failure), then markErrored + rethrow.
+//   2. afterDispatch throws → wrapped in `MiddlewareAfterFailure` (errors.ts)
+//      so the outer catch overrides the normalised code to
+//      MIDDLEWARE_AFTER_FAILED while the inner cause still surfaces as the
+//      rejection.
+//   3. onError isolation → a throwing onError only console.errors; it never
+//      blocks the onError handlers after it.
 //
-// 把 i+1 改成 i、漏掉 MiddlewareAfterFailure 包裹、或 onError 不 try/catch 都
-// 是静默回归,会破坏依赖一致错误事件的缓存失效 / 审核 / 成本统计中间件。
+// Turning the i+1 into i, dropping the MiddlewareAfterFailure wrapper, or
+// losing the try/catch around onError are all SILENT regressions: they break
+// cache-invalidation / audit / cost-accounting middleware that depends on a
+// consistent error-event contract.
 
 import { describe, expect, it, vi } from 'vitest'
 

@@ -173,7 +173,7 @@ describe('agent_orchestrator', () => {
     const desc = agent.primary!.tool.description.toLowerCase()
     // Assert the specific anti-poll contract phrase, not the incidental word
     // "async" (which recurs and would let this false-pass if the contract were
-    // dropped) — per code-review minor.
+    // dropped).
     expect(desc).toMatch(/do not wait or poll/)
   })
 
@@ -281,7 +281,8 @@ describe('agent_orchestrator', () => {
       if (res.ok) {
         // ResolvedAssetRef carries the real assetId AND the source handle it
         // resolved from — the host translates that parent handle into the child
-        // context's announcement label (upload handle = filename, see bug).
+        // context's announcement label. An uploaded asset's handle is its
+        // filename, which is why the fixture handle looks like one.
         expect(res.assets).toEqual([
           { slot: 'images', assetId: 'asset-img-1', modality: 'image', handle: '284540.JPG' },
         ])

@@ -5,7 +5,7 @@
 //                   log; not part of the subagent's LLM seed
 //   • prompt      — natural-language task brief, used *directly* as the
 //                   subagent's first user message (not JSON.stringify'd, not
-//                   mixed with bindings)
+//                   merged with the Pattern's other input fields)
 //
 // Pattern authors get the merged schema via `agentInputSchema({...own extra
 // fields})`. Extra fields are NOT auto-rendered into the seed message — when an
@@ -17,7 +17,7 @@
 //   • the prompt the parent LLM writes is the child agent's only seed user message
 //   • references is the only asset channel: the parent LLM fills handles, and the
 //     resolution pass resolves them into the child agent's seed inventory at the
-//     parent dispatch boundary. `bindings` has been removed entirely.
+//     parent dispatch boundary.
 //   • description goes into transcript metadata / UI, not into the seed
 //   • Pattern extra fields: consumed by the author in the system template, never
 //     auto-rendered by the framework

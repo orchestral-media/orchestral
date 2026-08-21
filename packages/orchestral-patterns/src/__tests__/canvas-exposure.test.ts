@@ -5,8 +5,8 @@ import { createImageToTextPattern } from '../atomic/image-to-text'
 import { createTextToSpeechPattern } from '../atomic/text-to-speech'
 import { createImageToImagePattern } from '../atomic/image-to-image'
 
-// SP1 §3.6 — the four launch patterns are canvas-node-able, and switching from
-// the 'tool' shorthand to object form must NOT regress their chat exposure.
+// The four canvas-node-able patterns: switching from the 'tool' shorthand to
+// the object form must NOT regress their chat / agent exposure.
 describe('canvas exposure flips', () => {
   const factories = [
     createTextToImagePattern,

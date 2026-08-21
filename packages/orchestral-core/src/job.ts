@@ -105,8 +105,8 @@ export interface JobSpec<TInput = unknown> {
   /**
    * Host-validated providerOptions defaults, sourced from wherever the host
    * keeps per-model settings. The runtime threads them into
-   * `DispatchContext.providerOptions` so the adapter's buildEffectiveInput can
-   * merge them under the LLM-explicit `input.providerOptions` (LLM wins).
+   * `DispatchContext.providerOptions` so the adapter can merge them under the
+   * LLM-explicit `input.providerOptions` (LLM wins).
    * Never appears in the LLM tool catalog. Omit = no host
    * defaults → merge is a pass-through of input.providerOptions only.
    */
@@ -148,8 +148,8 @@ export interface JobSpec<TInput = unknown> {
    * cross-contaminate the shared stepCache. The parent sets it to the
    * EFFECTIVE stepId of the step launching the child (e.g. `panel-0`), so the
    * child's `candidate-0` becomes `panel-0/candidate-0` — deterministically
-   * unique at any nesting depth. Top-level meta dispatches leave it absent
-   * (no prefix → byte-identical to pre-namespace behaviour).
+   * unique at any nesting depth. Top-level meta dispatches leave it absent,
+   * so no prefix is applied.
    *
    * Routing metadata only — NEVER hashed into the idempotency key
    * (deriveIdempotencyKey hand-picks fields; this one is excluded by design).
@@ -169,9 +169,9 @@ export interface JobSpec<TInput = unknown> {
    */
   resumeFromRunId?: string
   /**
-   * Opt-in marker for async agent dispatch. `undefined`
-   * defaults to 'pattern' (legacy behaviour); `submitAgentAsync` sets this
-   * to 'agent' so the persisted jobs row records the discriminator.
+   * Opt-in marker for async agent dispatch. `undefined` defaults to
+   * 'pattern'; `submitAgentAsync` sets this to 'agent' so the persisted jobs
+   * row records the discriminator.
    */
   jobKind?: JobKind
 }

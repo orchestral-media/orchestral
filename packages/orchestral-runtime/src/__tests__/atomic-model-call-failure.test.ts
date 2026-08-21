@@ -1,23 +1,26 @@
-// dispatchAtomic's in-Router retry loop (inline.ts ~891–937) — error-path
-// coverage. The happy path is exercised everywhere; these lock the failure
-// branches that have NO other coverage:
+// The atomic model fallback walk — error-path coverage. The happy path
+// is exercised everywhere; these lock the failure branches that have NO other
+// coverage:
 //
-//   • excludeModel accumulation — a failed model.call pushes its
-//     `provider:modelId` into excludeModel and the loop retries with it
-//     excluded (catch ~924).
-//   • lastErr preservation guard ~905 — when router.resolve throws on a
-//     retry (all candidates excluded → MODEL_EXCLUDED), it must NOT overwrite
+//   • excludeModel accumulation — a model the dispatch gives up on pushes its
+//     `provider:modelId` into excludeModel and the next hop resolves with it
+//     excluded.
+//   • the lastErr preservation guard — when router.resolve throws on a later
+//     hop (all candidates excluded → MODEL_EXCLUDED), it must NOT overwrite
 //     the FIRST real provider error. The UI must surface the real cause, not
 //     the "excluded" symptom. Deleting `if (!lastErr)` flips test 2 RED.
-//   • router exhaustion on attempt 0 (lastErr still null) — the resolve error
+//   • router exhaustion on hop 0 (lastErr still null) — the resolve error
 //     propagates unchanged.
-//   • abort between attempts — signal aborted during retry throws CANCELLED.
-//   • excludeModel base seeding ~851 — baseCtx.excludeModel is honoured on
-//     attempt 0 (passed straight to the first resolve).
+//   • abort between hops — signal aborted mid-walk throws CANCELLED.
+//   • excludeModel base seeding — baseCtx.excludeModel is honoured on hop 0
+//     (passed straight to the first resolve).
+//
+// The same-model transient retry that sits INSIDE each hop is opt-in and has
+// its own file: transient-retry.test.ts.
 //
 // Harness mirrors alternative-not-enabled.test.ts / abort-cascade.test.ts:
 // a real InlineRuntime over an in-memory store + a hand-rolled fake router
-// whose resolve/call we script per attempt. No alternatives are registered,
+// whose resolve/call we script per hop. No alternatives are registered,
 // so a terminal failure falls straight through to `throw lastErr` and the
 // submitJob promise rejects with it.
 import { describe, expect, it } from 'vitest'
@@ -55,7 +58,7 @@ function atomic(id: string): AtomicPattern {
 }
 
 // A model capability whose `call` runs the supplied behaviour. The
-// provider:modelId pair is what the retry loop pushes into excludeModel.
+// provider:modelId pair is what the fallback walk pushes into excludeModel.
 function model(
   provider: string,
   modelId: string,
@@ -84,21 +87,21 @@ const throwCall =
     throw err
   }
 
-describe('dispatchAtomic retry loop — error paths', () => {
-  it('retries the next model after a model.call failure and excludes the failed one', async () => {
-    // Router scripts resolve() per attempt: attempt 0 → model A (whose call
-    // throws), attempt 1 → model B (succeeds). We record the excludeModel ctx
-    // seen on each resolve to prove A was excluded on the retry.
+describe('dispatchAtomic fallback walk — error paths', () => {
+  it('walks to the next model after a model.call failure and excludes the failed one', async () => {
+    // Router scripts resolve() per hop: hop 0 → model A (whose call throws),
+    // hop 1 → model B (succeeds). We record the excludeModel ctx seen on each
+    // resolve to prove A was excluded on the second hop.
     const excludeSeen: string[][] = []
     const modelA = model('prov', 'A', throwCall(new Error('A_TRANSIENT_DOWN')))
     const modelB = model('prov', 'B', okCall('from-B'))
-    let attempt = 0
+    let hop = 0
 
     const router: CapabilityRouter = {
       checkSatisfiable: () => ({ ok: true, candidates: [modelA as never] }),
       resolve: (_cap, _tags, ctx: ResolveContext) => {
         excludeSeen.push([...(ctx.excludeModel ?? [])])
-        return attempt++ === 0 ? modelA : modelB
+        return hop++ === 0 ? modelA : modelB
       },
     }
 
@@ -114,15 +117,15 @@ describe('dispatchAtomic retry loop — error paths', () => {
 
     expect(job.status).toBe('done')
     expect(job.output).toEqual({ modality: 'text', text: 'from-B' })
-    // Attempt 0 saw no exclusions; attempt 1 saw A excluded by provider:modelId.
+    // Hop 0 saw no exclusions; hop 1 saw A excluded by provider:modelId.
     expect(excludeSeen[0]).toEqual([])
     expect(excludeSeen[1]).toEqual(['prov:A'])
   })
 
-  it('preserves the FIRST provider error when a retry resolve throws MODEL_EXCLUDED', async () => {
-    // attempt 0: model A resolves, its call throws a DISTINCTIVE provider error.
-    // attempt 1: A is now in excludeModel and is the only candidate, so resolve
-    // throws MODEL_EXCLUDED. The lastErr guard (~905, `if (!lastErr)`) must keep
+  it('preserves the FIRST provider error when a later hop resolve throws MODEL_EXCLUDED', async () => {
+    // hop 0: model A resolves, its call throws a DISTINCTIVE provider error.
+    // hop 1: A is now in excludeModel and is the only candidate, so resolve
+    // throws MODEL_EXCLUDED. The lastErr guard (`if (!lastErr)`) must keep
     // the original provider error — NOT the symptom. Deleting the guard makes
     // this assertion fail (it would surface MODEL_EXCLUDED instead).
     const providerErr = new Error('IMAGE_GEN_NOT_SUPPORTED_FOR_MODEL')
@@ -155,8 +158,8 @@ describe('dispatchAtomic retry loop — error paths', () => {
     ).rejects.not.toThrow(/MODEL_EXCLUDED/)
   })
 
-  it('propagates the resolve error when the router is exhausted on attempt 0 (lastErr null)', async () => {
-    // resolve throws on the very first attempt — no model.call ever ran, so
+  it('propagates the resolve error when the router is exhausted on hop 0 (lastErr null)', async () => {
+    // resolve throws on the very first hop — no model.call ever ran, so
     // lastErr is null and the guard records THIS error, which then propagates.
     const router: CapabilityRouter = {
       checkSatisfiable: () => ({ ok: true, candidates: [] }),
@@ -178,26 +181,26 @@ describe('dispatchAtomic retry loop — error paths', () => {
     ).rejects.toThrow('NO_CANDIDATE_AT_RESOLVE')
   })
 
-  it('throws CANCELLED when the signal is aborted between retry attempts', async () => {
-    // attempt 0: model A's call cancels its own job (aborts the runtime
-    // controller) then throws — pushing A into excludeModel. attempt 1's
-    // top-of-loop `if (signal.aborted) throw CANCELLED` (~892) fires before any
+  it('throws CANCELLED when the signal is aborted between fallback hops', async () => {
+    // hop 0: model A's call cancels its own job (aborts the runtime
+    // controller) then throws — pushing A into excludeModel. hop 1's
+    // top-of-loop `if (signal.aborted) throw CANCELLED` fires before any
     // further resolve. The outer catch sees the aborted controller and rejects
     // with CANCELLED.
     let jobId: string | undefined
     let rt: InlineRuntime
     const modelA = model('prov', 'A', async () => {
       // cancelJob aborts the controller; await so the abort has landed before
-      // we throw and the loop advances to the next attempt.
+      // we throw and the loop advances to the next hop.
       await rt.cancelJob(jobId!)
       throw new Error('A_FAILED_AFTER_CANCEL')
     })
     const modelB = model('prov', 'B', okCall('should-never-run'))
-    let attempt = 0
+    let hop = 0
 
     const router: CapabilityRouter = {
       checkSatisfiable: () => ({ ok: true, candidates: [modelA as never] }),
-      resolve: () => (attempt++ === 0 ? modelA : modelB),
+      resolve: () => (hop++ === 0 ? modelA : modelB),
     }
 
     const registry = new PatternRegistry()
@@ -214,13 +217,13 @@ describe('dispatchAtomic retry loop — error paths', () => {
     await expect(
       rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
     ).rejects.toThrow(/CANCELLED/)
-    // B never resolved — the abort short-circuited the retry before attempt 1.
-    expect(attempt).toBe(1)
+    // B never resolved — the abort short-circuited the walk before hop 1.
+    expect(hop).toBe(1)
     expect(jobId).toBeDefined()
   })
 
-  it('fail-fast (maxRetries 0) rejects on first failure with failedModel + httpStatus in JobError.details', async () => {
-    // The host's resolveCtxProvider now returns maxRetries: 0 — one model.call
+  it('fail-fast (fallbackDepth 0) rejects on first failure with failedModel + httpStatus in JobError.details', async () => {
+    // The host's resolveCtxProvider returns fallbackDepth: 0 — one candidate
     // per dispatch, no silent cross-provider walk (the LLM filled input against
     // THIS model's schema). The rejection must carry structured details so the
     // host can classify invalid-input (4xx) and derive the retry exclusion set.
@@ -245,7 +248,7 @@ describe('dispatchAtomic retry loop — error paths', () => {
       store: store as never,
       registry,
       router,
-      resolveCtxProvider: () => ({ maxRetries: 0 }),
+      resolveCtxProvider: () => ({ fallbackDepth: 0 }),
       onJobCreated: (id) => {
         jobId = id
       },
@@ -312,10 +315,10 @@ describe('dispatchAtomic retry loop — error paths', () => {
     })
   })
 
-  it('honours baseCtx.excludeModel seeding on attempt 0', async () => {
+  it('honours baseCtx.excludeModel seeding on hop 0', async () => {
     // resolveCtxProvider pre-populates excludeModel; the loop must seed its
-    // mutable copy from it (~851) so the FIRST resolve already sees the
-    // pre-excluded model.
+    // mutable copy from it so the FIRST resolve already sees the pre-excluded
+    // model.
     const excludeSeen: string[][] = []
     const modelB = model('prov', 'B', okCall('from-B'))
 

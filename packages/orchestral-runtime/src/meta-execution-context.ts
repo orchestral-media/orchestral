@@ -1,6 +1,5 @@
 // MetaPattern.compose() — ExecutionContext construction.
 //
-// Extracted from inline.ts to keep that file under the file-hygiene ceiling.
 // The runtime that owns meta dispatch (InlineRuntime) passes a `submitChild`
 // callback so this module doesn't need to know the runtime class — keeps the
 // dependency direction one-way (inline.ts depends on this, not vice versa).
@@ -28,8 +27,8 @@ import { buildAskUserFacade } from '@orchestral/core'
  * Upper bound on a single run's stepCache. The cache is per dispatch tree (a
  * top-level meta and everything it fans out share one map), so it normally
  * holds a handful of steps — but a meta that fans a sub-meta out per item
- * (meta_example dispatching meta_child once per item) can mint hundreds of
- * cache entries. Cap
+ * (meta_idea2video dispatching meta_script2video once per scene) can mint
+ * hundreds of cache entries. Cap
  * it so one pathological run can't grow the map unbounded; evicting the oldest
  * entry on overflow is safe because resume/idempotency only needs steps still
  * referenced later in the same compose, which are the most recent ones.
@@ -85,15 +84,10 @@ export interface MetaSharedState {
  */
 export interface MetaCtxDeps {
   /**
-   * Dispatch a child Pattern. Maps to `InlineRuntime._submitJobInternal`
-   * with the ancestor chain + meta shared state threaded through so nested
-   * meta dispatches can inherit the parent's stepCache / counter / stepIds.
-   */
-  /**
    * Report a settled sub-step on the parent job's event stream. Optional so a
    * host driving `buildMetaExecutionContext` directly (tests, a custom meta
-   * runner) needs no event plumbing; absent means a silent pipeline, which is
-   * what every meta did before.
+   * runner) needs no event plumbing; absent means the meta's sub-steps never
+   * reach the parent's subscribers.
    */
   onStepSettled?: (args: {
     rootJobId: string
@@ -102,6 +96,11 @@ export interface MetaCtxDeps {
     childJobId: string
     output: unknown
   }) => void
+  /**
+   * Dispatch a child Pattern. Maps to `InlineRuntime._submitJobInternal`
+   * with the ancestor chain + meta shared state threaded through so nested
+   * meta dispatches can inherit the parent's stepCache / counter / stepIds.
+   */
   submitChild: <TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,
     ancestors: readonly PatternId[],
@@ -156,11 +155,13 @@ export interface MetaCtxDeps {
 }
 
 /**
- * Abortable sleep used by step retry backoff. Resolves after `ms` ms or
- * rejects with `CANCELLED` on signal abort.
+ * Abortable sleep used by retry backoff. Resolves after `ms` ms or rejects
+ * with `CANCELLED` on signal abort — a cancel during backoff surfaces
+ * immediately instead of after the delay has been slept out.
  *
- * Exported standalone because the meta ctx + (future) other retry-bearing
- * code paths share the same primitive.
+ * Exported standalone because every retry-bearing code path shares the same
+ * primitive: the meta ctx below and the atomic dispatch path's same-model
+ * transient retry.
  */
 export function abortableSleep(
   ms: number,
@@ -181,6 +182,29 @@ export function abortableSleep(
     }
     signal.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+/**
+ * Backoff schedule for one `RetryPolicy`, shared by every retry loop in this
+ * package so `{ kind: 'exponential', maxAttempts: 3 }` means the same number
+ * of calls and the same waits wherever a host writes it.
+ *
+ * `attempt` is the 1-based attempt that just failed. Returns how long to wait
+ * before the next one, or `null` when the policy has no attempts left — so
+ * "are we done?" and "how long do we wait?" cannot drift apart at a call site.
+ */
+export function nextRetryDelayMs(
+  policy: RetryPolicy,
+  attempt: number,
+): number | null {
+  if (policy.kind === 'none') return null
+  if (attempt >= policy.maxAttempts) return null
+  return policy.kind === 'exponential'
+    ? Math.min(
+        policy.baseMs * 2 ** (attempt - 1),
+        policy.maxMs ?? Number.POSITIVE_INFINITY,
+      )
+    : policy.delayMs
 }
 
 /**
@@ -290,20 +314,8 @@ export function buildMetaExecutionContext(
         stepCache.set(id, result)
         return result as { value: T; attempts: number; durationMs: number }
       } catch (err) {
-        const remaining =
-          policy.kind === 'exponential' || policy.kind === 'fixed'
-            ? policy.maxAttempts - attempt
-            : 0
-        if (remaining <= 0) throw err
-        const delayMs =
-          policy.kind === 'exponential'
-            ? Math.min(
-                policy.baseMs * 2 ** (attempt - 1),
-                policy.maxMs ?? Number.POSITIVE_INFINITY,
-              )
-            : policy.kind === 'fixed'
-              ? policy.delayMs
-              : 0
+        const delayMs = nextRetryDelayMs(policy, attempt)
+        if (delayMs === null) throw err
         await abortableSleep(delayMs, signal)
       }
     }
@@ -339,8 +351,8 @@ export function buildMetaExecutionContext(
         // `candidate-0` under `panel-0` distinct from the one under `panel-1`,
         // and the child stamps `effectiveStepId` onto its OWN children so the
         // namespace nests deterministically at any depth. Top-level meta:
-        // stepIdNamespace is undefined → effectiveStepId === stepId, behaviour
-        // byte-identical to before.
+        // stepIdNamespace is undefined → effectiveStepId === stepId, so no
+        // prefix is applied.
         const effectiveStepId = stepIdNamespace
           ? `${stepIdNamespace}/${stepId}`
           : stepId
@@ -483,14 +495,15 @@ export function buildMetaExecutionContext(
     options?: StepOptions,
   ): Promise<T> => {
     // Namespace the cache key exactly like ctx.step does. A
-    // nested meta dispatched more than once in one tree (e.g. meta_example fans
-    // out meta_child once per item, each calling ctx.compute('merge-final', …))
+    // nested meta dispatched more than once in one tree (e.g. meta_idea2video
+    // fans out meta_script2video per scene, each calling
+    // ctx.compute('merge-final', …))
     // shares this run's stepCache. Without the prefix every item's compute
     // collides on the bare `merge-final` key → items 1..N return item 0's
     // cached value → silently corrupted output. compute does NOT go
     // through the stepIds dedup set (only ctx.step does), so the cache key is
-    // the only thing to namespace. Top-level compute (stepIdNamespace undefined)
-    // → cid === id, byte-identical to before.
+    // the only thing to namespace. Top-level compute (stepIdNamespace
+    // undefined) → cid === id, no prefix.
     const cid = stepIdNamespace ? `${stepIdNamespace}/${id}` : id
     const { value } = await runWithRetry<T>(cid, fn, options)
     return value
@@ -550,8 +563,8 @@ export function buildMetaExecutionContext(
     // Escape hatch — usually authors should use ctx.step (which adds
     // idempotency, retry, audit). submitJob here threads the meta's
     // ancestor chain so even ad-hoc dispatches still get cycle / depth
-    // detection (review finding: previously routed through public
-    // submitJob which seeded visited=[], breaking A → B → A detection).
+    // detection. Routing it through the PUBLIC submitJob instead would seed
+    // visited=[] and silently break A → B → A detection.
     //
     // Note: ctx.submitJob does NOT pass sharedState — escape hatch starts a
     // fresh meta-state root by design. Authors who want cache inheritance

@@ -28,8 +28,8 @@ export interface PatternRef {
   /**
    * Internal-asset channel (machine-to-machine): pre-resolved, slot-keyed
    * assetIds a meta passes to this sub-step. Threaded into the child JobSpec's
-   * `assets` → `DispatchContext.assets`, consumed by the adapter via
-   * `assetsForSlot`. Omit when the sub-step needs no meta-supplied source.
+   * `assets` → `DispatchContext.assets`, which the adapter reads per slot.
+   * Omit when the sub-step needs no meta-supplied source.
    */
   assets?: readonly ResolvedAssetRef[]
 }

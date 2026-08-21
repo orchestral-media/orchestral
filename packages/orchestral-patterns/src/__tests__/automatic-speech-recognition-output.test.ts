@@ -2,22 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 import { AutomaticSpeechRecognitionOutputSchema } from '../index'
 
-// Regression guard for the schema-vs-runtime drift fixed alongside #257.
+// Regression guard against schema-vs-adapter drift on the timestamp fields.
 //
-// The host transcribe path (worker-runtime `gateway:asr:transcribe:ok` →
-// `transcribeInMain` → workflow.ts capability output) emits segment/word
-// timestamps as `{ startSecond, endSecond, text }` (seconds), matching the
-// gateway `TranscribeResponseSchema` and `formatAsSrt`. The declared output
-// schema once named these `{ start, end }`, so the emitted object silently
-// failed to satisfy its own contract — never caught because the atomic
-// dispatch path returns `result.output` without an `outputs.parse()`.
+// A transcription adapter emits segment/word timestamps as
+// `{ startSecond, endSecond, text }` (seconds). Naming them `{ start, end }`
+// in the declared schema instead is a SILENT failure: the atomic dispatch path
+// returns `result.output` without running `outputs.parse()`, so an emitted
+// object that does not satisfy its own contract reaches the caller unflagged.
 //
 // These tests pin the canonical shape: anything that flips a segment field
 // back to `start`/`end` (or drops a required envelope field) fails here.
 
-// The exact object the host builds at the capability boundary for a
-// segment-timestamped transcription. Mirrors workflow.ts's
-// `automatic-speech-recognition` branch.
+// A representative adapter output at the capability boundary for a
+// segment-timestamped transcription.
 const RUNTIME_OUTPUT = {
   modality: 'text',
   text: 'Love this product.',
@@ -74,10 +71,9 @@ describe('AutomaticSpeechRecognitionOutputSchema', () => {
   })
 
   it('declares word-level timestamps in the same { startSecond, endSecond } shape', () => {
-    // Schema-shape only: `words` is a forward-looking field for when the host
-    // surfaces word-granularity. The runtime emits only `segments` today
-    // (TranscribeResponseSchema / MainTranscribeResult carry no `words`), so
-    // this pins the schema's declared shape, not a value the host produces yet.
+    // Schema-shape only: `words` is a forward-looking field for adapters that
+    // surface word granularity. This pins the schema's declared shape, not a
+    // value any shipped adapter produces yet.
     const parsed = AutomaticSpeechRecognitionOutputSchema.parse({
       modality: 'text',
       text: 'hi there',

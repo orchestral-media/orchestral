@@ -163,7 +163,7 @@ describe('ADR-024:native-audio via providerOptions (no variant)', () => {
       index,
       { query: 'select:text-to-video' },
       {
-        // Phase 3 contract: the closure returns the MERGED LLM-facing schema
+        // The closure returns the MERGED LLM-facing schema
         // (host invokes the lift). Neither bytedance field is liftable, so both
         // land under the typed `providerOptions` object; find_pattern z2js-es it.
         deriveProviderOptionsZod: (id, baseSchema) =>

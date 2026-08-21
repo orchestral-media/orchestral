@@ -7,10 +7,9 @@
 //   4. meta_script2video     (NESTED meta, ∥ per scene) — each scene → a video
 //   5. concatenate           (host op — injected)
 //
-// The 3 stage prompts are inlined as string constants in ./prompts (copied
-// verbatim from the source skill bodies, verified byte-identical by the
-// equivalence test). No SkillLoader. The one real host-injected dep is
-// `concatVideos` (Stage 5 has no generation-capability backing).
+// The 3 stage prompts are inlined as string constants in ./prompts — nothing
+// is loaded at dispatch. The one real host-injected dep is `concatVideos`
+// (Stage 5 has no generation-capability backing).
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'

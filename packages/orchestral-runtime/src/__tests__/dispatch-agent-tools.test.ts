@@ -1,15 +1,14 @@
 // ADR-028 P2 — dispatchAgent tool catalog.
 //
-// Locks the library-side contract after the host-tool-policy move: dispatchAgent
-// emits the Path-5 router tools (find_pattern / dispatch_pattern), the injected
-// finish tool (complete_task), and forwards the AgentPattern's `pattern.id` to
-// AgentRunImpl.run({ patternId }). Host-tool assembly/filtering (injection +
-// visibility policy) no longer lives here; the host injects its per-agent tool
-// surface in a later task, keyed by patternId.
+// Locks the library-side contract: dispatchAgent emits the two router tools
+// (find_pattern / dispatch_pattern), the injected finish tool (complete_task),
+// and forwards the AgentPattern's `pattern.id` to AgentRunImpl.run({ patternId }).
+// Host-tool assembly/filtering (injection + visibility policy) does not live
+// here — the host injects its per-agent tool surface, keyed by patternId.
 //
-// The minimal {store: undefined, router: {resolve}} shape from the task brief
-// can't reach agentRunImpl.run — submitJob touches store.findByIdempotencyKey /
-// store.insert first. So we mirror the real harness used by
+// A minimal {store: undefined, router: {resolve}} harness cannot reach
+// agentRunImpl.run — submitJob touches store.insertIfAbsent first. So we
+// mirror the real harness used by
 // agent-asset-flow.test.ts (in-memory JobStore + real router) and capture the
 // args handed to a fake AgentRunImpl.
 import { describe, expect, it } from 'vitest'

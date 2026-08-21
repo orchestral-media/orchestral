@@ -1,4 +1,4 @@
-// @orchestral/patterns — first-party Pattern catalog. Populated in Phases B–C.
+// @orchestral/patterns — first-party Pattern catalog.
 
 // ── First-party Pattern factories ────────────────────────────────────────
 export {

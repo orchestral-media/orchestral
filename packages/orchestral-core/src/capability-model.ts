@@ -1,6 +1,5 @@
-// Unified ModelCapability metadata — a single conceptual record that unifies
-// the previous routing-oriented + persistence-oriented two-schema split.
-// Split into two layers:
+// ModelCapability metadata — one conceptual record covering both what the
+// router needs and what the host persists, in two layers:
 //
 //   • ModelCapabilityRecord — persistable, JSON-safe; what the host writes
 //     to its model-catalog store.
@@ -270,11 +269,17 @@ export interface ResolveContext {
   preferProvider?: string
   excludeProvider?: readonly string[]
   /**
-   * Skip these `provider:modelId` strings when resolving. Populated by the
-   * runtime's in-Router retry after a transient failure — the next pass
-   * excludes the failed model(s). Empty / unset on first call. This is a
-   * `readonly string[]` (multi-model exclude) rather than a single `string`,
-   * which supports genuine retry depth.
+   * Skip these `provider:modelId` strings when resolving. Accumulated by the
+   * runtime's fallback walk: a model the dispatch has given up on lands here
+   * so the next `resolve` picks a different candidate. Empty / unset on the
+   * first call. This is a `readonly string[]` (multi-model exclude) rather
+   * than a single `string`, which is what makes the walk more than one hop
+   * deep.
+   *
+   * "Given up on" is not the same as "failed once" — with same-model
+   * transient retry wired (`InlineRuntimeInit.transientRetry` in
+   * `@orchestral/runtime`) a model only lands here once its own retries are
+   * spent.
    */
   excludeModel?: readonly string[]
   /**
@@ -289,22 +294,30 @@ export interface ResolveContext {
    * configured fallback chain for this capability (index 0 = default, rest =
    * fallback order). When present, the router restricts candidates to exactly
    * this set, ordered by it; an empty array means no route. Distinct from the
-   * fatal `pinnedModel`: a ranked model that fails is skipped (via the runtime's
-   * excludeModel retry) to the next in the list. `pinnedModel` and
-   * `rankedModels` are mutually exclusive — a host sets one or the other.
+   * fatal `pinnedModel`: a ranked model the dispatch gives up on is skipped
+   * (via the runtime's excludeModel walk) in favour of the next in the list.
+   * `pinnedModel` and `rankedModels` are mutually exclusive — a host sets one
+   * or the other.
    */
   rankedModels?: readonly string[]
   /**
-   * Per-dispatch override for the runtime's fallback-walk depth (how many
-   * candidates the excludeModel retry loop will try). The host sets this from
-   * `rankedModels.length` so the full configured order is walked rather than
-   * being capped by the runtime's default transient-retry budget.
+   * Per-dispatch bound on the runtime's fallback walk: how many FURTHER
+   * candidates it may resolve after the first one is given up on. `0` means
+   * the first resolved model is the only one tried, so `rankedModels.length -
+   * 1` walks exactly the configured chain instead of stopping wherever the
+   * runtime's own default fell. (Passing the full `length` is harmless — the
+   * extra hop finds nothing left to resolve.)
    *
-   * Caveat — single counter: the same loop handles transient retry AND the
-   * fallback walk. A model that fails (even transiently) is added to
-   * `excludeModel` for the remainder of the dispatch, so it is skipped, not
-   * retried; "retry the same model N times, then fall back" is not
-   * expressible in 0.1.0.
+   * Read by the runtime, not by `resolve` — it rides on ResolveContext
+   * because the host already builds one of these per dispatch, which is
+   * exactly the granularity this bound needs.
+   *
+   * Deliberately NOT the same budget as same-model transient retry ("that
+   * provider blipped, call it again"), which is a separate loop with its own
+   * bound that the host opts into on the runtime
+   * (`InlineRuntimeInit.transientRetry` in `@orchestral/runtime`). A hop of
+   * this walk only happens once the model in hand is out of transient
+   * retries, and neither budget can consume the other's.
    */
-  maxRetries?: number
+  fallbackDepth?: number
 }

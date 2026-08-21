@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { deriveIdempotencyKey, type DeriveIdempotencyKeyInput } from '../idempotency'
 
-// Phase 4 runtime-freeze gate. The idempotency hash is persisted (it keys
+// Runtime-freeze gate. The idempotency hash is persisted (it keys
 // dedup decisions and job rows), so the canonical serialisation + sha256 must
 // stay byte-stable across releases. Any change to the canonicaliser, the
 // hashed field set, or the digest algorithm flips the pinned hash below and

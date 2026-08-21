@@ -1,5 +1,6 @@
-// Inlined prompt constants for this pattern (frontmatter-stripped SKILL.md
-// bodies). Authoritative source; no SkillLoader at dispatch.
+// Inlined prompt constants for this pattern. Compile-time constants, not
+// loaded at dispatch — this file is the authoritative copy. Upstream
+// provenance for the ViMax-derived constants is recorded in CREDITS.md.
 //
 // STORYBOARD_DESIGN_PROMPT is shared with meta_storyboard, so it lives in
 // ../_shared/storyboard-design-prompt and is re-exported here for the callers
@@ -322,6 +323,4 @@ The second shot description: <second_shot_visual_desc>.
 [Guidelines]
 - The transition clip uses only the first shot's first-frame image as reference; the second shot's frame is not provided.
 - Transitions are flat "cut to" only; no fade, dissolve, or wipe semantics.
-- Both shot descriptions must be present — omitting either degrades the cross-cut consistency.
-
-**Reserved for future transition orchestration.** No current builtin meta dispatches this skill; the default \`meta_script2video\` flow renders each shot independently via \`i2v-shot-single\`. When a meta opts in to cross-shot transitions, it should branch from the single-shot path based on whether the current step is a transition step.`
+- Both shot descriptions must be present — omitting either degrades the cross-cut consistency.`

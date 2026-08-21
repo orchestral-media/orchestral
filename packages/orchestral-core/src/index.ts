@@ -121,8 +121,8 @@ export { toJsonSchema } from './schema'
 // explicit upper bound so unbounded binary blobs are unrepresentable at the
 // source. `auditOutputsSchema` is a pure checker; PatternRegistry.register
 // runs it as a non-fatal warn on every registered pattern's outputs schema
-// (OUTPUTS_UNBOUNDED_FIELDS). The 7 host-tool schemas are not yet retrofitted
-// (separate follow-up).
+// (OUTPUTS_UNBOUNDED_FIELDS). Host-injected tool schemas are outside the
+// registry, so a host that wants the same guarantee calls the checker itself.
 export {
   assetIdField,
   auditOutputsSchema,

@@ -7,9 +7,9 @@
 //   - typed `providerOptions` schema (e.g. providerOptions.outpaint:
 //     {direction, pixels})
 //
-// Pattern factory itself no longer declares `providerOptions: z.record(...)`
-// placeholder — `deriveLlmFacingInputSchema` injects a typed providerOptions
-// object at find_pattern render time based on the resolved top-1 model.
+// The factory declares no `providerOptions` placeholder of its own —
+// `deriveLlmFacingInputSchema` injects a typed providerOptions object at
+// find_pattern render time based on the resolved top-1 model.
 
 import { z } from 'zod'
 import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, producedAssetShape, whenCapabilityUnavailable, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'

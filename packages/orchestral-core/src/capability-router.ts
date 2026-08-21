@@ -39,11 +39,13 @@ export type SatisfiableResult =
  * triple and a concrete model. It is the single point where a Pattern's
  * capability requirement gets joined to a provider implementation.
  *
- * In-Router retry: when a model call fails transiently, the runtime adds
- * the failed `provider:modelId` to `ResolveContext.excludeModel` and calls
- * `resolve` again. If no candidate remains the runtime throws
- * NO_MODEL_FOR_CAPABILITY, and evaluates `Alternative` fallbacks only if the
- * host enabled them (opt-in in @orchestral/runtime).
+ * Model fallback walk: when a dispatch gives up on a model, the runtime adds
+ * that `provider:modelId` to `ResolveContext.excludeModel` and calls `resolve`
+ * again, so each hop lands on a different candidate. If no candidate remains
+ * the runtime throws NO_MODEL_FOR_CAPABILITY, and evaluates `Alternative`
+ * fallbacks only if the host enabled them (opt-in in @orchestral/runtime).
+ * Retrying the SAME model is a separate, opt-in loop that lives entirely on
+ * the runtime side and never reaches `resolve`.
  */
 export interface CapabilityRouter {
   /**

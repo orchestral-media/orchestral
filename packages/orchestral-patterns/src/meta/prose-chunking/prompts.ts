@@ -1,5 +1,6 @@
-// Inlined prompt constants for this pattern (frontmatter-stripped SKILL.md
-// bodies). Authoritative source; no SkillLoader at dispatch.
+// Inlined prompt constants for this pattern. Compile-time constants, not
+// loaded at dispatch — this file is the authoritative copy. Upstream
+// provenance for the ViMax-derived constants is recorded in CREDITS.md.
 
 export const NARRATIVE_COMPRESSION_PROMPT = `# Narrative Compression
 

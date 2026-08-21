@@ -8,9 +8,9 @@
 //      shape (`references.source: string[]` + `responseFormat: 'json'`).
 // Returns the selected image handles + a generated text prompt.
 //
-// The two stage prompts are inlined as string constants in ./prompts (copied
-// verbatim from the source SKILL.md bodies). This meta is self-contained: no
-// SkillLoader, no host binding — the prompts ship with the pattern. This meta
+// The two stage prompts are inlined as string constants in ./prompts. This
+// meta is self-contained: nothing is loaded at dispatch, no host binding — the
+// prompts ship with the pattern. This meta
 // has no assetNeeds of its own: candidate image
 // handles arrive in `input.candidates[].ref` and are forwarded to the
 // image-to-text sub-step, which declares the `source` asset need and resolves

@@ -4,7 +4,7 @@
 // host bridges an ai-sdk ImageModel to the orchestral dispatch contract:
 // wrap each model instance into a `ModelCapability` envelope whose `call`
 // closure drives ai-sdk's `generateImage`, then hand `getModels` to
-// `createDefaultCapabilityRouter`. ~50 lines; copy it into your own host.
+// `createDefaultCapabilityRouter`. Copy it into your own host.
 
 import { generateImage } from 'ai'
 import type {

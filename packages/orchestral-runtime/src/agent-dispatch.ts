@@ -137,7 +137,7 @@ export interface AgentAssetBridge {
    * from `resolvedInputs`). The caller forwards THIS return value to the model
    * history — never the raw adapter output, whose elements carry assetId/url
    * but no handle and would therefore be dropped entirely by the downstream
-   * `projectToolOutputForModel` D3 projection.
+   * `projectToolOutputForModel` projection.
    *
    * `patternId` names the operation on the provenance edges the host records;
    * `resolvedInputs` are the slot-keyed input assets this dispatch consumed
@@ -189,22 +189,8 @@ export function countAgentAncestors(
 }
 
 /**
- * What agent dispatch borrows from the runtime. Mirrors `MetaCtxDeps`: the
- * recursion entry point is a callback rather than a back-reference, so the
- * dependency runs one way and this module never imports InlineRuntime.
- */
-/**
  * Best-effort mapping from a stored TranscriptMessage back into an
  * AgentChatMessage suitable for re-seeding an agent loop on resume.
- *
- * Caveats:
- *   • The transcript captures the host's agent-loop step projection — not raw
- *     provider messages — so we lose `tool_use_id` pairing + reasoning
- *     blocks. The resumed LLM sees previous text + tool outputs as separate
- *     turns rather than the original interleaved structure.
- *   • A future reasoning round-trip will eventually let `raw` hold byte-
- *     exact provider messages, at which point this mapping can preserve
- *     full fidelity. Until then this is "good enough resume".
  *
  * Known limitation — resume via this function is **best-effort**, not
  * byte-exact. TranscriptMessage stores the host's agent-loop step projection
@@ -245,6 +231,11 @@ function transcriptMessageToChat(
   return { role: 'tool', content: m.raw }
 }
 
+/**
+ * What agent dispatch borrows from the runtime. Mirrors `MetaCtxDeps`: the
+ * recursion entry point is a callback rather than a back-reference, so the
+ * dependency runs one way and this module never imports InlineRuntime.
+ */
 export interface AgentDispatchDeps {
   registry: PatternRegistry
   router: CapabilityRouter
@@ -978,9 +969,9 @@ deps: AgentDispatchDeps,
           // later references in the loop (or inheriting children) resolve.
           // recordOutput returns the model-facing output with handles stamped
           // (+ origin/from lineage); we forward THAT to the loop — not the raw
-          // child.output (assetId+url, no handle), which the downstream D3
-          // projection would drop for lacking a handle. Mirrors the chat
-          // path's stampSessionHandles + attachProducedLineage on job.output.
+          // child.output (assetId+url, no handle), which the downstream
+          // projection would drop for lacking a handle. Mirrors what the host's
+          // chat path does to job.output: stamp handles, attach lineage.
           const stamped = deps.agentAssetBridge?.recordOutput({
             contextId: agentContextId,
             ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
@@ -1010,7 +1001,8 @@ deps: AgentDispatchDeps,
     //     text (no finish tool was injected for this Pattern).
     //   • a valid finish  — compose the recorded finish payload + run facts.
     //   • neither         — a positive AGENT_INCOMPLETE: the runtime KNOWS
-    //     no valid finish arrived (replaces the old bare-{text} sniffing).
+    //     no valid finish arrived, rather than inferring it from the shape of
+    //     whatever the loop last said.
     const setErroredEnvelope = (errorMessage: string): void => {
       deps.recordEnvelope(jobId, {
         patternId: pattern.id,
@@ -1076,8 +1068,8 @@ deps: AgentDispatchDeps,
       ...(result.usage ? { usage: result.usage } : {}),
       // Emit both runId and transcriptId so the host can call
       // `transcriptStore.read(runId, transcriptId)` to fetch full history.
-      // The errored path (above) already does this; success was missing
-      // runId, which left getAgentEnvelope consumers unable to query.
+      // Both are required on the success path too — without runId a
+      // getAgentEnvelope consumer has nothing to query with.
       ...(store ? { runId, transcriptId: agentId } : {}),
     })
     return sanitizedOutput
@@ -1181,11 +1173,3 @@ registry: PatternRegistry,
   }
   return out
 }
-
-/**
- * Every registered alternative whose appliesWhen matches, in declaration
- * order. Only the disabled path needs the whole list — the failure
- * enumerates what the host could have switched on — so `pickAlternative`
- * keeps short-circuiting and an enabled dispatch evaluates no more
- * conditions (i.e. no more `checkSatisfiable` calls) than it used to.
- */

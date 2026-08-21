@@ -16,11 +16,11 @@ import {
   CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT,
 } from '../long-form-video/prompts'
 
-// Post-split the director + character-merge SKILL bodies are INLINED in the
-// pattern (no longer host-injected deps), and ADR-028 moved the agent's host
-// tools (concat_videos / complete_task) host-side by patternId — the factory
-// is now no-arg and the Pattern carries no `customTools` array. The baked
-// prompts are asserted against the real exported constants.
+// The director + character-merge prompt bodies are INLINED in the pattern, and
+// per ADR-028 the agent's host tools (concat_videos / complete_task) are
+// granted host-side — so the factory is no-arg and the Pattern declares no
+// tools of its own. The baked prompts are asserted against the real exported
+// constants.
 
 describe('agent_long-form-video', () => {
   it('declares a stable agent Pattern with the expected id, kind, namespace, and primary surface', () => {
@@ -233,12 +233,11 @@ describe('agent_long-form-video', () => {
   })
 
   it('declares no custom outputs / finish — the registry backfills the default finish envelope', () => {
-    // The old schema demanded the model self-report videoAssetId / sceneCount /
-    // eventCount / cost / interruptions — all write-only telemetry, and under
-    // the D3 projection the model only ever sees handles, never asset ids.
-    // Migrated: the director hands back summary + deliverable handles via
-    // complete_task, and the registry backfills the default {assets, summary,
-    // stepCount} envelope since the pattern declares neither outputs nor finish.
+    // The model never self-reports asset ids or telemetry: under the D3
+    // projection it only ever sees handles. The director hands back a summary
+    // plus deliverable handles via complete_task, and the registry backfills
+    // the default {assets, summary, stepCount} envelope since the pattern
+    // declares neither outputs nor finish.
     const agent = createLongFormVideoAgent()
     expect(agent.outputs).toBeUndefined()
     expect(agent.finish).toBeUndefined()

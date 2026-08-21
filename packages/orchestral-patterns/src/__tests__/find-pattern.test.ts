@@ -4,9 +4,9 @@
 // assetNeeds-derived inputSchema), kind / modality / audience / Tier-1.5
 // satisfiability filtering, K cap, includeOnly / excludeIds, query echo +
 // diagnostics.
-// ADR-024:variants axis removed from FindPatternMatch.
-// Task 9:capabilities arrays deleted from patterns — inputSchema is the
-// LLM-facing signal for optional asset slots.
+// FindPatternMatch carries no variants axis, and patterns carry no
+// capabilities arrays — `inputSchema` is the LLM-facing signal for optional
+// asset slots.
 
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -403,7 +403,7 @@ describe('handleFindPattern', () => {
         n: mark(z.literal(2)),
         lyrics: z.string().optional(),
       })
-      // Phase 3 contract: the closure returns the MERGED LLM-facing schema (the
+      // The closure returns the MERGED LLM-facing schema (the
       // host invokes the lift), and find_pattern just z2js-es it.
       const result = handleFindPattern(
         index,
@@ -472,7 +472,7 @@ describe('handleFindPattern', () => {
       const schema = match!.primary.inputSchema as {
         properties: Record<string, unknown>
       }
-      // Phase 4c: the static base is slimmed to exactly { prompt, references }.
+      // The static base is exactly { prompt, references }.
       // Without a host closure, no ai-sdk param (n / size / …) is lifted, so the
       // standalone schema shows only the two base fields.
       expect(Object.keys(schema.properties).sort()).toEqual(['prompt', 'references'])

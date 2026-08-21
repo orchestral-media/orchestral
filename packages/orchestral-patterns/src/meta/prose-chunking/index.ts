@@ -7,19 +7,20 @@
 //   1. Host-side chunk split — paragraph-then-sentence-then-hard, capped at
 //      `chunkTokenBudget` (token ≈ 4 chars heuristic).
 //   2. Parallel per-chunk compression via text-generation with
-//      narrative-compression SKILL.md as system.
-//   3. One aggregation call via text-generation with narrative-aggregation
-//      SKILL.md as system; prompt = ordered `<CHUNK_N_START>...<CHUNK_N_END>`
-//      blocks (matches the aggregation SKILL's INPUT contract).
+//      NARRATIVE_COMPRESSION_PROMPT as system.
+//   3. One aggregation call via text-generation with
+//      NARRATIVE_AGGREGATION_PROMPT as system; prompt = ordered
+//      `<CHUNK_N_START>...<CHUNK_N_END>` blocks (matches that prompt's INPUT
+//      contract).
 //
 // `targetCompressionRatio` (optional) is woven into the compression prompt
-// as a soft hint — the SKILL doesn't formally take a ratio input, so the
-// hint is appended at the end of the user message. Honored as a guideline,
-// not a hard cap.
+// as a soft hint — the prompt body takes no formal ratio input, so the hint
+// is appended at the end of the user message. Honored as a guideline, not a
+// hard cap.
 //
-// The 2 stage prompts are inlined as string constants in ./prompts (copied
-// verbatim from the source SKILL.md bodies). This meta is self-contained for
-// its prompts: no SkillLoader, no host binding for prompt loading.
+// The 2 stage prompts are inlined as string constants in ./prompts. This meta
+// is self-contained for its prompts: nothing is loaded at dispatch, no host
+// binding for prompt loading.
 //
 // Exposure: 'agent-tool' — the chat catalog hides it; an agent reaches it
 // via loop.toolPatternIds.
@@ -150,11 +151,10 @@ export function createProseChunkingMeta(
         input.chunkTokenBudget ?? 8_000,
       )
 
-      // Stage 2 — compress each chunk in parallel. The compression SKILL
+      // Stage 2 — compress each chunk in parallel. The compression prompt
       // expects `<NOVEL_CHUNK_START>...<NOVEL_CHUNK_END>` and we may append
       // a soft `targetCompressionRatio` hint to the user message. The
-      // compression prompt (inlined, byte-identical to the SKILL.md) is the
-      // system slot.
+      // compression prompt rides the system slot.
       const ratioHint =
         input.targetCompressionRatio !== undefined
           ? `\n\n(Compression target: aim for ~${Math.round(input.targetCompressionRatio * 100)}% of the original chunk length.)`
@@ -173,7 +173,7 @@ export function createProseChunkingMeta(
         ),
       )
 
-      // Stage 3 — aggregate in one shot. The aggregation SKILL expects
+      // Stage 3 — aggregate in one shot. The aggregation prompt expects
       // ordered `<CHUNK_N_START>...<CHUNK_N_END>` blocks; its inlined prompt
       // is the system slot.
       const aggregated = await textGeneration(ctx, {

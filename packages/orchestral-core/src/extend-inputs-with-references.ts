@@ -22,8 +22,8 @@ import type { ZodSchema } from './foundational'
  * describe/meta on the base survives (re-attached after safeExtend, minus
  * the registry id).
  * Throws EXTEND_REFERENCES_UNSUPPORTED_INPUTS when asset slots are
- * declared but inputs is not a ZodObject (construction-time author error,
- * #146 fail-fast convention).
+ * declared but inputs is not a ZodObject (construction-time author error —
+ * fail fast rather than silently skipping the injection).
  */
 export function extendInputsWithReferences<I>(
   patternId: string,
@@ -33,8 +33,8 @@ export function extendInputsWithReferences<I>(
   const derivedRefs = deriveReferencesSchema(assetNeeds)
   if (!derivedRefs) return inputs
   if (!(inputs instanceof z.ZodObject)) {
-    // Construction-time author error — fail fast (#146 convention, see
-    // DERIVE_REFERENCES_DUPLICATE_SLOT). Without the throw, injection is
+    // Construction-time author error — fail fast, same as
+    // DERIVE_REFERENCES_DUPLICATE_SLOT. Without the throw, injection is
     // silently skipped and dispatch parses the schema as-is (.passthrough()
     // is gated on the method existing — unions don't have it); the matched
     // member object's default strip mode then drops `references` from

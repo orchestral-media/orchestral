@@ -2,7 +2,8 @@
 //
 // 中止是「协作式」的:cancelJob 不杀 provider 调用,而是 abort 该 job 的
 // AbortController,dispatch 在每个 await 边界检查 signal.aborted
-// (inline.ts:683/888) 才抛 CANCELLED。子 job 的 controller 订阅父 signal,
+// (inline.ts `_submitJobInternal` 的前后置守卫 + 回退走位的每一跳) 才抛
+// CANCELLED。子 job 的 controller 订阅父 signal,
 // 父 cancel 时级联 abort;abortMode:'independent' 的 agent 子 job 不订阅,父
 // 退出后仍存活、可经 resumeFromRunId 重挂。
 //

@@ -1,8 +1,9 @@
-// P7d — dispatchAgent ⋈ AgentAssetBridge wiring (§5.9 ④/⑥/⑧).
+// dispatchAgent ⋈ AgentAssetBridge wiring.
 // Builds a real InlineRuntime over an in-memory JobStore + a scripted fake
 // AgentRunImpl (stands in for the worker LLM) + a fake AgentAssetBridge
-// (stands in for the P7e host) so we can assert seed announcement, asset-free
-// SystemPromptContext, inner resolve/record, and partial-result 回流.
+// (stands in for the host's asset ledger) so we can assert seed announcement,
+// asset-free SystemPromptContext, inner resolve/record, and that partial
+// results flow back on failure.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 

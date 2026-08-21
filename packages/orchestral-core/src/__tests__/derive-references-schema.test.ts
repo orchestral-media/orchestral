@@ -1,6 +1,6 @@
 // SSOT derivation: LLM-facing `references` schema is derived from assetNeeds.
 // Pins: key shape per cardinality, strictness (unknown slot rejected), all-
-// optional keys (§5.7 omission semantics live in describe, not in zod
+// optional keys (omission semantics live in the describe copy, not in zod
 // required-ness), and the FINAL describe copy (byte-stable prefix — ADR-008).
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'

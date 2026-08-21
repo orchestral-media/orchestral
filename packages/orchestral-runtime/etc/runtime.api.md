@@ -12,6 +12,7 @@ import { AssetNeed } from '@orchestral/core';
 import { AssetReferences } from '@orchestral/core';
 import { AssetResolutionError } from '@orchestral/core';
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core';
+import type { Capability } from '@orchestral/core';
 import type { CapabilityRouter } from '@orchestral/core';
 import type { DispatchContext } from '@orchestral/core';
 import type { DispatchMiddleware } from '@orchestral/core';
@@ -24,6 +25,7 @@ import type { PatternId } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
 import type { ResolveContext } from '@orchestral/core';
 import { ResolvedAssetRef } from '@orchestral/core';
+import type { RetryPolicy } from '@orchestral/core';
 import type { Runtime } from '@orchestral/core';
 import type { TranscriptStore } from '@orchestral/core';
 import type { Unsubscribe } from '@orchestral/core';
@@ -167,9 +169,9 @@ export interface InlineRuntimeInit {
     // @alpha
     assetBridge?: AgentAssetBridge;
     catalogOptions?: BuildCatalogDescriptorsOptions;
+    fallbackDepth?: number;
     maxAgentDepth?: number;
     maxAlternativeDepth?: number;
-    maxRouterRetries?: number;
     middleware?: readonly DispatchMiddleware[];
     onJobCreated?: (jobId: string, spec: JobSpec) => void;
     // (undocumented)
@@ -181,6 +183,7 @@ export interface InlineRuntimeInit {
     // (undocumented)
     store: JobStore;
     transcriptStore?: TranscriptStore;
+    transientRetry?: TransientRetryConfig;
 }
 
 // @alpha (undocumented)
@@ -196,6 +199,19 @@ export function resolveAssets(input: {
 
 // @public
 export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext;
+
+// @public
+export interface TransientFailureInfo {
+    readonly attempt: number;
+    readonly capability: Capability;
+    readonly model: string;
+}
+
+// @public
+export interface TransientRetryConfig {
+    isTransient: (error: unknown, info: TransientFailureInfo) => boolean;
+    policy: RetryPolicy;
+}
 
 // (No @packageDocumentation comment for this package)
 

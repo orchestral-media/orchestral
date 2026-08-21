@@ -1,8 +1,8 @@
 // Atomic checkPermissions is a SYNCHRONOUS permission gate, NOT a HITL seam:
 // a deny throws PERMISSION_DENIED before the model call; ok lets the call run.
 // Mid-run "ask the user" lives only on MetaPattern.compose via ctx.askUser;
-// atomic confirms (e.g. cost) are a host dispatch-policy concern — see the
-// 2026-06-26 seam-ownership spec.
+// atomic confirms (e.g. cost) are a host dispatch-policy concern (the host
+// knows the routed model + cost, which checkPermissions does not).
 
 import { describe, it, expect, vi } from 'vitest'
 import { z } from 'zod'

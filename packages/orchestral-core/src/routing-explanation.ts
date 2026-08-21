@@ -26,8 +26,8 @@ import type { ModelTag } from './model-tag'
  *   neither pinned nor ranked.
  * - `not-ranked` — outside the caller's own `ctx.rankedModels`.
  * - `excluded-provider` / `excluded-model` — `ctx.excludeProvider` /
- *   `ctx.excludeModel`. The latter is also how the runtime's retry walk skips
- *   a model that just failed.
+ *   `ctx.excludeModel`. The latter is also how the runtime's model fallback
+ *   walk skips a model it has given up on.
  * - `tag-mismatch` — does not bear every required {@link ModelTag}.
  *
  * `tier` is deliberately absent: it never eliminates a candidate, it only

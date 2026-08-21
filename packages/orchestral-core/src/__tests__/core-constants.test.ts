@@ -6,7 +6,7 @@ import {
   LIFT_MARKER,
 } from '../index'
 
-// Phase 4 runtime-freeze gate for semantically load-bearing value exports.
+// Runtime-freeze gate for semantically load-bearing value exports.
 describe('@orchestral/core constants', () => {
   // DEFAULT_SUBAGENT_BLOCKLIST drives the recursion guard: anything whose id
   // matches an idPrefix / patternId is pruned from a sub-agent's catalog so it

@@ -77,8 +77,9 @@ export interface FindPatternMatch {
    * Pattern's own `tool` field (meta has no primary split).
    *
    * Note: `PatternBase.description` is intentionally NOT surfaced here —
-   * per [pattern.ts](./pattern.ts) it's host-engineer prose, not LLM tool
-   * description. The LLM gets its selection signal from `primary.toolDescription`.
+   * per its doc in @orchestral/core's `pattern.ts` it's host-engineer prose,
+   * not LLM tool description. The LLM gets its selection signal from
+   * `primary.toolDescription`.
    *
    * Capability sub-modes are exposed via the derived `primary.inputSchema`
    * (typed providerOptions from the resolved model) + `input.references`
@@ -193,9 +194,9 @@ export interface HandleFindPatternOptions {
    *   - replaces `input.providerOptions` with a typed `z.object(remaining)`
    *     (the model's leftover provider-specific fields) so structured-output
    *     generation can fill them by name instead of guessing.
-   * find_pattern just `z.toJSONSchema()`-es the returned schema (the lift/merge
-   * function itself ships in this package but is invoked host-side via this
-   * closure).
+   * find_pattern just `z.toJSONSchema()`-es the returned schema. The lift/merge
+   * function itself (`deriveLlmFacingInputSchema`) ships in @orchestral/core;
+   * this package never calls it directly — the host does, behind this closure.
    *
    * **Degraded fallback**: when this callback returns `undefined` for an
    * atomic Pattern, find_pattern still surfaces the Pattern but skips the

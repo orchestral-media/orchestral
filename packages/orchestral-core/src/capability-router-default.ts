@@ -266,9 +266,9 @@ function dropStageFor(
 
 /**
  * Survivors ordered by `ctx.rankedModels` index (0 = default), or left in
- * declared order when no ranking applies. The runtime's excludeModel retry
- * walks this order: the failed top model is excluded on re-resolve, surfacing
- * the next one.
+ * declared order when no ranking applies. The runtime's model fallback walk
+ * follows this order: a model the dispatch gives up on is excluded on
+ * re-resolve, surfacing the next one.
  */
 function keptInOrder(
   screened: readonly ScreenedModel[],
@@ -384,7 +384,7 @@ function selectCandidate(
     const tierMatch = candidates.find((c) => c.tier === ctx.tier)
     if (tierMatch) return { kind: 'selected', record: tierMatch, by: 'tier' }
   }
-  // Declared order is the default ranking (TODO: latency/cost rank).
+  // Declared order is the default ranking.
   return { kind: 'selected', record: candidates[0]!, by: 'first-candidate' }
 }
 

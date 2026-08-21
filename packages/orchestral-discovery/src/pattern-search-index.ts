@@ -426,8 +426,8 @@ export class PatternSearchIndex {
    * operator that refines BM25 here:
    *   • `+term ...` — `+`-prefixed terms are mandatory: a pattern only
    *     survives if every `+term` appears with word-boundary semantics in
-   *     `patternIdParts`, `searchHint`, `toolDescriptions`, or
-   *     `toolDescriptions`. Non-`+` terms remain BM25-ranked.
+   *     `patternIdParts`, `searchHint`, or `toolDescriptions`. Non-`+` terms
+   *     remain BM25-ranked.
    *
    * `k` caps the returned list; it defaults to `DEFAULT_SEARCH_K` (5) and is
    * the same knob `handleFindPattern`'s `options.k` feeds.
@@ -503,8 +503,9 @@ export class PatternSearchIndex {
   }
 
   /**
-   * All indexed Patterns whose id starts with `prefix`. Backs the `id_*`
-   * group selector in find_pattern. Order follows registry insertion order.
+   * All indexed Patterns whose id starts with `prefix`. Backs find_pattern's
+   * `<prefix>*` group selector (literal trailing wildcard, e.g. `meta_*`).
+   * Order follows registry insertion order.
    */
   byPrefix(prefix: string): readonly Pattern[] {
     const out: Pattern[] = []

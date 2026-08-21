@@ -133,9 +133,9 @@ export type AlternativeAppliesWhen =
 }
 /**
 * Planner / user requested one or more semantic dimensions be preserved.
-* Pattern.inputs by convention exposes a
-* `requiresSemantics?: Semantics[]` field; the LLM populates it via Skill
-* guidance and the resolver compares against `semantics`.
+* By convention a Pattern that wants this exposes a
+* `requiresSemantics?: Semantics[]` field on its inputs; the resolver
+* compares whatever the caller filled against `semantics`.
 */
 | {
     kind: 'preserves-required';
@@ -1417,7 +1417,7 @@ export interface ResolveContext {
     excludeModel?: readonly string[];
     // (undocumented)
     excludeProvider?: readonly string[];
-    maxRetries?: number;
+    fallbackDepth?: number;
     pinnedModel?: string;
     // (undocumented)
     preferProvider?: string;

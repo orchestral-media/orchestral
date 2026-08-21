@@ -1,12 +1,9 @@
-// ExecutionContext — simplified context plus the step/compute primitives.
+// ExecutionContext — the dispatch context plus the step/compute primitives.
 //
-// History:
-//   Early versions surfaced callCapability + resolveModel on the context.
-//   Execution moved to the host CapabilityRouter, so the only host-callable
-//   remaining was submitJob.
-//   ctx.step / ctx.compute were then added for MetaPattern.compose() —
-//   sub-Pattern dispatch + idempotent local-fn wrapping, with retry / abort /
-//   metadata, replacing the earlier static `MetaPlan` data shape.
+// Model execution belongs to the host CapabilityRouter, so the only
+// host-callable escape hatch on the base context is submitJob. MetaPattern
+// composition adds ctx.step / ctx.compute on top: sub-Pattern dispatch and
+// idempotent local-fn wrapping, each with retry / abort / metadata.
 
 import type { ResolvedAssetRef } from './asset-index.types'
 import type { Job, JobSpec } from './job'
@@ -55,9 +52,10 @@ export interface StepResult<T> {
 /**
  * `ctx.step` — dispatch a sub-Pattern with idempotency + retry + abort.
  *
- * Available inside `MetaPattern.compose()`. Atomic `primary.execute` is
- * restricted to a single LLM call and must NOT use `ctx.step`
- * — multi-step fallback goes through declarative `alternatives` → meta.
+ * Available inside `MetaPattern.compose()` only. An atomic Pattern is
+ * restricted to the single `ModelCapability.call` its primary path resolves to
+ * and never sees `ctx.step` — multi-step fallback goes through declarative
+ * `alternatives` → meta.
  *
  * Defaults to plain value return; use `.withMeta()` to get the full
  * `{ value, meta }` shape when stepId / attempts / latency is needed for
@@ -116,11 +114,9 @@ export type AskUserHandler = (request: AskUserRequest) => Promise<unknown>
  * Meta-only orchestration capabilities (step/compute/submitJob/…) extend
  * ExecutionContext on top of this.
  *
- * Current state: the atomic adapter's `ModelCapability.call(input, ctx)`
- * already receives `DispatchContext` (constructed in the runtime's
- * dispatchAtomic); meta `compose` / agent `loop.system` also consume ctx.
- * Wiring the host's population of `assets` / `project` / `providerOptions`
- * is a follow-up.
+ * The atomic adapter's `ModelCapability.call(input, ctx)` receives this shape
+ * (the runtime builds it on the atomic dispatch path); meta `compose` and
+ * agent `loop.system` consume it too.
  */
 export interface DispatchContext<P = unknown> {
   /**
@@ -167,10 +163,9 @@ export interface DispatchContext<P = unknown> {
 export type SystemPromptContext<P = unknown> = Omit<DispatchContext<P>, 'assets'>
 
 /**
- * Execution context surfaced to `MetaPattern.compose()`. AtomicPattern
- * `primary.execute` receives the host's own input/bindings/ctx triple —
- * its ctx may include `submitJob` but **must not** include `step` (atomic
- * is single-LLM by definition).
+ * Execution context surfaced to `MetaPattern.compose()`. An atomic Pattern
+ * never receives this shape: its adapter gets the plain `DispatchContext`,
+ * which carries no `step` (atomic is single-LLM by definition).
  *
  * Generic over host-attached session / project / workflow shapes so a host
  * can inject typed handles without breaking other consumers.
