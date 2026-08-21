@@ -394,7 +394,7 @@ describe('UNKNOWN_SLOT (fail-closed for undeclared reference keys)', () => {
 // The pure function behind the toModelOutput landing point. The checkable
 // assertion: after projection JSON.stringify carries no real assetId, so the
 // model-visible side cannot read the truth.
-describe('projectToolOutputForModel (D3 hard projection)', () => {
+describe('projectToolOutputForModel — assetId is structurally absent', () => {
   it('strips assetId from each assets[] element, keeps handle/modality/label', () => {
     const full = {
       modality: 'image',
@@ -457,7 +457,7 @@ describe('projectToolOutputForModel (D3 hard projection)', () => {
     expect(projected.assets[0].assetId).toBeUndefined()
   })
 
-  it('preserves host-set origin/from but keeps from D3-clean (handle+role only)', () => {
+  it('preserves host-set origin/from but keeps from handle+role only', () => {
     const full = {
       modality: 'image',
       assets: [

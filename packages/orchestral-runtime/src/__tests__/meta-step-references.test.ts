@@ -242,7 +242,7 @@ describe('meta sub-step references resolution', () => {
       assets: [internal],
     })
 
-    // Pre-§5.9 behaviour preserved: only the internal channel reaches the child.
+    // Only the internal channel reaches the child.
     expect(childSpecs[0]?.assets).toEqual([internal])
   })
 

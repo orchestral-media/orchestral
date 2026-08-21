@@ -153,7 +153,7 @@ describe('dispatchAgent sessionId wiring', () => {
   })
 })
 
-// ── Finish broker (2026-07-18 agent finish contract §5) ────────────────────
+// ── Finish broker ─────────────────────────────────────────────────────────
 //
 // The finish tool's lifecycle now lives in the library: dispatchAgent injects a
 // schema-visible complete_task descriptor, intercepts its call (validate +

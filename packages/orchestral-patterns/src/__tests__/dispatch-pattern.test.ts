@@ -279,7 +279,7 @@ describe('resolveDispatchTarget', () => {
       )
       expect(isDispatchError(result)).toBe(false)
       if (!isDispatchError(result)) {
-        // §5.7 — required-ness lives in the host default rule, not zod, so the
+        // Required-ness lives in the host default rule, not zod, so the
         // slot is optional at parse; when provided it must come through intact.
         expect(result.parsedInput.references).toEqual({ source: 'image_1' })
       }

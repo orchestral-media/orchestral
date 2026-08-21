@@ -161,14 +161,14 @@ describe('agent_orchestrator', () => {
     expect('stopWhen' in agent.loop).toBe(false)
   })
 
-  it('runs abort-independent so it survives the dispatching turn ending (spec §3.A / A2)', () => {
+  it('runs abort-independent so it survives the dispatching turn ending', () => {
     const agent = createOrchestratorAgent()
     // Dispatched async fire-and-forget from the chat-turn: the parent turn's
     // abort signal must NOT cascade in and kill it.
     expect(agent.loop.abortMode).toBe('independent')
   })
 
-  it('tool description tells the LLM the call is async fire-and-forget (spec §3.A / A2)', () => {
+  it('tool description tells the LLM the call is async fire-and-forget', () => {
     const agent = createOrchestratorAgent()
     const desc = agent.primary!.tool.description.toLowerCase()
     // Assert the specific anti-poll contract phrase, not the incidental word

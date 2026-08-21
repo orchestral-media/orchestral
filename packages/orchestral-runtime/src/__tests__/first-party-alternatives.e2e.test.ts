@@ -121,7 +121,7 @@ function makeRegistry() {
 
 /**
  * Host bridge over a fixed ledger, backed by the production resolver so the
- * required-slot default rule (§5.7 "latest of modality") is the real one. Only
+ * required-slot default rule ("latest of modality") is the real one. Only
  * `resolveForDispatch` is exercised; the rest of the surface is inert here.
  */
 function makeBridge(events: readonly AssetEvent[]): AgentAssetBridge {

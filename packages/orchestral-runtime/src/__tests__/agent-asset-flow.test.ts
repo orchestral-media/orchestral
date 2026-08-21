@@ -222,7 +222,7 @@ class FakeBridge implements AgentAssetBridge {
       const handle = mintHandle(a.modality, prior)
       l.push({ assetId: a.assetId, modality: a.modality, handle })
       // Mirror the host bridge: stamp the minted handle + origin onto the
-      // model-facing output so the downstream D3 projection keeps the asset.
+      // model-facing output so the downstream projection keeps the asset.
       stampedAssets.push({ ...a, handle, origin: 'generated' })
     }
     if (assets.length === 0) return args.output
@@ -345,7 +345,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
   })
 
   it('stamps the recorded handle (+ origin/from) onto the tool-result returned to the loop', async () => {
-    // §6.3 D3 / breakpoint 3(a): the agent path must forward recordOutput's
+    // The agent path must forward recordOutput's
     // STAMPED output (handle + origin) to the loop, not the raw adapter output
     // (assetId+url, no handle) — otherwise projectToolOutputForModel drops the
     // asset for lacking a handle and the agent sees assets:[] (the chat path
@@ -457,7 +457,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     expect(result.hint).toBe("Unknown references key — use only the pattern's declared slots (see error.meta.declaredSlots).")
   })
 
-  it('whole-agent failure attaches producedAssets to the thrown error (§5.9⑧)', async () => {
+  it('whole-agent failure attaches producedAssets to the thrown error', async () => {
     // Worker produces image_1 via a tool call, then the whole run rejects.
     const runImpl = makeRunImpl({
       onRun: async (args) => {
@@ -487,7 +487,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     expect(failedJob?.status).toBe('error')
     const err = failedJob?.error as JobError | null
     expect(err).not.toBeNull()
-    // §5.9⑧ — normaliseError preserves producedAssets off the thrown error
+    // normaliseError preserves producedAssets off the thrown error
     // onto the STORED JobError. This is the observable carrier the parent
     // (chat.ts JOB_FAILED / inline SUBAGENT_TOOL_FAILED) reads to surface
     // partial output in its failure tool-result.
@@ -497,7 +497,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
   it('SUBAGENT_TOOL_FAILED carries produced_assets when a dispatched child failed with partial assets (cached-error path)', async () => {
     // An agent dispatches `image-gen` as a tool. The child dispatch resolves
     // via the idempotency cache to an errored job whose JobError carries
-    // producedAssets (the §5.9⑧ carrier). The cached path returns
+    // producedAssets (the salvage carrier). The cached path returns
     // child.status === 'error' (NOT a fresh throw), so inline.ts onToolCall
     // builds SUBAGENT_TOOL_FAILED — which must echo the child's producedAssets
     // as `produced_assets`.
@@ -573,7 +573,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
   })
 })
 
-// §5.9 — an agent-dispatched meta resolves its SUB-STEP references against the
+// An agent-dispatched meta resolves its SUB-STEP references against the
 // agent's runId ledger (spec.assetContextId), never the chat session ledger.
 // Both ledgers mint image_N handles, so a sessionId fallback would not fail —
 // it would silently resolve a DIFFERENT asset. The agent stamps assetContextId

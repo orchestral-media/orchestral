@@ -203,7 +203,7 @@ const factories: Array<() => Pattern<unknown, unknown>> = [
   () => createImageToImageViaCaptionPattern() as Pattern<unknown, unknown>,
 ]
 
-describe('Pattern.assetNeeds (AssetLedger §5.5)', () => {
+describe('Pattern.assetNeeds', () => {
   for (const factory of factories) {
     const pattern = factory()
     it(`${pattern.id} derives assetNeeds matching its bindings`, () => {

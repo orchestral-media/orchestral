@@ -233,7 +233,7 @@ describe('agent_long-form-video', () => {
   })
 
   it('declares no custom outputs / finish — the registry backfills the default finish envelope', () => {
-    // The model never self-reports asset ids or telemetry: under the D3
+    // The model never self-reports asset ids or telemetry: under the
     // projection it only ever sees handles. The director hands back a summary
     // plus deliverable handles via complete_task, and the registry backfills
     // the default {assets, summary, stepCount} envelope since the pattern
