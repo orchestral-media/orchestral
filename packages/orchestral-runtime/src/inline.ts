@@ -567,7 +567,10 @@ export class InlineRuntime implements Runtime {
   ): Promise<Job<TIn, TOut>> {
     const pattern = this.registry.get(spec.patternId)
     if (!pattern) {
-      throw new Error(`PATTERN_NOT_REGISTERED: ${spec.patternId}`)
+      throw Object.assign(
+        new Error(`PATTERN_NOT_REGISTERED: ${spec.patternId}`),
+        { code: 'PATTERN_NOT_REGISTERED' },
+      )
     }
 
     // ── Idempotency Layer-1 dedup
@@ -706,7 +709,12 @@ export class InlineRuntime implements Runtime {
         updatedAt: Date.now(),
       })
       const final = (await this.store.get(id)) as Job<TIn, TOut> | null
-      if (!final) throw new Error(`JOB_LOST_AFTER_COMPLETION: ${id}`)
+      if (!final) {
+        throw Object.assign(
+          new Error(`JOB_LOST_AFTER_COMPLETION: ${id}`),
+          { code: 'JOB_LOST_AFTER_COMPLETION' },
+        )
+      }
       this.fanout(id, { type: 'job:completed', job: final })
       return final
     }
@@ -750,7 +758,10 @@ export class InlineRuntime implements Runtime {
       )
 
       if (controller.signal.aborted) {
-        throw new Error('CANCELLED: job cancelled before completion')
+        throw Object.assign(
+          new Error('CANCELLED: job cancelled before completion'),
+          { code: 'CANCELLED' },
+        )
       }
 
       // ── Middleware: afterDispatch (REVERSE order — onion model).
@@ -778,7 +789,12 @@ export class InlineRuntime implements Runtime {
 
       await this.store.update(id, { status: 'done', output, updatedAt: Date.now() })
       const final = (await this.store.get(id)) as Job<TIn, TOut> | null
-      if (!final) throw new Error(`JOB_LOST_AFTER_COMPLETION: ${id}`)
+      if (!final) {
+        throw Object.assign(
+          new Error(`JOB_LOST_AFTER_COMPLETION: ${id}`),
+          { code: 'JOB_LOST_AFTER_COMPLETION' },
+        )
+      }
       this.fanout(id, { type: 'job:completed', job: final })
       return final
     } catch (err) {
@@ -793,7 +809,11 @@ export class InlineRuntime implements Runtime {
           const next = await this.store.get(id)
           if (next) this.fanout(id, { type: 'job:cancelled', job: next })
         }
-        throw err instanceof Error ? err : new Error(`CANCELLED: ${String(err)}`)
+        throw err instanceof Error
+          ? err
+          : Object.assign(new Error(`CANCELLED: ${String(err)}`), {
+              code: 'CANCELLED',
+            })
       }
       const isAfterFailure = err instanceof MiddlewareAfterFailure
       const inner = isAfterFailure ? (err as MiddlewareAfterFailure).innerCause : err
@@ -856,7 +876,10 @@ export class InlineRuntime implements Runtime {
     parentCtx?: DispatchContext,
   ): Promise<TOut> {
     if (depth > this.maxAlternativeDepth) {
-      throw new Error(`ALTERNATIVE_DEPTH_EXCEEDED: ${pattern.id}`)
+      throw Object.assign(
+        new Error(`ALTERNATIVE_DEPTH_EXCEEDED: ${pattern.id}`),
+        { code: 'ALTERNATIVE_DEPTH_EXCEEDED' },
+      )
     }
 
     if (pattern.kind === 'meta') {
@@ -987,7 +1010,12 @@ export class InlineRuntime implements Runtime {
     // hook) — the class type `atomic` is cast to does not redeclare it.
     if (typeof pattern.checkPermissions === 'function') {
       const perm = await pattern.checkPermissions(effectiveInput, dispatchCtx)
-      if (!perm.ok) throw new Error(`PERMISSION_DENIED: ${perm.reason}`)
+      if (!perm.ok) {
+        throw Object.assign(
+          new Error(`PERMISSION_DENIED: ${perm.reason}`),
+          { code: 'PERMISSION_DENIED' },
+        )
+      }
     }
 
     // Two budgets, two loops, and neither can spend the other's.
@@ -1101,7 +1129,9 @@ export class InlineRuntime implements Runtime {
     if (!alt) {
       throw lastErr instanceof Error
         ? lastErr
-        : new Error(`DISPATCH_EXECUTE_FAILED: ${String(lastErr)}`)
+        : Object.assign(new Error(`DISPATCH_EXECUTE_FAILED: ${String(lastErr)}`), {
+            code: 'DISPATCH_EXECUTE_FAILED',
+          })
     }
     return runAlternative<TIn, TOut>(
       {
@@ -1130,7 +1160,10 @@ export class InlineRuntime implements Runtime {
     // the ancestor chain attached.
     const meta = pattern as MetaPattern<unknown, unknown>
     if (typeof meta.compose !== 'function') {
-      throw new Error(`META_PATTERN_NO_COMPOSE: ${meta.id}`)
+      throw Object.assign(
+        new Error(`META_PATTERN_NO_COMPOSE: ${meta.id}`),
+        { code: 'META_PATTERN_NO_COMPOSE' },
+      )
     }
     void depth // depth check lives in dispatchAgent; meta self-recursion is caught via visited
 
@@ -1254,7 +1287,11 @@ export class InlineRuntime implements Runtime {
     jobId: string,
   ): Promise<Job<TIn, TOut>> {
     const job = await this.store.get(jobId)
-    if (!job) throw new Error(`JOB_NOT_FOUND: ${jobId}`)
+    if (!job) {
+      throw Object.assign(new Error(`JOB_NOT_FOUND: ${jobId}`), {
+        code: 'JOB_NOT_FOUND',
+      })
+    }
     return job as Job<TIn, TOut>
   }
 
@@ -1284,14 +1321,21 @@ export class InlineRuntime implements Runtime {
 
   async cancelJob(jobId: string, reason?: string): Promise<void> {
     const existing = await this.store.get(jobId)
-    if (!existing) throw new Error(`JOB_NOT_FOUND: ${jobId}`)
+    if (!existing) {
+      throw Object.assign(new Error(`JOB_NOT_FOUND: ${jobId}`), {
+        code: 'JOB_NOT_FOUND',
+      })
+    }
     if (
       existing.status === 'done' ||
       existing.status === 'error' ||
       existing.status === 'cancelled' ||
       existing.status === 'stale'
     ) {
-      throw new Error(`JOB_ALREADY_TERMINAL: ${jobId} is ${existing.status}`)
+      throw Object.assign(
+        new Error(`JOB_ALREADY_TERMINAL: ${jobId} is ${existing.status}`),
+        { code: 'JOB_ALREADY_TERMINAL' },
+      )
     }
     const controller = this.controllers.get(jobId)
     if (controller) controller.abort()

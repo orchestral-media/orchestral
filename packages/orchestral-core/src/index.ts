@@ -249,6 +249,7 @@ export {
 // (Implementations live in @orchestral/runtime; this package ships only the
 // substrate-agnostic interface.)
 export type {
+  AgentToolRejection,
   Job,
   JobSpec,
   JobEvent,

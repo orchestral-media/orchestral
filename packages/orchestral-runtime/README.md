@@ -161,6 +161,56 @@ Two boundaries worth knowing:
   is the actionable one there, so it is rethrown verbatim rather than restated
   as a routing-policy code.
 
+## Refused agent tool calls are observable
+
+An agent loop can name any registered pattern id — with two-stage discovery it
+only ever sees `find_pattern` and `dispatch_pattern`, so the catalog cannot
+express "you may not call X". Three guards enforce that at dispatch time, in
+order: the ancestor cycle check, the `loop.toolPatternIds` allowlist, and the
+default sub-agent blocklist.
+
+A refusal is **not** a failed job. The guard returns a structured tool-result so
+the loop reads it and picks a different `pattern_id`; the job still settles
+`done` with `error: null`, and the refused call is not counted in
+`AgentDispatchEnvelope.totalToolUseCount` — nothing was brokered. Throwing
+instead would be stream-fatal for the whole agent run, which is a large price
+for one hallucinated id.
+
+That leaves the attempt visible only inside the model's context window, so each
+guard also fans out `job:tool-rejected` on the agent job's stream, before the
+refusal is handed back:
+
+```ts
+runtime.subscribe(jobId, (ev) => {
+  if (ev.type !== 'job:tool-rejected') return
+  // ev.patternId       — the refused target
+  // ev.callerPatternId — the agent that asked for it
+  switch (ev.code) {
+    case 'SUBAGENT_TOOL_OUT_OF_SCOPE':
+      // ev.allowlist — the EFFECTIVE allowlist the call was judged against.
+      // For an async agent that is toolPatternIds ∩ asyncToolPatternIds.
+      break
+    case 'CIRCULAR_AGENT_TOOL':
+      // ev.ancestors — the dispatch chain the call would have closed.
+      break
+    case 'SUBAGENT_BLOCKED':
+      // ev.matched — 'prefix' | 'id', which half of the blocklist hit.
+      break
+  }
+})
+```
+
+`ev.code` is the same code the model read in its tool-result, so an event joins
+to the verdict that caused it. Two boundaries:
+
+- **The event fires on the agent's own job**, which for a nested sub-agent is a
+  child job id the caller never sees. Auditing a whole dispatch tree means
+  subscribing from `onJobCreated`, not to the root job alone.
+- **Rejections are not written to the `TranscriptStore`.** The only replayable
+  message kind is `tool-result`, so recording one would add `role: 'tool'` turns
+  to the resume seed and change what a resumed model sees. The event stream
+  carries the audit trail; resume stays as described below.
+
 ## Resume fidelity
 
 An agent job can be resumed from a persisted transcript (`TranscriptStore`), but

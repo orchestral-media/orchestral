@@ -289,8 +289,11 @@ deps: AgentDispatchDeps,
   const envelopeStartTs = Date.now()
   let envelopeToolCount = 0
   if (!deps.agentRunImpl) {
-    throw new Error(
-      `AGENT_RUN_IMPL_NOT_INJECTED: ${pattern.id} — registered AgentPattern but no InlineRuntimeInit.agentRunImpl`,
+    throw Object.assign(
+      new Error(
+        `AGENT_RUN_IMPL_NOT_INJECTED: ${pattern.id} — registered AgentPattern but no InlineRuntimeInit.agentRunImpl`,
+      ),
+      { code: 'AGENT_RUN_IMPL_NOT_INJECTED' },
     )
   }
 
@@ -298,9 +301,12 @@ deps: AgentDispatchDeps,
   // recursion budget).
   const agentDepth = countAgentAncestors(visited, deps.registry)
   if (agentDepth > deps.maxAgentDepth) {
-    throw new Error(
-      `AGENT_DEPTH_EXCEEDED: ${pattern.id} (agentDepth=${agentDepth}, max=${deps.maxAgentDepth}). ` +
-        `ancestor chain: ${[...visited].join(' → ')}`,
+    throw Object.assign(
+      new Error(
+        `AGENT_DEPTH_EXCEEDED: ${pattern.id} (agentDepth=${agentDepth}, max=${deps.maxAgentDepth}). ` +
+          `ancestor chain: ${[...visited].join(' → ')}`,
+      ),
+      { code: 'AGENT_DEPTH_EXCEEDED' },
     )
   }
 
@@ -349,11 +355,14 @@ deps: AgentDispatchDeps,
       (id) => !pattern.loop.toolPatternIds.includes(id),
     )
     if (orphans.length > 0) {
-      throw new Error(
-        `ASYNC_TOOL_PATTERN_ID_NOT_IN_TOOL_LIST: ${pattern.id} declared ` +
-          `loop.asyncToolPatternIds containing ids not in loop.toolPatternIds: ` +
-          `[${orphans.join(', ')}]. asyncToolPatternIds must be a subset of ` +
-          `toolPatternIds (likely a typo or stale reference).`,
+      throw Object.assign(
+        new Error(
+          `ASYNC_TOOL_PATTERN_ID_NOT_IN_TOOL_LIST: ${pattern.id} declared ` +
+            `loop.asyncToolPatternIds containing ids not in loop.toolPatternIds: ` +
+            `[${orphans.join(', ')}]. asyncToolPatternIds must be a subset of ` +
+            `toolPatternIds (likely a typo or stale reference).`,
+        ),
+        { code: 'ASYNC_TOOL_PATTERN_ID_NOT_IN_TOOL_LIST' },
       )
     }
   }
@@ -422,11 +431,14 @@ deps: AgentDispatchDeps,
   //     not the seed.
   const seedPromptValue = (spec.input as { prompt?: unknown } | null | undefined)?.prompt
   if (typeof seedPromptValue !== 'string' || seedPromptValue.length === 0) {
-    throw new Error(
-      `AGENT_SEED_PROMPT_MISSING: ${pattern.id} — AgentPattern's tool.inputs ` +
-        `must include a non-empty string field 'prompt' (see @orchestral/core ` +
-        `agentInputSchema). The parent LLM fills it during tool-call; runtime ` +
-        `uses it as the subagent's single seed user message.`,
+    throw Object.assign(
+      new Error(
+        `AGENT_SEED_PROMPT_MISSING: ${pattern.id} — AgentPattern's tool.inputs ` +
+          `must include a non-empty string field 'prompt' (see @orchestral/core ` +
+          `agentInputSchema). The parent LLM fills it during tool-call; runtime ` +
+          `uses it as the subagent's single seed user message.`,
+      ),
+      { code: 'AGENT_SEED_PROMPT_MISSING' },
     )
   }
 
@@ -488,11 +500,14 @@ deps: AgentDispatchDeps,
   let transcriptSeq = 0
   if (spec.resumeFromRunId) {
     if (!store) {
-      throw new Error(
-        `RESUME_REQUIRES_TRANSCRIPT_STORE: spec.resumeFromRunId is set but ` +
-          `InlineRuntime was constructed without a transcriptStore. Inject ` +
-          `one (a durable store in production, InMemoryTranscriptStore for ` +
-          `tests) before resume.`,
+      throw Object.assign(
+        new Error(
+          `RESUME_REQUIRES_TRANSCRIPT_STORE: spec.resumeFromRunId is set but ` +
+            `InlineRuntime was constructed without a transcriptStore. Inject ` +
+            `one (a durable store in production, InMemoryTranscriptStore for ` +
+            `tests) before resume.`,
+        ),
+        { code: 'RESUME_REQUIRES_TRANSCRIPT_STORE' },
       )
     }
     const prior = await store.read(runId, agentId)
@@ -502,12 +517,15 @@ deps: AgentDispatchDeps,
     // or transcripts cleared out-of-band all surface as a hard error so
     // callers know they're not actually continuing prior work.
     if (prior.length === 0) {
-      throw new Error(
-        `RESUME_TARGET_NOT_FOUND: ${pattern.id} — no transcript rows under ` +
-          `(runId=${spec.resumeFromRunId}, agentId=${agentId}). Either the ` +
-          `previous dispatch never wrote to the transcriptStore (no agent ` +
-          `loop steps completed) or resumeFromRunId points to a different ` +
-          `Pattern's jobId.`,
+      throw Object.assign(
+        new Error(
+          `RESUME_TARGET_NOT_FOUND: ${pattern.id} — no transcript rows under ` +
+            `(runId=${spec.resumeFromRunId}, agentId=${agentId}). Either the ` +
+            `previous dispatch never wrote to the transcriptStore (no agent ` +
+            `loop steps completed) or resumeFromRunId points to a different ` +
+            `Pattern's jobId.`,
+        ),
+        { code: 'RESUME_TARGET_NOT_FOUND' },
       )
     }
     for (const m of prior) {
@@ -606,8 +624,11 @@ deps: AgentDispatchDeps,
   // missing one is a corrupted-registry invariant, not a runtime condition.
   const outputsSchema = pattern.outputs
   if (!outputsSchema) {
-    throw new Error(
-      `AGENT_OUTPUTS_MISSING: ${pattern.id} — registered AgentPattern lost its outputs schema`,
+    throw Object.assign(
+      new Error(
+        `AGENT_OUTPUTS_MISSING: ${pattern.id} — registered AgentPattern lost its outputs schema`,
+      ),
+      { code: 'AGENT_OUTPUTS_MISSING' },
     )
   }
 
@@ -794,7 +815,57 @@ deps: AgentDispatchDeps,
           // Runtime ancestor check. A two-stage catalog has no per-Pattern
           // descriptors to strip up-front, so the cycle check fires here on
           // the resolved pattern_id.
+          //
+          // This is the ONLY defence against a ring that closes through
+          // non-agent patterns, so do not delete it as redundant with the
+          // other two guards:
+          //   • `maxAgentDepth` cannot see such a ring. `countAgentAncestors`
+          //     counts only `kind === 'agent'` ancestors, so
+          //     agent_A →(tool) meta_hop →(step) agent_B →(tool) meta_hop → …
+          //     spins with the agent count pinned at 2 — and widening the ring
+          //     with more metas never raises it.
+          //   • DEFAULT_SUBAGENT_BLOCKLIST only matches `agent_`-prefixed ids,
+          //     so it catches an agent re-entering an agent and nothing else.
+          //     A ring whose repeated hop is a meta or an atomic walks past it.
+          // The `agent_ → agent_` case is the only one with a second line of
+          // defence; every other shape has this check and nothing else.
+          //
+          // It also supplies the only bound on non-agent chain depth: nothing
+          // caps how deep meta → meta → … may nest, but `visited` forbids
+          // repeating an id, so a chain cannot exceed the number of registered
+          // patterns. That bound is a side effect of cycle detection rather
+          // than a designed limit — finite, but not a budget anyone chose.
           if (visited.has(fullId)) {
+            // Observability first: a refused call is a fact the host should be
+            // able to audit (an agent reaching outside its scope, or probing
+            // the same edge repeatedly), and every guard below returns early,
+            // before the envelope / transcript / event bookkeeping on the
+            // success path. Without this fan-out the attempt would exist only
+            // inside the model's context window.
+            //
+            // Awaited, not fire-and-forget. `fanoutJobEvent` reads the job
+            // row before emitting; a bare `void` leaves that read racing the
+            // rest of the run, and against a slow JobStore it can land after
+            // the terminal event — where `fanout` has already released the
+            // subscriber set, so the rejection is dropped rather than merely
+            // late. Awaiting costs one store read on a call that is being
+            // refused anyway, and cannot turn a refused call into a failed one
+            // (fanoutJobEvent swallows its own store failures).
+            //
+            // Deliberately NOT appended to the TranscriptStore. The only
+            // replayable kind is 'tool-result' (see `transcriptMessageToChat`),
+            // so recording a rejection there would inject new `role: 'tool'`
+            // turns into the resume seed and change what a resumed model sees.
+            // The event stream carries the audit trail instead — the same
+            // choice `job:step` and `job:alternative-selected` already make.
+            await deps.fanoutJobEvent(jobId, (job) => ({
+              type: 'job:tool-rejected',
+              job,
+              patternId: fullId,
+              callerPatternId: pattern.id,
+              code: 'CIRCULAR_AGENT_TOOL',
+              ancestors: [...visited],
+            }))
             // Return structured tool_result instead of throwing so the LLM
             // can read the cycle and pick a different pattern_id mid-loop,
             // instead of having ai-sdk treat throw as a stream-fatal error.
@@ -822,6 +893,19 @@ deps: AgentDispatchDeps,
           // Use effectiveToolPatternIds so the async filter is honoured here too.
           const inAllowlist = effectiveToolPatternIds.includes(fullId)
           if (!inAllowlist) {
+            // Host-visible before the model-visible return — see the cycle
+            // guard above for why this is awaited and why it stays out of the
+            // transcript. `effectiveToolPatternIds` (not the raw
+            // `loop.toolPatternIds`) is what the guard judged against, so it
+            // is what the event reports.
+            await deps.fanoutJobEvent(jobId, (job) => ({
+              type: 'job:tool-rejected',
+              job,
+              patternId: fullId,
+              callerPatternId: pattern.id,
+              code: 'SUBAGENT_TOOL_OUT_OF_SCOPE',
+              allowlist: effectiveToolPatternIds,
+            }))
             return {
               code: 'SUBAGENT_TOOL_OUT_OF_SCOPE',
               pattern_id: fullId,
@@ -842,6 +926,16 @@ deps: AgentDispatchDeps,
           )
           const blockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(fullId)
           if (blockedByPrefix || blockedById) {
+            // Host-visible before the model-visible return — see the cycle
+            // guard above.
+            await deps.fanoutJobEvent(jobId, (job) => ({
+              type: 'job:tool-rejected',
+              job,
+              patternId: fullId,
+              callerPatternId: pattern.id,
+              code: 'SUBAGENT_BLOCKED',
+              matched: blockedByPrefix ? ('prefix' as const) : ('id' as const),
+            }))
             return {
               code: 'SUBAGENT_BLOCKED',
               pattern_id: fullId,

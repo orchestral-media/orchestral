@@ -99,6 +99,19 @@ adapter over whichever provider SDK you use.
   `ctx.compute` is silent — it wraps a local function, so there is nothing to
   correlate.
 
+- **Refused agent tool calls (`job:tool-rejected`).** An agent loop can name any
+  registered pattern id, and a runtime's recursion guards answer such a call by
+  handing the model a structured refusal rather than failing the run — so
+  "this agent tried to reach outside its scope" left no trace anywhere the host
+  could read: not on the job row (it still settles `done`), not in the transcript,
+  not in the agent envelope's tool counter. `job:tool-rejected` is that trace.
+  It names the refused target and the agent that asked for it, and discriminates
+  on the same `code` the model saw: `SUBAGENT_TOOL_OUT_OF_SCOPE` carries the
+  effective allowlist the call was judged against, `CIRCULAR_AGENT_TOOL` the
+  ancestor chain it would have closed, `SUBAGENT_BLOCKED` which half of the
+  blocklist matched (`AgentToolRejection`). Discriminated rather than one flat
+  shape, because each refusal is only judgeable against a different fact.
+
 - **Job lifecycle contracts.** `Job` / `JobStore` / `Runtime`, plus
   `InMemoryJobStore` as the reference store. `JobEvent` covers creation,
   progress, completion, failure, and `job:alternative-selected` — fired once per

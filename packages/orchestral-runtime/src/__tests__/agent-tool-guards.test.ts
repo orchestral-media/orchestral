@@ -1,7 +1,9 @@
-// Regression suite for dispatchAgent's two runtime tool-call guards:
-// SUBAGENT_TOOL_OUT_OF_SCOPE (allowlist) and CIRCULAR_AGENT_TOOL (ancestor
-// cycle). Both live inside `dispatchAgent`'s `onToolCall` (agent-dispatch.ts)
-// and both are *security* invariants, not ergonomics:
+// Regression suite for dispatchAgent's runtime tool-call guards:
+// SUBAGENT_TOOL_OUT_OF_SCOPE (allowlist), CIRCULAR_AGENT_TOOL (ancestor
+// cycle) and SUBAGENT_BLOCKED (default sub-agent blocklist), plus the
+// `job:tool-rejected` event all three fan out. They live inside
+// `dispatchAgent`'s `onToolCall` (agent-dispatch.ts) and the first two are
+// *security* invariants, not ergonomics:
 //
 //   • Scope. With two-stage discovery the LLM only ever sees `find_pattern` +
 //     `dispatch_pattern`, so the tool catalog cannot express "you may not call
@@ -35,6 +37,7 @@ import type {
   AtomicPattern,
   CapabilityRouter,
   ExecutionContext,
+  JobEvent,
   MetaPattern,
   Modality,
   ModelCapability,
@@ -166,6 +169,15 @@ interface Harness {
   store: MemoryJobStore
   results: Record<string, unknown[]>
   calls: { count: number }
+  /**
+   * Every JobEvent the runtime fanned out, across every job in the dispatch
+   * tree, in emission order. Subscription happens in the `onJobCreated` init
+   * hook because `submitJob` only resolves once the job is terminal — a
+   * post-hoc `subscribe` would observe nothing. Collected tree-wide on
+   * purpose: a rejection fires on the stream of the agent that made the call,
+   * which for a nested agent is a child job, not the root.
+   */
+  events: JobEvent[]
   /** id of the first job the store ever saw — i.e. the root submitJob. */
   rootJobId(): string
 }
@@ -184,11 +196,15 @@ function makeHarness(opts: {
   store.subscribe((ev) => {
     firstJobId ??= ev.job.id
   })
-  const runtime = new InlineRuntime({
+  const events: JobEvent[] = []
+  const runtime: InlineRuntime = new InlineRuntime({
     store: store as never,
     registry,
     router: makeRouter(calls),
     agentRunImpl: makeRunImpl(opts.scripts, results),
+    onJobCreated: (jobId) => {
+      runtime.subscribe(jobId, (ev) => events.push(ev))
+    },
     ...(opts.maxAgentDepth !== undefined ? { maxAgentDepth: opts.maxAgentDepth } : {}),
   })
   return {
@@ -196,8 +212,30 @@ function makeHarness(opts: {
     store,
     results,
     calls,
+    events,
     rootJobId: () => firstJobId as string,
   }
+}
+
+/** The `job:tool-rejected` events collected by a harness, in emission order. */
+function rejections(h: Harness): Extract<JobEvent, { type: 'job:tool-rejected' }>[] {
+  return h.events.filter((e) => e.type === 'job:tool-rejected')
+}
+
+/**
+ * Index of the terminal event for `jobId` within the tree-wide event log.
+ * Used to pin that a rejection reaches a subscriber while the job is still
+ * running — an event delivered after the job settles is one a host filtering
+ * on live jobs would never see, and one a replay would order wrongly.
+ */
+function terminalIndex(h: Harness, jobId: string): number {
+  return h.events.findIndex(
+    (e) =>
+      e.job.id === jobId &&
+      (e.type === 'job:completed' ||
+        e.type === 'job:failed' ||
+        e.type === 'job:cancelled'),
+  )
 }
 
 /** Shorthand for the tool call an LLM emits to invoke a Pattern. */
@@ -504,13 +542,198 @@ describe('guard verdicts on the host-visible surface', () => {
       h.runtime.submitJob({ patternId: 'agent_ring', input: { prompt: 'start' } }),
     ).rejects.toThrow(/AGENT_DEPTH_EXCEEDED/)
 
-    // Documents today's shape, warts included: the thrown Error carries no
-    // `.code` property, so normaliseError falls back to DISPATCH_EXECUTE_FAILED
-    // and the guard's name survives only inside the message. The two tool-call
-    // guards above never reach this surface at all.
+    // The thrown Error carries `.code`, so normaliseError lifts the guard's
+    // own name onto JobError instead of falling back to the generic
+    // DISPATCH_EXECUTE_FAILED — a host routes on the code and never has to
+    // regex the message. The two tool-call guards above never reach this
+    // surface at all.
     const rootJob = await h.store.get(h.rootJobId())
     expect(rootJob?.status).toBe('error')
-    expect(rootJob?.error?.code).toBe('DISPATCH_EXECUTE_FAILED')
+    expect(rootJob?.error?.code).toBe('AGENT_DEPTH_EXCEEDED')
     expect(rootJob?.error?.message).toContain('AGENT_DEPTH_EXCEEDED')
+  })
+})
+
+// ── job:tool-rejected ──────────────────────────────────────────────────────
+//
+// The verdicts above are returned to the LLM, which means that without an
+// event they are visible ONLY inside the model's context window: a refused
+// call touches neither the job row (it still ends `done`, `error: null`) nor
+// the envelope's tool counter. `job:tool-rejected` is the host's channel for
+// them — "this agent tried to reach outside its scope" is exactly the kind of
+// fact a local-first host should be able to audit and replay.
+//
+// Each case pins the reason-specific payload, because that is the part a
+// generic "something was refused" event would lose: the allowlist the call was
+// judged against, the chain a cycle would have closed, which half of the
+// blocklist matched.
+describe('job:tool-rejected', () => {
+  it('reports an out-of-scope call with the allowlist it was judged against', async () => {
+    const h = makeHarness({
+      patterns: [
+        atomic('allowed_atomic'),
+        atomic('forbidden_atomic'),
+        agent('agent_scoped', ['allowed_atomic']),
+      ],
+      scripts: {
+        agent_scoped: [dispatchStep('forbidden_atomic', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_scoped',
+      input: { prompt: 'start' },
+    })
+
+    const evs = rejections(h)
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    expect(ev.code).toBe('SUBAGENT_TOOL_OUT_OF_SCOPE')
+    expect(ev.patternId).toBe('forbidden_atomic')
+    expect(ev.callerPatternId).toBe('agent_scoped')
+    if (ev.code !== 'SUBAGENT_TOOL_OUT_OF_SCOPE') throw new Error('unreachable')
+    expect(ev.allowlist).toEqual(['allowed_atomic'])
+    // Fired on the agent's own stream, carrying the live snapshot.
+    expect(ev.job.id).toBe(job.id)
+    expect(ev.job.status).toBe('running')
+
+    // Delivered while the job is still live, ahead of its terminal event.
+    // This is the contract a host reads against: `fanout` releases the
+    // subscriber set once a terminal event goes out, so a rejection that lost
+    // the race would be dropped outright, not merely arrive late.
+    expect(h.events.indexOf(ev)).toBeLessThan(terminalIndex(h, job.id))
+
+    // The event is additive, not a reclassification: the guard's other
+    // observable properties are unchanged.
+    expect(job.status).toBe('done')
+    expect(job.error).toBeNull()
+    expect(h.runtime.getAgentEnvelope(job.id)?.totalToolUseCount).toBe(0)
+  })
+
+  it('reports the NARROWED allowlist for an async agent, not the raw toolPatternIds', async () => {
+    // Same intersection the guard itself reads (toolPatternIds ∩
+    // asyncToolPatternIds). A host told the raw list would conclude the
+    // rejection was a runtime bug.
+    const h = makeHarness({
+      patterns: [
+        atomic('async_ok'),
+        atomic('sync_only'),
+        agent('agent_async', ['async_ok', 'sync_only'], {
+          defaultExecutionMode: 'async',
+          loop: {
+            system: 'sys',
+            toolPatternIds: ['async_ok', 'sync_only'],
+            asyncToolPatternIds: ['async_ok'],
+            modelTags: [],
+          },
+        }),
+      ],
+      scripts: {
+        agent_async: [
+          dispatchStep('sync_only', 'nope', 'tc-1'),
+          dispatchStep('async_ok', 'yes', 'tc-2'),
+        ],
+      },
+    })
+    await h.runtime.submitJob({ patternId: 'agent_async', input: { prompt: 'start' } })
+
+    const evs = rejections(h)
+    // Exactly one: the allowed sibling call must not emit a rejection.
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    if (ev.code !== 'SUBAGENT_TOOL_OUT_OF_SCOPE') throw new Error('unreachable')
+    expect(ev.patternId).toBe('sync_only')
+    expect(ev.allowlist).toEqual(['async_ok'])
+  })
+
+  it('reports a cycle with the ancestor chain, on the nested agent that closed it', async () => {
+    // agent_ring --tool--> meta_hop --step--> agent_leaf --tool--> meta_hop.
+    // The rejection belongs to agent_leaf's job, not the root's — a host
+    // subscribed only to the root would see nothing, which is why the harness
+    // collects the whole tree.
+    const h = makeHarness({
+      patterns: [
+        agent('agent_ring', ['meta_hop']),
+        hopMeta('meta_hop', 'agent_leaf'),
+        agent('agent_leaf', ['meta_hop']),
+      ],
+      scripts: {
+        agent_ring: [dispatchStep('meta_hop', 'down', 'tc-ring')],
+        agent_leaf: [dispatchStep('meta_hop', 'again', 'tc-leaf')],
+      },
+    })
+    const root = await h.runtime.submitJob({
+      patternId: 'agent_ring',
+      input: { prompt: 'start' },
+    })
+
+    const evs = rejections(h)
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    expect(ev.code).toBe('CIRCULAR_AGENT_TOOL')
+    expect(ev.patternId).toBe('meta_hop')
+    expect(ev.callerPatternId).toBe('agent_leaf')
+    if (ev.code !== 'CIRCULAR_AGENT_TOOL') throw new Error('unreachable')
+    expect(ev.ancestors).toEqual(['agent_ring', 'meta_hop', 'agent_leaf'])
+    expect(ev.job.id).not.toBe(root.id)
+    expect(h.events.indexOf(ev)).toBeLessThan(terminalIndex(h, ev.job.id))
+    expect(root.status).toBe('done')
+  })
+
+  it('reports a blocklist hit and which half of the blocklist matched', async () => {
+    // agent_caller opts agent_blocked into its own toolPatternIds — an
+    // authoring mistake the blocklist exists to catch. agent_blocked is NOT on
+    // the ancestor chain and IS in the allowlist, so this is the only one of
+    // the three guards that can fire.
+    const h = makeHarness({
+      patterns: [
+        agent('agent_caller', ['agent_blocked']),
+        agent('agent_blocked', []),
+      ],
+      scripts: {
+        agent_caller: [dispatchStep('agent_blocked', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_caller',
+      input: { prompt: 'start' },
+    })
+
+    // Precondition: the tool-result the model saw agrees with the event, so
+    // the test is about the blocklist and not about guard ordering.
+    expect((h.results.agent_caller?.[0] as GuardVerdict).code).toBe('SUBAGENT_BLOCKED')
+
+    const evs = rejections(h)
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    expect(ev.code).toBe('SUBAGENT_BLOCKED')
+    expect(ev.patternId).toBe('agent_blocked')
+    expect(ev.callerPatternId).toBe('agent_caller')
+    if (ev.code !== 'SUBAGENT_BLOCKED') throw new Error('unreachable')
+    // `agent_` is a DEFAULT_SUBAGENT_BLOCKLIST id PREFIX, not an exact id.
+    expect(ev.matched).toBe('prefix')
+    expect(h.events.indexOf(ev)).toBeLessThan(terminalIndex(h, job.id))
+    expect(job.status).toBe('done')
+    expect(job.error).toBeNull()
+    expect(h.runtime.getAgentEnvelope(job.id)?.totalToolUseCount).toBe(0)
+  })
+
+  it('stays silent when nothing is refused (positive control)', async () => {
+    // A guard wired to emit unconditionally would be just as wrong as one that
+    // never emits, and every assertion above would still pass.
+    const h = makeHarness({
+      patterns: [atomic('allowed_atomic'), agent('agent_scoped', ['allowed_atomic'])],
+      scripts: {
+        agent_scoped: [dispatchStep('allowed_atomic', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_scoped',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+    expect(rejections(h)).toEqual([])
+    // The successful call DID broker a tool use, so the counter moved — which
+    // is what makes the 0 asserted above meaningful.
+    expect(h.runtime.getAgentEnvelope(job.id)?.totalToolUseCount).toBe(1)
   })
 })

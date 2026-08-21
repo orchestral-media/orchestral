@@ -80,6 +80,29 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
   tool loop over the catalog. Human-in-the-loop `ctx.askUser` calls await the
   host's injected handler with the job left `running`.
 
+- **Refused agent tool calls are auditable, and named.** Three guards stand
+  between an agent loop and a pattern it may not dispatch — the ancestor cycle
+  check, the `loop.toolPatternIds` allowlist, and the default sub-agent
+  blocklist — and all three answer with a structured tool-result instead of a
+  throw, so one hallucinated pattern id costs a turn rather than the whole run.
+  Each now also fans out `job:tool-rejected` on the agent job's stream before
+  the refusal reaches the model, carrying the refused target, the calling
+  agent, and the reason-specific context (the effective allowlist — the async
+  intersection, where one applies; the ancestor chain; which half of the
+  blocklist matched). The refusal itself is unchanged: still a tool-result,
+  still `done` with `error: null`, still uncounted in the envelope's
+  `totalToolUseCount`. Rejections are deliberately kept out of the
+  `TranscriptStore` — the only replayable kind is `tool-result`, so recording
+  one would change what a resumed model sees.
+
+  Separately, `AGENT_DEPTH_EXCEEDED` — the one guard that does throw — now
+  carries its code as an `Error.code`, so it reaches `JobError.code` intact
+  instead of normalising to the generic `DISPATCH_EXECUTE_FAILED` and leaving
+  hosts to regex the message. The same was true of a dozen other coded throws
+  across the package; all of them were fixed, and a source-level test now scans
+  `src` for `throw new Error('SOME_CODE: …')` without a matching `.code` so the
+  convention fails a test instead of relying on authors remembering it.
+
 - **Sub-agent tool catalog.** `InlineRuntimeInit.catalogOptions`
   (`BuildCatalogDescriptorsOptions`) is forwarded to `buildCatalogDescriptors`
   when the catalog is assembled, so a host that has replaced the reference

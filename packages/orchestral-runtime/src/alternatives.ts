@@ -143,11 +143,17 @@ export async function runAlternative<TIn, TOut>(
 ): Promise<TOut> {
   const targetId = alt.via.patternId
   if (visited.has(targetId)) {
-    throw new Error(`CIRCULAR_ALTERNATIVE: ${targetId} already visited`)
+    throw Object.assign(
+      new Error(`CIRCULAR_ALTERNATIVE: ${targetId} already visited`),
+      { code: 'CIRCULAR_ALTERNATIVE' },
+    )
   }
   const target = deps.registry.getEntry(targetId)?.pattern
   if (!target) {
-    throw new Error(`ALTERNATIVE_PATTERN_NOT_REGISTERED: ${targetId}`)
+    throw Object.assign(
+      new Error(`ALTERNATIVE_PATTERN_NOT_REGISTERED: ${targetId}`),
+      { code: 'ALTERNATIVE_PATTERN_NOT_REGISTERED' },
+    )
   }
   // Surface the degradation before the redirect dispatches — without this
   // event a subscriber cannot tell a degraded completion from a primary

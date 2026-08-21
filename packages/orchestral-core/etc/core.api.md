@@ -107,6 +107,18 @@ export interface AgentToolDescriptor {
 }
 
 // @public
+export type AgentToolRejection = {
+    code: 'CIRCULAR_AGENT_TOOL';
+    ancestors: readonly PatternId[];
+} | {
+    code: 'SUBAGENT_TOOL_OUT_OF_SCOPE';
+    allowlist: readonly PatternId[];
+} | {
+    code: 'SUBAGENT_BLOCKED';
+    matched: 'prefix' | 'id';
+};
+
+// @public
 export interface Alternative<I = unknown, O = unknown> {
     appliesWhen: AlternativeAppliesWhen;
     description: string;
@@ -866,7 +878,12 @@ export type JobEvent<TInput = unknown, TOutput = unknown> = {
     targetPatternId: PatternId;
     preserves?: readonly Semantics[];
     losses?: readonly Semantics[];
-} | {
+} | ({
+    type: 'job:tool-rejected';
+    job: Job<TInput, TOutput>;
+    patternId: PatternId;
+    callerPatternId: PatternId;
+} & AgentToolRejection) | {
     type: 'job:completed';
     job: Job<TInput, TOutput>;
 } | {

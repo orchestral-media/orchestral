@@ -177,6 +177,43 @@ export interface JobSpec<TInput = unknown> {
 }
 
 /**
+ * Why a brokered agent tool call was refused, and the facts that make the
+ * refusal judgeable. The three codes are exactly the ones the runtime returns
+ * to the calling LLM as the tool-result `code`, so a host can join an event to
+ * the verdict the model actually read.
+ *
+ * Discriminated rather than a single flat bag: each refusal knows a different
+ * thing. An out-of-scope call can only be judged against the allowlist it
+ * failed, a cycle only against the chain it would have closed, and a blocklist
+ * hit only against which half of the blocklist matched — a shared shape would
+ * leave two thirds of its fields empty at every callsite.
+ */
+export type AgentToolRejection =
+  | {
+      /** The target is already on this dispatch chain — dispatching it would close a ring. */
+      code: 'CIRCULAR_AGENT_TOOL'
+      /** The ancestor chain that reached the caller, in dispatch order. */
+      ancestors: readonly PatternId[]
+    }
+  | {
+      /** The target is not in the calling agent's declared tool allowlist. */
+      code: 'SUBAGENT_TOOL_OUT_OF_SCOPE'
+      /**
+       * The allowlist the call was judged against — the EFFECTIVE one. For an
+       * async agent that is `loop.toolPatternIds ∩ loop.asyncToolPatternIds`,
+       * not the raw `toolPatternIds`, so a host reading this sees the same set
+       * the guard used.
+       */
+      allowlist: readonly PatternId[]
+    }
+  | {
+      /** The target matched the runtime's default sub-agent blocklist. */
+      code: 'SUBAGENT_BLOCKED'
+      /** Which half of the blocklist matched: an id prefix, or an exact id. */
+      matched: 'prefix' | 'id'
+    }
+
+/**
  * Every event carries a snapshot of the Job after the transition — consumers
  * never need to refetch from the Store. Snapshot field name is consistent
  * across all event types so consumers can narrow on `type` and read `.job`
@@ -251,6 +288,28 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
       preserves?: readonly Semantics[]
       losses?: readonly Semantics[]
     }
+  | ({
+      /**
+       * An agent loop asked to dispatch a Pattern and a recursion guard
+       * refused it. Fired on the AGENT job's own stream, once per refused
+       * call, BEFORE the refusal is handed back to the model.
+       *
+       * The refusal itself is not a failure: the guards return a structured
+       * tool-result so the loop picks a different `pattern_id` and keeps
+       * going, so the job still settles `done` with `error: null` and the
+       * refused call is not counted in `AgentDispatchEnvelope.totalToolUseCount`
+       * (it brokered no tool use). Without this event the attempt would be
+       * visible only inside the model's context window — a host could not
+       * audit that an agent reached outside its scope, or that it kept
+       * probing the same edge.
+       */
+      type: 'job:tool-rejected'
+      job: Job<TInput, TOutput>
+      /** The resolved `pattern_id` the loop asked for — the refused target. */
+      patternId: PatternId
+      /** The AgentPattern whose loop emitted the call. */
+      callerPatternId: PatternId
+    } & AgentToolRejection)
   | { type: 'job:completed'; job: Job<TInput, TOutput> }
   | { type: 'job:failed'; job: Job<TInput, TOutput> }
   | { type: 'job:cancelled'; job: Job<TInput, TOutput> }

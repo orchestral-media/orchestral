@@ -235,11 +235,14 @@ function assertNoDualSourcedSingleSlot(
   const internalSlots = new Set(internalAssets.map((a) => a.slot))
   for (const r of resolvedFromHandles) {
     if (singleSlots.has(r.slot) && internalSlots.has(r.slot)) {
-      throw new Error(
-        `DUAL_SOURCE_SINGLE_SLOT: slot "${r.slot}" of pattern "${patternId}" ` +
-          `received both a pinned internal asset and a resolved reference; a ` +
-          `single-cardinality slot consumer reads index [0] and would silently ` +
-          `pick the wrong asset.`,
+      throw Object.assign(
+        new Error(
+          `DUAL_SOURCE_SINGLE_SLOT: slot "${r.slot}" of pattern "${patternId}" ` +
+            `received both a pinned internal asset and a resolved reference; a ` +
+            `single-cardinality slot consumer reads index [0] and would silently ` +
+            `pick the wrong asset.`,
+        ),
+        { code: 'DUAL_SOURCE_SINGLE_SLOT' },
       )
     }
   }
@@ -358,19 +361,25 @@ export function buildMetaExecutionContext(
           : stepId
 
         if (stepIds.has(effectiveStepId)) {
-          throw new Error(
-            `DUPLICATE_STEP_ID: ${metaId} reused stepId '${effectiveStepId}' ` +
-              `(likely an explicit options.stepId collided with another ` +
-              `step within the same meta run — either de-duplicate the ` +
-              `override or remove it to let framework auto-generate).`,
+          throw Object.assign(
+            new Error(
+              `DUPLICATE_STEP_ID: ${metaId} reused stepId '${effectiveStepId}' ` +
+                `(likely an explicit options.stepId collided with another ` +
+                `step within the same meta run — either de-duplicate the ` +
+                `override or remove it to let framework auto-generate).`,
+            ),
+            { code: 'DUPLICATE_STEP_ID' },
           )
         }
         stepIds.add(effectiveStepId)
 
         if (visited.has(ref.patternId)) {
-          throw new Error(
-            `CIRCULAR_META_STEP: ${metaId} → ${ref.patternId} ` +
-              `(ancestors: ${[...visited].join(' → ')})`,
+          throw Object.assign(
+            new Error(
+              `CIRCULAR_META_STEP: ${metaId} → ${ref.patternId} ` +
+                `(ancestors: ${[...visited].join(' → ')})`,
+            ),
+            { code: 'CIRCULAR_META_STEP' },
           )
         }
 
@@ -452,9 +461,12 @@ export function buildMetaExecutionContext(
             sharedState,
           )
           if (child.status === 'error') {
-            throw new Error(
-              `META_STEP_FAILED: ${metaId} step[${effectiveStepId}] ` +
-                `${ref.patternId}: ${child.error?.message ?? 'unknown'}`,
+            throw Object.assign(
+              new Error(
+                `META_STEP_FAILED: ${metaId} step[${effectiveStepId}] ` +
+                  `${ref.patternId}: ${child.error?.message ?? 'unknown'}`,
+              ),
+              { code: 'META_STEP_FAILED' },
             )
           }
           // Announce on the parent's stream. Inside `run`, so it describes a
@@ -514,9 +526,12 @@ export function buildMetaExecutionContext(
   ): Promise<TAnswer> => {
     if (signal.aborted) throw new Error('CANCELLED')
     if (!deps.askUser) {
-      throw new Error(
-        `ASK_USER_NOT_SUPPORTED: ${metaId} called ctx.askUser but the runtime ` +
-          `was constructed without an askUser handler.`,
+      throw Object.assign(
+        new Error(
+          `ASK_USER_NOT_SUPPORTED: ${metaId} called ctx.askUser but the runtime ` +
+            `was constructed without an askUser handler.`,
+        ),
+        { code: 'ASK_USER_NOT_SUPPORTED' },
       )
     }
     // Prefix the correlation id with the dispatch-tree ROOT jobId (not this
