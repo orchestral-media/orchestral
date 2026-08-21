@@ -74,7 +74,7 @@ describe('buildCatalogDescriptors', () => {
   })
 })
 
-// G4 — ADR-008 byte-stability lock (followups F1 acceptance + ADR-019 §3).
+// Byte-stability lock.
 //
 // buildCatalogDescriptors() output goes into the LLM's prompt cache prefix
 // (the catalog the chat agent loads at session start). The cache hit depends
@@ -85,7 +85,7 @@ describe('buildCatalogDescriptors', () => {
 // and easy to regress accidentally. These tests lock the invariant at the
 // catalog-builder boundary so any future regression surfaces in CI rather
 // than as a silent cache-miss in production.
-describe('buildCatalogDescriptors — byte stability (ADR-008 / G4)', () => {
+describe('buildCatalogDescriptors — byte stability', () => {
   it('produces byte-identical JSON across multiple invocations', () => {
     const a = JSON.stringify(buildCatalogDescriptors())
     const b = JSON.stringify(buildCatalogDescriptors())
@@ -118,9 +118,9 @@ describe('buildCatalogDescriptors — byte stability (ADR-008 / G4)', () => {
   })
 })
 
-describe('buildAlwaysLoadDescriptors — byte stability (ADR-008 / G4)', () => {
+describe('buildAlwaysLoadDescriptors — byte stability', () => {
   it('produces byte-identical JSON for the same pattern set, regardless of input array order', () => {
-    // ADR-008 byte-stability is a per-agent-lifetime invariant; for
+    // Byte-stability is a per-agent-lifetime invariant; for
     // buildAlwaysLoadDescriptors specifically, the output ordering follows
     // the input ordering. So byte-equality holds for the *same input
     // ordering* (verified here) — and any caller that reorders patterns

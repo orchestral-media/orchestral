@@ -17,7 +17,7 @@ import {
 } from '../long-form-video/prompts'
 
 // The director + character-merge prompt bodies are INLINED in the pattern, and
-// per ADR-028 the agent's host tools (concat_videos / complete_task) are
+// the agent's host tools (concat_videos / complete_task) are
 // granted host-side — so the factory is no-arg and the Pattern declares no
 // tools of its own. The baked prompts are asserted against the real exported
 // constants.
@@ -36,7 +36,7 @@ describe('agent_long-form-video', () => {
     expect(agent.primary!.tool.description).toContain('long-form')
   })
 
-  it('renders loop.system with a cache-stable SKILL prefix and a per-dispatch run-parameters suffix (ADR-008)', () => {
+  it('renders loop.system with a cache-stable SKILL prefix and a per-dispatch run-parameters suffix', () => {
     const agent = createLongFormVideoAgent()
 
     // system is a function: framework extras (style/maxEvents) vary per

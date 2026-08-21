@@ -1,4 +1,4 @@
-// AssetLedger P1 原语单测(mintHandle / buildAssetIndex / query / resolveAssetReferences / projectAssetsForModel)。
+// AssetLedger primitive unit tests (mintHandle / buildAssetIndex / query / resolveAssetReferences / projectAssetsForModel).
 import { describe, expect, it } from 'vitest'
 
 import { buildAssetIndex, mintHandle, projectAssetsForModel, projectToolOutputForModel, resolveAssetReferences } from '../asset-index'
@@ -66,7 +66,6 @@ describe('buildAssetIndex', () => {
 })
 
 describe('AssetIndex.query', () => {
-  // 猫(call_1 批 3 张)→ 狗(call_2 批 1 张)
   const idx = buildAssetIndex([
     ev('cat1', 'image', 1, { batchId: 'call_1' }),
     ev('cat2', 'image', 2, { batchId: 'call_1' }),
@@ -74,17 +73,17 @@ describe('AssetIndex.query', () => {
     ev('dog1', 'image', 4, { batchId: 'call_2' }),
   ])
 
-  it('latestOfModality: 取最近一个', () => {
+  it('latestOfModality: returns the most recent single asset', () => {
     const r = idx.query({ modality: 'image', mode: 'latestOfModality' })
     expect(r.map((e) => e.assetId)).toEqual(['dog1'])
   })
 
-  it('latestBatchOfModality: 取最近批次全部', () => {
+  it('latestBatchOfModality: returns every asset in the most recent batch', () => {
     const r = idx.query({ modality: 'image', mode: 'latestBatchOfModality' })
-    expect(r.map((e) => e.assetId)).toEqual(['dog1']) // call_2 只有 1 张
+    expect(r.map((e) => e.assetId)).toEqual(['dog1']) // call_2 holds only one
   })
 
-  it('latestBatchOfModality: 最近批次是猫的 3 张时全取', () => {
+  it('latestBatchOfModality: returns all three when the most recent batch has three', () => {
     const catsOnly = buildAssetIndex([
       ev('cat1', 'image', 1, { batchId: 'call_1' }),
       ev('cat2', 'image', 2, { batchId: 'call_1' }),
@@ -94,11 +93,11 @@ describe('AssetIndex.query', () => {
     expect(r.map((e) => e.assetId)).toEqual(['cat1', 'cat2', 'cat3'])
   })
 
-  it('无该 modality → 空数组', () => {
+  it('unknown modality → empty array', () => {
     expect(idx.query({ modality: 'audio', mode: 'latestOfModality' })).toEqual([])
   })
 
-  it('latestBatchOfModality 在无 batchId 时退化为 latest 单个', () => {
+  it('latestBatchOfModality degrades to a single latest asset when no batchId is set', () => {
     const noBatch = buildAssetIndex([ev('a1', 'image', 1), ev('a2', 'image', 2)])
     const r = noBatch.query({ modality: 'image', mode: 'latestBatchOfModality' })
     expect(r.map((e) => e.assetId)).toEqual(['a2'])
@@ -115,19 +114,19 @@ describe('resolveAssetReferences', () => {
     ev('vid1', 'video', 3),
   ])
 
-  it('LLM 填 handle → 注入真 assetId,且 resolved ref 携带源 handle', () => {
+  it('LLM-supplied handle → real assetId injected, and the resolved ref carries the source handle', () => {
     const r = resolveAssetReferences({ references: { source: 'image_2' } }, [NEED_SRC_SINGLE], idx)
-    // 显式 handle 解析路径(index.resolve):resolved ref 回带它解析自的 handle。
+    // Explicit-handle path (index.resolve): the resolved ref carries back the handle it resolved from.
     expect(r).toEqual({ ok: true, assets: [{ slot: 'source', assetId: 'cat2', modality: 'image', handle: 'image_2' }] })
   })
 
-  it('省略 references + single → 默认取最近一个,resolved ref 带默认填充槽的 handle', () => {
+  it('omitted references + single → defaults to the most recent asset, resolved ref carries the defaulted handle', () => {
     const r = resolveAssetReferences({}, [NEED_SRC_SINGLE], idx)
-    // 默认填充路径(index.query latestOfModality):handle 同样投影进 resolved ref。
+    // Defaulting path (index.query latestOfModality): the handle is projected into the resolved ref just the same.
     expect(r.ok && r.assets).toEqual([{ slot: 'source', assetId: 'cat2', modality: 'image', handle: 'image_2' }])
   })
 
-  it('省略 references + array → 默认取最近批次全部,每条带 handle', () => {
+  it('omitted references + array → defaults to the whole most recent batch, each entry carrying its handle', () => {
     const r = resolveAssetReferences({}, [NEED_SRC_ARRAY], idx)
     expect(r.ok && r.assets).toEqual([
       { slot: 'source', assetId: 'cat1', modality: 'image', handle: 'image_1' },
@@ -135,7 +134,7 @@ describe('resolveAssetReferences', () => {
     ])
   })
 
-  it('HANDLE_NOT_FOUND: 填了不存在的 handle', () => {
+  it('HANDLE_NOT_FOUND: a handle that does not exist', () => {
     const r = resolveAssetReferences({ references: { source: 'image_99' } }, [NEED_SRC_SINGLE], idx)
     expect(r.ok).toBe(false)
     if (!r.ok) {
@@ -148,32 +147,33 @@ describe('resolveAssetReferences', () => {
     }
   })
 
-  it('空串引用 = 显式不选择:可选槽跳过,不报 HANDLE_NOT_FOUND', () => {
-    // LLM 常给可选槽填 "" 而不是省略字段(真实 case:text-to-image 的
-    // control/reference 槽)——空白引用不该打断整次生成。
+  it('empty-string reference = an explicit non-selection: optional slot is skipped, no HANDLE_NOT_FOUND', () => {
+    // LLMs routinely fill an optional slot with "" instead of omitting the
+    // field (a real case: text-to-image's control/reference slots) — a blank
+    // reference must not break the whole generation.
     const optional: AssetNeed = { slot: 'control', modality: 'image', cardinality: 'single', required: false }
     const r = resolveAssetReferences({ references: { control: '' } }, [optional], idx)
     expect(r).toEqual({ ok: true, assets: [] })
   })
 
-  it('纯空白串引用同空串(可选槽跳过)', () => {
+  it('a whitespace-only reference behaves like an empty string (optional slot skipped)', () => {
     const optional: AssetNeed = { slot: 'control', modality: 'image', cardinality: 'single', required: false }
     const r = resolveAssetReferences({ references: { control: '  ' } }, [optional], idx)
     expect(r).toEqual({ ok: true, assets: [] })
   })
 
-  it('空串引用 + 必填槽 → REQUIRED_ASSET_MISSING(显式空选择,不默认填充)', () => {
+  it('empty-string reference on a required slot → REQUIRED_ASSET_MISSING (an explicit empty selection never falls back to the default)', () => {
     const r = resolveAssetReferences({ references: { source: '' } }, [NEED_SRC_SINGLE], idx)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.code).toBe('REQUIRED_ASSET_MISSING')
   })
 
-  it('数组里混空串 → 过滤后只解析有效 handle', () => {
+  it('empty strings mixed into an array → filtered out, only the valid handles resolve', () => {
     const r = resolveAssetReferences({ references: { source: ['image_1', ''] } }, [NEED_SRC_ARRAY], idx)
     expect(r.ok && r.assets.map((a) => a.handle)).toEqual(['image_1'])
   })
 
-  it('MODALITY_MISMATCH: image 槽填 video handle', () => {
+  it('MODALITY_MISMATCH: a video handle in an image slot', () => {
     const r = resolveAssetReferences({ references: { source: 'video_1' } }, [NEED_SRC_SINGLE], idx)
     expect(r.ok).toBe(false)
     if (!r.ok && r.error.code === 'MODALITY_MISMATCH') {
@@ -185,7 +185,7 @@ describe('resolveAssetReferences', () => {
     }
   })
 
-  it('REQUIRED_ASSET_MISSING: 必填但无同模态候选', () => {
+  it('REQUIRED_ASSET_MISSING: required slot with no same-modality candidate', () => {
     const empty = buildAssetIndex([])
     const r = resolveAssetReferences({}, [NEED_SRC_SINGLE], empty)
     expect(r.ok).toBe(false)
@@ -197,7 +197,7 @@ describe('resolveAssetReferences', () => {
     }
   })
 
-  it('CARDINALITY_VIOLATION: single 槽给了多个', () => {
+  it('CARDINALITY_VIOLATION: several handles for a single-cardinality slot', () => {
     const r = resolveAssetReferences({ references: { source: ['image_1', 'image_2'] } }, [NEED_SRC_SINGLE], idx)
     expect(r.ok).toBe(false)
     if (!r.ok && r.error.code === 'CARDINALITY_VIOLATION') {
@@ -208,7 +208,7 @@ describe('resolveAssetReferences', () => {
     }
   })
 
-  it('CARDINALITY_VIOLATION: array 超 max', () => {
+  it('CARDINALITY_VIOLATION: array exceeds max', () => {
     const big = buildAssetIndex([ev('a', 'image', 1), ev('b', 'image', 2), ev('c', 'image', 3)])
     const r = resolveAssetReferences({ references: { source: ['image_1', 'image_2', 'image_3'] } }, [NEED_SRC_ARRAY], big)
     expect(r.ok).toBe(false)
@@ -219,21 +219,23 @@ describe('resolveAssetReferences', () => {
     }
   })
 
-  it('optional 槽省略且无候选 → ok、该 slot 不产出', () => {
+  it('optional slot omitted with no candidate → ok, and the slot produces nothing', () => {
     const need: AssetNeed = { slot: 'mask', modality: 'image', cardinality: 'single', required: false }
     const empty = buildAssetIndex([])
     const r = resolveAssetReferences({}, [need], empty)
     expect(r).toEqual({ ok: true, assets: [] })
   })
 
-  it('optional 槽省略但有同模态候选 → 不自动填充(默认规则只对必填槽生效)', () => {
+  it('optional slot omitted while a same-modality candidate exists → still not auto-filled (defaulting applies to required slots only)', () => {
     const need: AssetNeed = { slot: 'mask', modality: 'image', cardinality: 'single', required: false }
-    // idx 有 image 候选(cat1/cat2);可选槽省略 = "不要",绝不从同模态最近资产自动填充
+    // idx does hold image candidates (cat1/cat2); an omitted optional slot
+    // means "none wanted" — never auto-fill it from the most recent
+    // same-modality asset.
     const r = resolveAssetReferences({}, [need], idx)
     expect(r).toEqual({ ok: true, assets: [] })
   })
 
-  it('i2i 实景:省略 references + [source必填, mask可选, reference可选] → 只解析 source,可选槽不被同一张图误填', () => {
+  it('real i2i shape: omitted references + [source required, mask optional, reference optional] → only source resolves, the optional slots are not mis-filled with that same image', () => {
     const needs: AssetNeed[] = [
       { slot: 'source', modality: 'image', cardinality: 'single', required: true },
       { slot: 'mask', modality: 'image', cardinality: 'single', required: false },
@@ -245,12 +247,12 @@ describe('resolveAssetReferences', () => {
     ])
   })
 
-  it('asset:// uri 归一化到裸 handle 后正常解析', () => {
+  it('an asset:// uri normalizes to a bare handle and resolves', () => {
     const r = resolveAssetReferences({ references: { source: 'asset://image_2' } }, [NEED_SRC_SINGLE], idx)
     expect(r).toEqual({ ok: true, assets: [{ slot: 'source', assetId: 'cat2', modality: 'image', handle: 'image_2' }] })
   })
 
-  it('asset:// uri 的百分号编码文件名 handle 解码后解析', () => {
+  it('a percent-encoded filename handle inside an asset:// uri decodes and resolves', () => {
     const named = buildAssetIndex([ev('photo-real', 'image', 1, { handle: 'my photo.png' })])
     const r = resolveAssetReferences({ references: { source: 'asset://my%20photo.png' } }, [NEED_SRC_SINGLE], named)
     expect(r).toEqual({ ok: true, assets: [{ slot: 'source', assetId: 'photo-real', modality: 'image', handle: 'my photo.png' }] })
@@ -258,25 +260,24 @@ describe('resolveAssetReferences', () => {
 })
 
 describe('projectAssetsForModel', () => {
-  it('只露 handle/modality/label,assetId 物理缺席(硬投影 §6.3)', () => {
+  it('exposes handle/modality/label only — assetId is physically absent (hard projection)', () => {
     const idx = buildAssetIndex([ev('secret-real-id', 'image', 1, { label: 'a cat' })])
     const projected = projectAssetsForModel(idx.all())
     expect(projected).toEqual([{ handle: 'image_1', uri: 'asset://image_1', modality: 'image', label: 'a cat' }])
-    // assetId 绝不出现在投影里
     expect(JSON.stringify(projected)).not.toContain('secret-real-id')
   })
 
-  it('无 label 时不带 label 字段', () => {
+  it('omits the label field when there is no label', () => {
     const idx = buildAssetIndex([ev('a1', 'image', 1)])
     expect(projectAssetsForModel(idx.all())).toEqual([{ handle: 'image_1', uri: 'asset://image_1', modality: 'image' }])
   })
 
-  it('并列露出 asset:// uri(handle 保留不删)', () => {
+  it('exposes the asset:// uri alongside the handle (the handle is kept, not replaced)', () => {
     const idx = buildAssetIndex([ev('a1', 'image', 1)])
     expect(projectAssetsForModel(idx.all())[0].uri).toBe('asset://image_1')
   })
 
-  it('配置了 scheme 后,两条投影路径都产出该 scheme', () => {
+  it('a configured scheme is emitted by both projection paths', () => {
     setAssetUriScheme('host://')
     try {
       const idx = buildAssetIndex([ev('a1', 'image', 1)])
@@ -285,7 +286,7 @@ describe('projectAssetsForModel', () => {
         assets: [{ handle: 'image_3', modality: 'image', assetId: 'a-1' }],
       }) as { assets: { uri: string }[] }
       expect(out.assets[0].uri).toBe('host://image_3')
-      // 反向:配置后的 scheme 也是解析侧认的那个
+      // And the reverse direction: the configured scheme is the one the resolve side accepts.
       const r = resolveAssetReferences({ references: { source: 'host://image_1' } }, [NEED_SRC_SINGLE], idx)
       expect(r.ok && r.assets[0].handle).toBe('image_1')
     } finally {
@@ -295,8 +296,7 @@ describe('projectAssetsForModel', () => {
 })
 
 describe('asset-index review regressions', () => {
-  // C1: 显式空数组对 required 槽 fail-closed
-  it('required 槽显式 [] → REQUIRED_ASSET_MISSING(不静默走默认)', () => {
+  it('explicit [] on a required slot → REQUIRED_ASSET_MISSING (no silent fall-through to the default)', () => {
     const idx = buildAssetIndex([ev('cat1', 'image', 1)])
     const r = resolveAssetReferences({ references: { source: [] } }, [NEED_SRC_SINGLE], idx)
     expect(r.ok).toBe(false)
@@ -307,27 +307,24 @@ describe('asset-index review regressions', () => {
     }
   })
 
-  it('optional 槽显式 [] → ok 且不产出(不走默认)', () => {
+  it('explicit [] on an optional slot → ok and produces nothing (no defaulting)', () => {
     const idx = buildAssetIndex([ev('cat1', 'image', 1)])
     const need: AssetNeed = { slot: 'mask', modality: 'image', cardinality: 'single', required: false }
     expect(resolveAssetReferences({ references: { mask: [] } }, [need], idx)).toEqual({ ok: true, assets: [] })
   })
 
-  // I1: 同 host handle 冲突,resolve 与 all 一致、无幽灵
-  it('同 host handle 冲突:all() 内 handle 单射,resolve 取后者,无不可达幽灵', () => {
+  it('colliding host handles: handles stay unique in all(), resolve takes the later one, and no entry becomes unreachable', () => {
     const idx = buildAssetIndex([ev('a1', 'image', 1, { handle: 'cat.png' }), ev('a2', 'image', 2, { handle: 'cat.png' })])
     const handles = idx.all().map((e) => e.handle)
     expect(new Set(handles).size).toBe(handles.length)
     expect(idx.resolve('cat.png')?.assetId).toBe('a2')
   })
 
-  // C-1: later-wins 由 orderHint 决定,非数组位置
   it('same handle winner is by orderHint, not array position', () => {
     const idx = buildAssetIndex([ev('new', 'image', 2, { handle: 'dup' }), ev('old', 'image', 1, { handle: 'dup' })])
     expect(idx.resolve('dup')?.assetId).toBe('new')
   })
 
-  // C-2: all() 防御拷贝回归护栏
   it('all() returns a defensive copy (external mutation does not leak)', () => {
     const idx = buildAssetIndex([ev('a1', 'image', 1)])
     const snap = idx.all() as AssetLedgerEntry[]
@@ -335,8 +332,7 @@ describe('asset-index review regressions', () => {
     expect(idx.all()).toHaveLength(1)
   })
 
-  // C-3: 跨多 need fail-closed,前一个成功也不产出半成品
-  it('fail-closed across needs: 前 need 成功 + 后 need 坏 handle → 整体失败', () => {
+  it('fail-closed across needs: an earlier need resolving + a later need with a bad handle → the whole resolve fails', () => {
     const idx = buildAssetIndex([ev('cat', 'image', 1), ev('vid', 'video', 2)])
     const needs: AssetNeed[] = [
       { slot: 'source', modality: 'image', cardinality: 'single', required: true },
@@ -351,8 +347,7 @@ describe('asset-index review regressions', () => {
     }
   })
 
-  // C-4: latestBatchOfModality 跨模态共享 batchId 时仍按 modality 过滤
-  it('latestBatchOfModality 在 batchId 跨模态共享时仍按 modality 过滤', () => {
+  it('latestBatchOfModality still filters by modality when one batchId is shared across modalities', () => {
     const idx = buildAssetIndex([
       ev('img1', 'image', 1, { batchId: 'b1' }),
       ev('vid1', 'video', 2, { batchId: 'b1' }),
@@ -396,8 +391,9 @@ describe('UNKNOWN_SLOT (fail-closed for undeclared reference keys)', () => {
   })
 })
 
-// §6.3 D3 硬投影 — toModelOutput 落点的纯函数。可验断言:投影后 JSON.stringify
-// 不含真 assetId(模型可见侧不可能读到真相)。
+// The pure function behind the toModelOutput landing point. The checkable
+// assertion: after projection JSON.stringify carries no real assetId, so the
+// model-visible side cannot read the truth.
 describe('projectToolOutputForModel (D3 hard projection)', () => {
   it('strips assetId from each assets[] element, keeps handle/modality/label', () => {
     const full = {

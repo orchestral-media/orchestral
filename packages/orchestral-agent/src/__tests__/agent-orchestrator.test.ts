@@ -29,7 +29,7 @@ describe('agent_orchestrator', () => {
     expect(agent.primary!.tool.description).toContain('open-ended')
   })
 
-  it('is per-surface visible to chat-turn + agent-loop and always-load (ADR-030 F / Phase 3)', () => {
+  it('is per-surface visible to chat-turn + agent-loop and always-load', () => {
     const agent = createOrchestratorAgent()
 
     // Object-form exposure: the main chat-turn AND any parent agent loop may
@@ -39,7 +39,7 @@ describe('agent_orchestrator', () => {
     expect(agent.exposureMode).toBe('always-load')
   })
 
-  it('renders loop.system with a cache-stable C1 prefix and a per-dispatch run-parameters suffix (ADR-008)', () => {
+  it('renders loop.system with a cache-stable system-prompt prefix and a per-dispatch run-parameters suffix', () => {
     const agent = createOrchestratorAgent()
 
     expect(typeof agent.loop.system).toBe('function')
@@ -54,7 +54,7 @@ describe('agent_orchestrator', () => {
     )
     const sysB = systemFn({ description: 'd', prompt: 'brief B' }, {})
 
-    // The C1 constant anchors the start of both renders — the cacheable prefix
+    // ORCHESTRATOR_SYSTEM_PROMPT anchors the start of both renders — the cacheable prefix
     // is identical across dispatches regardless of the per-run extras.
     expect(sysA.indexOf(ORCHESTRATOR_SYSTEM_PROMPT)).toBe(0)
     expect(sysB.indexOf(ORCHESTRATOR_SYSTEM_PROMPT)).toBe(0)
@@ -156,7 +156,7 @@ describe('agent_orchestrator', () => {
     }
   })
 
-  it('does not declare a stopWhen (ADR-032 Phase B — host owns the stop policy)', () => {
+  it('does not declare a stopWhen — the host owns the stop policy', () => {
     const agent = createOrchestratorAgent()
     expect('stopWhen' in agent.loop).toBe(false)
   })

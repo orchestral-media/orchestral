@@ -253,7 +253,7 @@ describe('Pattern.assetNeeds (AssetLedger §5.5)', () => {
   })
 })
 
-describe('outputs.assets[] (AssetLedger §6 — C3b-2 收口)', () => {
+describe('outputs.assets[] is the required produced-media carrier', () => {
   // Media-producing patterns: outputs are now collapsed onto `assets[]` (one
   // element per produced asset). Legacy single `assetId` / `<x>Url` deleted —
   // the schema REQUIRES assets[] and rejects the legacy-only shape.

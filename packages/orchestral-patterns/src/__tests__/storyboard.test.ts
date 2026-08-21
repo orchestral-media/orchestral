@@ -86,7 +86,7 @@ function makeCtx(
 
 /**
  * Recursive ExecutionContext that mirrors the runtime's shared-state + stepId
- * namespace contract (ADR-009 §A.5) so we can drive the storyboard meta + its
+ * namespace contract so we can drive the storyboard meta + its
  * nested meta_image-best-of-n with the REAL compose() bodies and reproduce the
  * "same child meta dispatched twice with fixed explicit stepIds" collision.
  *
@@ -465,7 +465,7 @@ describe('meta_storyboard', () => {
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('renders ≥2 panels with bestOfN without DUPLICATE_STEP_ID — each panel dispatches its own best-of-n (ADR-009 §A.5 namespace)', async () => {
+  it('renders ≥2 panels with bestOfN without DUPLICATE_STEP_ID — each panel dispatches its own best-of-n', async () => {
     // Acceptance point for the nested-meta stepId namespace fix. The storyboard
     // dispatches meta_image-best-of-n once per panel (panel-0, panel-1); the
     // best-of-n meta internally uses FIXED explicit stepIds (candidate-0,

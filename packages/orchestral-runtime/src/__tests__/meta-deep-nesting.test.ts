@@ -1,17 +1,22 @@
-// 三层嵌套 meta 的 step-cache 命名空间隔离 — 运行时回归 (ADR-009 §A.5)。
+// step-cache namespace isolation across three levels of nested meta — runtime
+// regression.
 //
-// meta-nested-stepid-namespace.test.ts 锁的是 parent → child 两层:同一 child
-// meta 跑两遍时,固定显式 stepId 不互撞、stepCache 不交叉污染。本文件把它推到
-// 第三层(grandchild),因为命名空间前缀是「递归」拼的 —— 子 meta 把自己 step
-// 的 effectiveStepId 当成孙 meta 的 stepIdNamespace(dispatchMeta 把
-// spec.stepIdNamespace 传进 buildMetaExecutionContext,ctx.step 再把
-// effectiveStepId 盖到子 spec 上)。如果前缀只生效一层,sibling child 下的孙 step 会
-// 在祖父级共享 stepCache 里互相命中,产生静默 cross-contamination。
+// meta-nested-stepid-namespace.test.ts pins the parent → child pair: when the
+// same child meta runs twice, its fixed explicit stepIds must not collide and
+// its stepCache entries must not cross-contaminate. This file pushes that to a
+// third level (grandchild), because the namespace prefix is assembled
+// RECURSIVELY — a child meta hands its own step's effectiveStepId down as the
+// grandchild's stepIdNamespace (dispatchMeta passes spec.stepIdNamespace into
+// buildMetaExecutionContext, and ctx.step then stamps effectiveStepId onto the
+// child spec). If the prefix only takes effect one level deep, grandchild steps
+// under sibling children hit each other in the grandparent's shared stepCache —
+// silent cross-contamination.
 //
-// 结构:meta_parent --[child-0, child-1]--> meta_child --[gc-0, gc-1]-->
-//       meta_grandchild --[gc-step]--> fake-image
-// 共 2×2×1 = 4 次 image 调用,每次 prompt 唯一、assetId 唯一。命名空间断在任意
-// 一层都会让后续孙 step 短路命中前一个的缓存 → 调用数 < 4。
+// Shape: meta_parent --[child-0, child-1]--> meta_child --[gc-0, gc-1]-->
+//        meta_grandchild --[gc-step]--> fake-image
+// 2×2×1 = 4 image calls in total, each with a unique prompt and a unique
+// assetId. A namespace break at any level short-circuits a later grandchild
+// step onto the previous one's cache entry → fewer than 4 calls.
 
 import { describe, expect, it } from 'vitest'
 
@@ -153,7 +158,7 @@ function makeRuntime(calls: Array<{ prompt: string }>): InlineRuntime {
   })
 }
 
-describe('meta step-cache — three-level nesting (ADR-009 §A.5)', () => {
+describe('meta step-cache — three-level nesting', () => {
   it('does not crash DUPLICATE_STEP_ID with three levels of fixed-id steps', async () => {
     const calls: Array<{ prompt: string }> = []
     const runtime = makeRuntime(calls)

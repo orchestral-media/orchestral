@@ -1,7 +1,7 @@
 // handleFindPattern (the `find_pattern` tool call → catalog discovery) coverage.
 //
 // Verifies: structured match descriptor shape (primary + outputs summary +
-// assetNeeds-derived inputSchema), kind / modality / audience / Tier-1.5
+// assetNeeds-derived inputSchema), kind / modality / audience / router
 // satisfiability filtering, K cap, includeOnly / excludeIds, query echo +
 // diagnostics.
 // FindPatternMatch carries no variants axis, and patterns carry no
@@ -73,7 +73,7 @@ function stubRouter(satisfiable: ReadonlyArray<{ cap: string; tag?: string }>): 
 
 describe('handleFindPattern', () => {
   describe('match descriptor shape', () => {
-    it('returns primary + outputs for atomic Pattern (ADR-024)', () => {
+    it('returns primary + outputs for atomic Pattern', () => {
       const index = freshIndex([createTextToImagePattern() as never as Pattern])
       const result = handleFindPattern(index, { query: 'text to image generation' })
       const match = result.matches.find((m) => m.patternId === 'text-to-image')
@@ -82,7 +82,7 @@ describe('handleFindPattern', () => {
       expect(match!.namespace).toBe('image-gen')
       expect(match!.primary.toolDescription).toContain('image')
       expect(match!.primary.inputSchema).toBeDefined()
-      // ADR-024:variants field removed from FindPatternMatch.
+      // The variants field was removed from FindPatternMatch.
       expect((match as unknown as { variants?: unknown }).variants).toBeUndefined()
       // outputs is now a compact summary, not full JSON Schema (2026-05-28).
       // text-to-image returns image assets — both fields populated.
@@ -95,7 +95,7 @@ describe('handleFindPattern', () => {
       expect((match as unknown as { description?: unknown }).description).toBeUndefined()
     })
 
-    // Task 9 / ADR-024 — the LLM's signal for asset slots is the
+    // The LLM's signal for asset slots is the
     // assetNeeds-derived references sub-schema: typed slots, strict against
     // unknown keys. Atomics get it from AtomicPattern's ctor, metas from
     // extendInputsWithReferences at factory time; both must render it.
@@ -185,7 +185,7 @@ describe('handleFindPattern', () => {
 
   })
 
-  describe('Tier-1.5 satisfiability filter', () => {
+  describe('router satisfiability filter', () => {
     it('drops atomic Patterns whose modelTags no provider satisfies', () => {
       const index = freshIndex([
         createTextToImagePattern() as never as Pattern,
@@ -214,7 +214,7 @@ describe('handleFindPattern', () => {
       expect(result.matches.find((m) => m.patternId === 'meta_image-to-image-via-caption')).toBeDefined()
     })
 
-    // ADR-024:"satisfiable VARIANT (not primary) still surfaces" removed —
+    // The "satisfiable VARIANT (not primary) still surfaces" case was removed —
     // Variant axis deleted; isPrimarySatisfiable() now only checks the primary
     // modelTags. Atomic Patterns with empty primary modelTags (most of the
     // first-party set) still surface against any model registered under their
@@ -393,7 +393,7 @@ describe('handleFindPattern', () => {
     })
   })
 
-  // ── ADR-012 §2.7 derive integration ─────────────────────────────────────
+  // ── derive integration ──────────────────────────────────────────────────
   describe('providerOptions-driven schema lift', () => {
     it('lifts top-candidate providerOptions into primary.inputSchema (Suno literal)', async () => {
       const index = freshIndex([createTextToImagePattern() as never as Pattern])
@@ -447,7 +447,7 @@ describe('handleFindPattern', () => {
         properties: Record<string, { type?: string; properties?: unknown; additionalProperties?: unknown }>
       }
       expect(schema.properties.prompt).toBeDefined()
-      // ADR-024:Pattern factory no longer declares a `providerOptions`
+      // The Pattern factory no longer declares a `providerOptions`
       // placeholder. When derive returns undefined, deriveLlmFacingInputSchema
       // returns baseSchema unchanged — which means `providerOptions` is
       // absent entirely (not a degraded `z.record(z.unknown())`). LLM doesn't

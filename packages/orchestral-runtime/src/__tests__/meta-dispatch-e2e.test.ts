@@ -1,4 +1,4 @@
-// F1.c — meta-dispatch e2e (ADR-019 G1).
+// meta-dispatch e2e.
 //
 // Builds a real InlineRuntime over an in-memory JobStore + a fake
 // CapabilityRouter whose text-generation ModelCapability scripts

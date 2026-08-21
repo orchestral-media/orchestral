@@ -1,4 +1,4 @@
-// ADR-028 P2 — dispatchAgent tool catalog.
+// dispatchAgent tool catalog.
 //
 // Locks the library-side contract: dispatchAgent emits the two router tools
 // (find_pattern / dispatch_pattern), the injected finish tool (complete_task),
@@ -82,7 +82,7 @@ async function expectReject(p: Promise<unknown>): Promise<RejectedError> {
   }
 }
 
-describe('dispatchAgent tool catalog (ADR-028 P2)', () => {
+describe('dispatchAgent tool catalog', () => {
   it('emits find_pattern + dispatch_pattern + complete_task and forwards pattern.id', async () => {
     let capturedTools: string[] = []
     let capturedPatternId: string | undefined

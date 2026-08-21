@@ -1,7 +1,7 @@
-// ADR-024:native-audio variant deletion regression test.
+// Regression test for the native-audio variant deletion.
 //
-// Pre-ADR-024 native-audio was a Variant on text-to-video with
-// `modelTags: ['native-audio-video']`. Post-ADR-024 the variant axis was
+// native-audio used to be a Variant on text-to-video with
+// `modelTags: ['native-audio-video']`. The variant axis was then
 // deleted; the same capability is expressed by the LLM filling FLAT
 // `providerOptions.{generateAudio|audio|sound}` per the top-1 resolved
 // video model's typed schema. This test exercises the post-deletion path at
@@ -10,7 +10,7 @@
 // integration coverage: these tests all pass while the wire past this
 // boundary is broken.
 //
-// SHAPE (ADR-024 review C8): the LLM sees FLAT single-provider sub-schema
+// SHAPE: the LLM sees FLAT single-provider sub-schema
 // (no provider-name wrapper, `additionalProperties: false` declared). Host
 // wraps with `providerOptionsKeyFor(providerName)` at the worker layer
 // before forwarding to ai-sdk. This file pins the FLAT contract at the
@@ -57,7 +57,7 @@ function freshIndex(): {
   return { index: new PatternSearchIndex(registry), registry }
 }
 
-describe('ADR-024:native-audio via providerOptions (no variant)', () => {
+describe('native-audio via providerOptions (no variant)', () => {
   it('DispatchPatternInputSchema silently strips variant_id at the top level (Variant axis deleted)', () => {
     // Note the title says "silently strips," NOT "rejects" — the schema does
     // not reject extra keys at the wrapper level (zod's default behavior is
@@ -181,7 +181,7 @@ describe('ADR-024:native-audio via providerOptions (no variant)', () => {
         }
       }
     }
-    // ADR-024:LLM sees the typed providerOptions sub-schema with the
+    // LLM sees the typed providerOptions sub-schema with the
     // provider's raw field names — no more variant_id indirection.
     const poProps = inputSchema.properties?.providerOptions?.properties
     expect(poProps).toBeDefined()

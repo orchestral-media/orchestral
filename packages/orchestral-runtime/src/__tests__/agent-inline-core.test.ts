@@ -17,7 +17,7 @@ const plainMeta = { id: 'meta_plain', kind: 'meta',
   tool: { description: 'x', inputs: z.object({}) }, outputs: z.object({}), compose: async () => ({}) } as unknown as Pattern
 
 describe('buildAgentInlineCore', () => {
-  it('只把白名单里 always-load 的渲成直接工具,返回 inline 工具 + 应排除的 id', () => {
+  it('renders only the allowlisted always-load patterns as direct tools, returning the inline tools plus the ids to exclude', () => {
     const r = buildAgentInlineCore(
       ['text-to-image', 'meta_idea2video', 'meta_plain'] as PatternId[],
       reg([t2i, ideaMeta, plainMeta]),
@@ -25,7 +25,7 @@ describe('buildAgentInlineCore', () => {
     expect(r.descriptors.map((d) => d.name).sort()).toEqual(['meta_idea2video', 'text-to-image'])
     expect([...r.inlineIds].sort()).toEqual(['meta_idea2video', 'text-to-image'])
   })
-  it('白名单外的 always-load 不进(scope 仅限白名单)', () => {
+  it('an always-load pattern outside the allowlist is not inlined (scope is the allowlist only)', () => {
     const r = buildAgentInlineCore(['meta_plain'] as PatternId[], reg([t2i, ideaMeta, plainMeta]))
     expect(r.descriptors).toHaveLength(0)
   })

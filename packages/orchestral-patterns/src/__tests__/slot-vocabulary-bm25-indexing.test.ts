@@ -1,6 +1,6 @@
-// ADR-024 review C3 regression test.
+// Slot-vocabulary indexing regression test.
 //
-// Pre-ADR-024 the variant axis carried capability sub-mode terminology via
+// The deleted variant axis used to carry capability sub-mode terminology via
 // per-variant `tool.description` strings. That vocabulary is now SSOT in
 // `assetNeeds[*].slot` names and `assetNeeds[*].description` prose.
 // Verified vocabulary: IP-Adapter / InstantID / inpaint / outpaint /
@@ -26,7 +26,7 @@ function freshIndex(patterns: readonly Pattern[]): PatternSearchIndex {
   return new PatternSearchIndex(registry)
 }
 
-describe('slot vocabulary flows into BM25 toolDescriptions (ADR-024 C3, SSOT: assetNeeds slot descriptions)', () => {
+describe('slot vocabulary flows into BM25 toolDescriptions (SSOT: assetNeeds slot descriptions)', () => {
   it("query 'IP-Adapter' surfaces text-to-image (term in reference slot description)", () => {
     // 'IP-Adapter' lives in t2i assetNeeds[reference].description
     const index = freshIndex([

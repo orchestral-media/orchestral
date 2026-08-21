@@ -490,7 +490,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     // §5.9⑧ — normaliseError preserves producedAssets off the thrown error
     // onto the STORED JobError. This is the observable carrier the parent
     // (chat.ts JOB_FAILED / inline SUBAGENT_TOOL_FAILED) reads to surface
-    // partial产出 in its failure tool-result.
+    // partial output in its failure tool-result.
     expect(err?.producedAssets).toEqual(['gen-asset'])
   })
 

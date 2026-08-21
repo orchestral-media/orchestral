@@ -296,7 +296,7 @@ function rankIndex(
  * fallback path from this.
  */
 function diagnoseReason(screening: Screening): UnavailabilityReason {
-  const { ctx, requiredTags, enablementDefaulted, screened } = screening
+  const { requiredTags, enablementDefaulted, screened } = screening
   const survived = (
     stages: readonly RoutingDropStage[],
   ): readonly ScreenedModel[] =>
@@ -337,12 +337,11 @@ function diagnoseReason(screening: Screening): UnavailabilityReason {
     return 'tag-mismatch'
   }
 
-  // Tier never eliminates a candidate (see selectCandidate), so this is only
-  // reachable when the set was already empty for another reason.
-  if (ctx.tier && !afterExcl.some((s) => s.record.tier === ctx.tier)) {
-    return 'tier-mismatch'
-  }
-
+  // No tier branch here on purpose. Tier biases selection and never eliminates
+  // a candidate (see selectCandidate), so by this point an empty candidate set
+  // was emptied by something else — reporting 'tier-mismatch' would name the
+  // one filter that did not do it. `UnavailabilityReason` keeps the member for
+  // routers that do treat tier as a hard filter.
   return 'no-model-in-catalog'
 }
 

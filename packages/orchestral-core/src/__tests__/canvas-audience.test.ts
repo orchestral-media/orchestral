@@ -5,7 +5,7 @@ import type { Pattern, PatternExposure } from '../pattern'
 import { resolveDispatchTarget } from '../dispatch-pattern'
 import { PatternRegistry } from '../registry'
 
-// ADR-030 §5-adjacent — canvas-node dispatch resolution. Gate is
+// Canvas-node dispatch resolution. Gate is
 // resolveExposure(pattern.exposure).canvas; default first-party exposure
 // ('tool' / undefined / any shorthand) has canvas:false, so a Pattern must
 // opt in explicitly before a canvas node can dispatch it.

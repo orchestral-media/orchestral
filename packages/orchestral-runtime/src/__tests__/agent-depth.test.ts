@@ -10,7 +10,7 @@ function makeKindLookup(kinds: Record<string, Pattern['kind']>) {
 }
 
 describe('countAgentAncestors', () => {
-  it('只数 agent 祖先,忽略 meta/atomic', () => {
+  it('counts agent ancestors only, ignoring meta/atomic', () => {
     const reg = makeKindLookup({
       agent_orchestrator: 'agent', meta_idea2video: 'meta',
       meta_script2video: 'meta', 'text-to-image': 'atomic',
@@ -20,11 +20,11 @@ describe('countAgentAncestors', () => {
     ] as PatternId[])
     expect(countAgentAncestors(visited, reg)).toBe(1)
   })
-  it('多个 agent 祖先正确计数', () => {
+  it('counts multiple agent ancestors', () => {
     const reg = makeKindLookup({ a1: 'agent', a2: 'agent', m: 'meta' })
     expect(countAgentAncestors(new Set(['a1', 'm', 'a2'] as PatternId[]), reg)).toBe(2)
   })
-  it('registry 未命中的 id 不计入', () => {
+  it('an id the registry does not know is not counted', () => {
     const reg = makeKindLookup({ a1: 'agent' })
     expect(countAgentAncestors(new Set(['a1', 'ghost'] as PatternId[]), reg)).toBe(1)
   })

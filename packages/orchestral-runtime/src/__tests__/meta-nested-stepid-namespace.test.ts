@@ -1,4 +1,4 @@
-// 嵌套同类型 meta 的显式 stepId 假碰撞 — 运行时回归 (ADR-009 §A.5)。
+// False stepId collision between nested metas of the same type — runtime regression.
 //
 // Repro of the meta_storyboard × bestOfN crash: a parent meta dispatches the
 // SAME child meta type twice (panel-0, panel-1). The child meta inherits the
@@ -166,7 +166,7 @@ function makeRuntime(
   })
 }
 
-describe('nested same-type meta — explicit stepId namespace (ADR-009 §A.5)', () => {
+describe('nested same-type meta — explicit stepId namespace', () => {
   it('does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds', async () => {
     const calls: Array<{ prompt: string }> = []
     const runtime = makeRuntime(calls)

@@ -1,9 +1,9 @@
-// InMemoryAssetStore 单测:record(mint / cap-closed / referenceable / 幂等 / 提升)+ listContext。
+// InMemoryAssetStore unit tests: record (mint / cap-closed / referenceable / idempotency / promotion) + listContext.
 import { describe, expect, it } from 'vitest'
 import { InMemoryAssetStore } from '../asset-store'
 
 describe('InMemoryAssetStore.record', () => {
-  it('referenceable 默认 true,cap 开(无 handle)→ mint image_1 + seq 1', async () => {
+  it('referenceable defaults to true; with the cap open (no handle) it mints image_1 + seq 1', async () => {
     const s = new InMemoryAssetStore()
     const rec = await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     expect(rec.handle).toBe('image_1')
@@ -12,7 +12,7 @@ describe('InMemoryAssetStore.record', () => {
     expect(rec.assetId).toBe('a1')
   })
 
-  it('per-(context,modality) 计数:第二张 image → image_2;首个 video → video_1', async () => {
+  it('per-(context, modality) counters: the second image → image_2, the first video → video_1', async () => {
     const s = new InMemoryAssetStore()
     await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     const a2 = await s.record('chat1', { assetId: 'a2', modality: 'image', origin: 'tool-output' })
@@ -21,14 +21,14 @@ describe('InMemoryAssetStore.record', () => {
     expect(v1.handle).toBe('video_1')
   })
 
-  it('cap 关:host 传 handle = assetId → 采用该 handle,计数仍前进', async () => {
+  it('cap closed: a host-supplied handle = assetId is adopted, and the counter still advances', async () => {
     const s = new InMemoryAssetStore()
     const rec = await s.record('chat1', { assetId: 'uuid-x', modality: 'image', origin: 'upload', handle: 'uuid-x' })
     expect(rec.handle).toBe('uuid-x')
     expect(rec.seq).toBe(1)
   })
 
-  it('referenceable=false → 不 mint(无 handle/seq),不消耗计数(N16)', async () => {
+  it('referenceable=false → nothing is minted (no handle/seq) and no counter slot is consumed', async () => {
     const s = new InMemoryAssetStore()
     const mid = await s.record('chat1', { assetId: 'mid', modality: 'image', origin: 'intermediate', referenceable: false })
     expect(mid.referenceable).toBe(false)
@@ -38,7 +38,7 @@ describe('InMemoryAssetStore.record', () => {
     expect(real.handle).toBe('image_1')
   })
 
-  it('幂等:同 (context, assetId) 二次 record → 返回原记录,计数不增(N5)', async () => {
+  it('idempotent: recording the same (context, assetId) twice returns the original record and does not advance the counter', async () => {
     const s = new InMemoryAssetStore()
     const first = await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     const again = await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
@@ -47,7 +47,7 @@ describe('InMemoryAssetStore.record', () => {
     expect(a2.handle).toBe('image_2')
   })
 
-  it('单调提升:false 记录被以 true 再 record → 提升那刻补 mint(N16)', async () => {
+  it('monotonic promotion: re-recording a false entry as true mints its handle at the moment of promotion', async () => {
     const s = new InMemoryAssetStore()
     const mid = await s.record('chat1', { assetId: 'mid', modality: 'image', origin: 'intermediate', referenceable: false })
     expect(mid.handle).toBeUndefined()
@@ -57,17 +57,15 @@ describe('InMemoryAssetStore.record', () => {
     expect(promoted.handle).toBe('image_2')
   })
 
-  it('owner 是 write-only:作为输入被接受,但不回填到记录上(agent 场景用)', async () => {
+  it('owner is write-only: accepted as input but never written back onto the record (used by the agent path)', async () => {
     const s = new InMemoryAssetStore()
     const rec = await s.record('run7', { assetId: 'd1', modality: 'image', origin: 'tool-output', owner: 'chatA' })
-    // owner 不挂在只读记录上
     expect('owner' in rec).toBe(false)
-    // 资产照常记录
     expect(rec.assetId).toBe('d1')
     expect(rec.handle).toBe('image_1')
   })
 
-  it('省略 owner → 记录同样不带 owner,资产照常记录', async () => {
+  it('omitting owner → the record likewise carries no owner, and the asset is recorded as usual', async () => {
     const s = new InMemoryAssetStore()
     const rec = await s.record('chatA', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     expect('owner' in rec).toBe(false)
@@ -77,7 +75,7 @@ describe('InMemoryAssetStore.record', () => {
 })
 
 describe('InMemoryAssetStore.listContext', () => {
-  it('oldest-first(插入序);默认只返回 referenceable=true', async () => {
+  it('oldest-first (insertion order); by default only referenceable=true entries are returned', async () => {
     const s = new InMemoryAssetStore()
     await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     await s.record('chat1', { assetId: 'mid', modality: 'image', origin: 'intermediate', referenceable: false })
@@ -86,7 +84,7 @@ describe('InMemoryAssetStore.listContext', () => {
     expect(out.map((r) => r.assetId)).toEqual(['a1', 'a2'])
   })
 
-  it('includeNonReferenceable:true → 含中间产物', async () => {
+  it('includeNonReferenceable: true → intermediates are included', async () => {
     const s = new InMemoryAssetStore()
     await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     await s.record('chat1', { assetId: 'mid', modality: 'image', origin: 'intermediate', referenceable: false })
@@ -94,7 +92,7 @@ describe('InMemoryAssetStore.listContext', () => {
     expect(out.map((r) => r.assetId)).toEqual(['a1', 'mid'])
   })
 
-  it('origins 过滤:只取 upload/workflow', async () => {
+  it('origins filter: only upload/workflow are returned', async () => {
     const s = new InMemoryAssetStore()
     await s.record('chat1', { assetId: 'tool', modality: 'image', origin: 'tool-output' })
     await s.record('chat1', { assetId: 'up', modality: 'image', origin: 'upload' })
@@ -102,12 +100,12 @@ describe('InMemoryAssetStore.listContext', () => {
     expect(out.map((r) => r.assetId)).toEqual(['up'])
   })
 
-  it('未知 context → 空数组', async () => {
+  it('unknown context → empty array', async () => {
     const s = new InMemoryAssetStore()
     expect(await s.listContext('nope')).toEqual([])
   })
 
-  it('返回防御性拷贝:改返回值不污染 store 内部', async () => {
+  it('returns a defensive copy: mutating the result does not corrupt the store internals', async () => {
     const s = new InMemoryAssetStore()
     await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
     const out = await s.listContext('chat1')

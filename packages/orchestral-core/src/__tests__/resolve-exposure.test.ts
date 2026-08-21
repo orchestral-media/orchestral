@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { resolveExposure } from '../pattern'
 import type { ResolvedExposure } from '../pattern'
 
-// ADR-030 §3.3 / D6 — resolveExposure normalizes the PatternExposure union
+// resolveExposure normalizes the PatternExposure union
 // (string shorthand / per-surface object / undefined) into a fully-resolved
 // per-surface boolean set. Back-compat shorthands must map to the exact same
 // semantics the old string-comparison consumers enforced.

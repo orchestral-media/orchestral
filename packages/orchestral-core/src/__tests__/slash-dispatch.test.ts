@@ -5,7 +5,7 @@ import type { Pattern, PatternExposure } from '../pattern'
 import { PatternRegistry } from '../registry'
 import { resolveSlashDispatch } from '../slash-dispatch'
 
-// ADR-030 §5 / Phase 4 — slash by-id dispatch resolution. Gate is
+// Slash by-id dispatch resolution. Gate is
 // resolveExposure(pattern.exposure).slash; default first-party exposure
 // ('tool' / undefined) has slash:false so everything is fail-closed until a
 // Pattern explicitly opts in.

@@ -473,8 +473,8 @@ export class InlineRuntime implements Runtime {
    * progress + terminal state via `runtime.subscribe(jobId, ...)`. Same code
    * path as `submitJob` (jobs table + idempotency dedup + pub-sub stay
    * unchanged) but stamps `jobKind: 'agent'` on the row so the host can
-   * cheaply filter Activity Hub views / cross-session listeners without
-   * joining against the pattern registry.
+   * cheaply filter agent runs out of a job listing, or route cross-session
+   * listeners, without joining against the pattern registry.
    *
    * Promise contract:
    *   • RESOLVES with `{ jobId }` once the row is addressable. The dispatch

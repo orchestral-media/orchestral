@@ -111,9 +111,11 @@ export interface ModelCapabilityBlob {
   contextWindow?: number
 
   /**
-   * Routing preference dimension. Read only when the caller passes
-   * `ResolveContext.tier`, and best-effort: the first tier match wins,
-   * otherwise the resolver falls through to the remaining candidates.
+   * Routing preference dimension, read only when the caller passes
+   * `ResolveContext.tier`. It biases selection and never eliminates: the first
+   * candidate bearing the requested tier wins, and if none does the resolver
+   * falls through to the rest rather than failing. A router that wants tier to
+   * be a hard filter has to implement that itself.
    */
   tier?: 'fast' | 'balanced' | 'premium'
 

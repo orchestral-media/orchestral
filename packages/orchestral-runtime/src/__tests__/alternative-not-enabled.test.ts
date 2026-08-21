@@ -1,4 +1,4 @@
-// Pins the alternatives-degradation claim for the enablement gate (决策 5):
+// Pins the alternatives-degradation claim for the enablement gate:
 // when checkSatisfiable reports {ok:false, reason:'not-enabled'} for the
 // parent capability, the 'capability-unavailable' alternative is taken —
 // i.e. 'not-enabled' counts as unavailable, same as any other reason, and

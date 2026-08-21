@@ -10,7 +10,7 @@ import { InMemoryJobStore } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
-// ADR-027 Phase 4b / Phase 5 (I4 + I5) — locks the fire-and-forget contract
+// Locks the fire-and-forget contract
 // of submitAgentAsync and the dedup-hit re-attach.
 //
 // Harness avoids the real dispatch path entirely: a `short-circuit`

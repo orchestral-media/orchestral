@@ -1,20 +1,25 @@
-// Abort-signal 级联 + independent-agent opt-out 回归 (ADR-010 W-18/W-19)。
+// Abort-signal cascade + independent-agent opt-out regression.
 //
-// 中止是「协作式」的:cancelJob 不杀 provider 调用,而是 abort 该 job 的
-// AbortController,dispatch 在每个 await 边界检查 signal.aborted
-// (inline.ts `_submitJobInternal` 的前后置守卫 + 回退走位的每一跳) 才抛
-// CANCELLED。子 job 的 controller 订阅父 signal,
-// 父 cancel 时级联 abort;abortMode:'independent' 的 agent 子 job 不订阅,父
-// 退出后仍存活、可经 resumeFromRunId 重挂。
+// Cancellation is COOPERATIVE: cancelJob does not kill the provider call, it
+// aborts that job's AbortController, and dispatch checks signal.aborted at
+// every await boundary (the pre/post guards in inline.ts `_submitJobInternal`
+// plus every hop of the fallback walk) before it throws CANCELLED. A child
+// job's controller subscribes to the parent signal, so a parent cancel
+// cascades down; an agent child job with abortMode:'independent' does not
+// subscribe — it stays alive after the parent exits and can be re-attached via
+// resumeFromRunId.
 //
-// 这条路径是长跑媒体 workflow 的安全阀 —— 缺了它,用户取消会留下持续烧
-// provider token 的孤儿子 agent。此前 14 个测试文件零覆盖(只有 fork-context
-// / meta-step-references 里几处 `new AbortController().signal` 当占位参数传入,
-// 没有一处真的触发取消)。
+// This path is the safety valve for long-running media workflows: without it a
+// user cancel leaves orphaned child agents burning provider tokens. Nothing
+// covered it before this file — the handful of `new AbortController().signal`
+// occurrences in fork-context / meta-step-references are placeholder
+// arguments, and not one of them actually triggers a cancel.
 //
-// 测试机制:用一个可控 gate promise 把 cap.call / agentRunImpl.run 挂起 → job
-// 进入 running → cancelJob → release gate → dispatch 续跑撞守卫。jobId 经构造
-// 级 onJobCreated 钩子捕获(对每个子 dispatch 也触发,父→子顺序)。
+// Mechanism: a controllable gate promise suspends cap.call / agentRunImpl.run
+// so the job reaches `running` → cancelJob → release the gate → dispatch
+// resumes and hits a guard. jobIds are captured through the constructor-level
+// onJobCreated hook (which also fires for every child dispatch, parent before
+// child).
 
 import { describe, expect, it } from 'vitest'
 
@@ -116,7 +121,7 @@ function cascadeParent(childPatternId: string): MetaPattern<Record<string, never
   }
 }
 
-describe('abort cascade (ADR-010 W-18/W-19)', () => {
+describe('abort cascade', () => {
   it('cancelJob marks a running job cancelled, emits job:cancelled, and rejects with CANCELLED', async () => {
     const store = new MemoryJobStore()
     const entered = deferred()

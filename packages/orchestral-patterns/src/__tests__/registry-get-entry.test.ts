@@ -7,7 +7,7 @@ import {
 } from '../index'
 
 describe('PatternRegistry.getEntry', () => {
-  // ADR-024:variant-related getEntry assertions removed. RegistryEntry no
+  // Variant-related getEntry assertions were removed. RegistryEntry no
   // longer carries `variants`; `attachVariant` was deleted from the registry
   // surface. dispatch_pattern's `variant_id` field was also removed from
   // DispatchPatternInputSchema. The remaining alternatives-attach contract

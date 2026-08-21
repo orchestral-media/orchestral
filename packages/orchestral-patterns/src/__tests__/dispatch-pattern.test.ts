@@ -45,7 +45,7 @@ describe('resolveDispatchTarget', () => {
       }
     })
 
-    // ADR-024:VARIANT_NOT_FOUND tests removed — variant axis deleted,
+    // VARIANT_NOT_FOUND tests removed — variant axis deleted,
     // `variant_id` is no longer a field on DispatchPatternInputSchema,
     // and `VARIANT_NOT_FOUND` is no longer in DispatchPatternError.
 
@@ -238,7 +238,7 @@ describe('resolveDispatchTarget', () => {
       }
     })
 
-    // ADR-024:variant-resolution test removed — Variant axis deleted,
+    // variant-resolution test removed — Variant axis deleted,
     // ResolvedDispatchTarget no longer carries a `variant` field.
 
     it('resolves meta Pattern (no primary split)', () => {

@@ -1,15 +1,15 @@
-// ADR-030 §4.1 — dispatch-level integration tests for inline-core routing.
+// Dispatch-level integration tests for inline-core routing.
 //
 // The pure-function unit tests (agent-inline-core.test.ts / agent-depth.test.ts)
 // only lock buildAgentInlineCore / countAgentAncestors in isolation. They do
 // NOT exercise dispatchAgent's onToolCall, which is where both claims below
 // actually live:
 //
-//   • I1: an inline-core descriptor advertises a tool whose `name` is the
-//     pattern id (e.g. an always-load atomic). When the LLM calls it,
+//   • routing: an inline-core descriptor advertises a tool whose `name` is
+//     the pattern id (e.g. an always-load atomic). When the LLM calls it,
 //     onToolCall must route it through the dispatch_pattern path — NOT fall
 //     through to UNKNOWN_TOOL (the dead-tool bug).
-//   • I2 (depth): an agent reached through 2 meta ancestors + 1 agent ancestor
+//   • depth: an agent reached through 2 meta ancestors + 1 agent ancestor
 //     under maxAgentDepth=2 must NOT trip AGENT_DEPTH_EXCEEDED — the gate counts
 //     agent ancestors only (countAgentAncestors), not total visited size.
 //
@@ -106,7 +106,7 @@ function makeRunImpl(opts: {
   }
 }
 
-describe('ADR-030 §4.1 — inline-core dispatch routing (review I1/B1)', () => {
+describe('inline-core dispatch routing', () => {
   function agentWithInlineCore(): AgentPattern {
     return {
       id: 'agent_inline_host',
@@ -149,7 +149,7 @@ describe('ADR-030 §4.1 — inline-core dispatch routing (review I1/B1)', () => 
     expect(capture.results).toHaveLength(1)
 
     const result = capture.results[0] as { code?: string }
-    // The bug (B1): inline-core names fell through to UNKNOWN_TOOL. After the
+    // The bug: inline-core names fell through to UNKNOWN_TOOL. After the
     // fix the call routes through dispatch_pattern and returns the atomic's
     // typed output (no error code).
     expect(result?.code).not.toBe('UNKNOWN_TOOL')
@@ -157,7 +157,7 @@ describe('ADR-030 §4.1 — inline-core dispatch routing (review I1/B1)', () => 
   })
 })
 
-describe('ADR-030 §10.7 — agent depth gate counts agent ancestors only (review I2)', () => {
+describe('agent depth gate counts agent ancestors only', () => {
   // Chain: agent_root --(onToolCall)--> meta_x --(ctx.step)--> meta_y
   //        --(ctx.step)--> agent_leaf.
   // At agent_leaf's dispatchAgent the visited set = {agent_root, meta_x, meta_y}

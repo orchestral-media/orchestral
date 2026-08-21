@@ -179,7 +179,7 @@ Do **not** stall the run for confirmation. The user committed by dispatching you
 
 Produce your structured output via \`complete_task\` (Stage 5). Pass:
 - \`summary\`: a one-line description of what you produced, plus a brief note of any notable mid-flight quality / failure-recovery / style decisions (see DECISION POLICY) so the user can review them.
-- \`deliverables\`: the final deliverable asset(s) by handle — for this pipeline the single concatenated long-form video from \`concat_videos\`, as \`[{ handle: <that video's handle>, label: "final video" }]\`. Use the handle exactly as it appears in the tool result / available-assets list, never a raw asset id. Scene / event counts, step count, and run cost are recorded by the runtime — do not report them yourself.`
+- \`deliverables\`: the final deliverable asset(s) by handle — for this pipeline the single concatenated long-form video from \`concat_videos\`, as \`[{ handle: <that video's handle>, label: "final video" }]\`. Use the handle exactly as it appears in the tool result / available-assets list, never a raw asset id. Do not report scene / event counts, step count, or run cost — the envelope has no field for them and the caller does not read them from you.`
 
 export const CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT = `# Character Merge — Event → Novel
 

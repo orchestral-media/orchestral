@@ -331,6 +331,10 @@ export class PatternSearchIndex {
   private readonly mini: MiniSearch<PatternIndexDoc>
   /** Snapshot of (id → Pattern) for fast post-rank lookup. */
   private readonly patternsById = new Map<string, Pattern>()
+  // The indexed document for each pattern, kept because `+term` filtering has
+  // to re-read the same fields minisearch indexed. Written and deleted in
+  // lockstep with `patternsById` — the two are one entry split across two maps.
+  private readonly docsById = new Map<string, PatternIndexDoc>()
   /**
    * Per-instance log of patterns that failed `addInternal`. See
    * `SkippedPatternRecord`. Cleared on `rebuild()` (full re-indexing
@@ -394,6 +398,7 @@ export class PatternSearchIndex {
     // happen at boot, not in steady-state).
     this.mini.removeAll()
     this.patternsById.clear()
+    this.docsById.clear()
     this._skipped = []
     for (const pattern of registry.values()) {
       this.addInternalSafe(pattern, 'rebuild')
@@ -412,6 +417,7 @@ export class PatternSearchIndex {
     if (!this.patternsById.has(patternId)) return
     this.mini.discard(patternId)
     this.patternsById.delete(patternId)
+    this.docsById.delete(patternId)
   }
 
   /**
@@ -584,7 +590,9 @@ export class PatternSearchIndex {
     pattern: Pattern,
     requiredTerms: readonly string[],
   ): boolean {
-    const doc = serializeForIndex(pattern, this.registry)
+    // Indexed at add time; the fallback only matters if the two maps ever fall
+    // out of step, and re-serializing beats silently dropping a live candidate.
+    const doc = this.docsById.get(pattern.id) ?? serializeForIndex(pattern)
     const haystack = [
       doc.patternIdParts,
       doc.searchHint,
@@ -627,9 +635,10 @@ export class PatternSearchIndex {
   }
 
   private addInternal(pattern: Pattern): void {
-    const doc = serializeForIndex(pattern, this.registry)
+    const doc = serializeForIndex(pattern)
     this.mini.add(doc)
     this.patternsById.set(pattern.id, pattern)
+    this.docsById.set(pattern.id, doc)
   }
 
   /**
@@ -656,10 +665,7 @@ export class PatternSearchIndex {
   }
 }
 
-function serializeForIndex(
-  pattern: Pattern,
-  _registry: PatternRegistry,
-): PatternIndexDoc {
+function serializeForIndex(pattern: Pattern): PatternIndexDoc {
   const toolDescs: string[] = []
   if (pattern.kind === 'atomic' || pattern.kind === 'agent') {
     if (pattern.primary?.tool.description) {

@@ -5,7 +5,7 @@ import { buildAlwaysLoadDescriptors } from '../catalog-builder'
 import type { Pattern } from '../pattern'
 
 describe('buildAlwaysLoadDescriptors', () => {
-  it('inline 一个 exposureMode:always-load 的 atomic(取 primary.tool.description/inputs)', () => {
+  it('inlines an atomic with exposureMode:always-load (taking primary.tool.description/inputs)', () => {
     const atomic = {
       id: 'text-to-image',
       kind: 'atomic',
@@ -22,7 +22,7 @@ describe('buildAlwaysLoadDescriptors', () => {
     expect(out[0].inputSchema).toBeTruthy()
   })
 
-  it('inline 一个 exposureMode:always-load 的 meta(取 tool.description/tool.inputs)', () => {
+  it('inlines a meta with exposureMode:always-load (taking tool.description/tool.inputs)', () => {
     const meta = {
       id: 'meta_idea2video',
       kind: 'meta',
@@ -38,7 +38,7 @@ describe('buildAlwaysLoadDescriptors', () => {
     expect(out[0].inputSchema).toBeTruthy()
   })
 
-  it('不 inline 未标 always-load 的 meta', () => {
+  it('does not inline a meta that is not marked always-load', () => {
     const meta = {
       id: 'meta_plain',
       kind: 'meta',
@@ -49,7 +49,7 @@ describe('buildAlwaysLoadDescriptors', () => {
     expect(buildAlwaysLoadDescriptors([meta])).toHaveLength(0)
   })
 
-  it('inline 一个 exposureMode:always-load 的 agent(取 primary.tool.description/inputs)', () => {
+  it('inlines an agent with exposureMode:always-load (taking primary.tool.description/inputs)', () => {
     const agent = {
       id: 'agent_orchestrator',
       kind: 'agent',
@@ -70,7 +70,7 @@ describe('buildAlwaysLoadDescriptors', () => {
     expect(out[0].inputSchema).toBeTruthy()
   })
 
-  it('不 inline 一个 always-load 但无 primary 的 host-only agent', () => {
+  it('does not inline an always-load host-only agent that has no primary', () => {
     const hostOnlyAgent = {
       id: 'agent_cron',
       kind: 'agent',

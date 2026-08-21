@@ -1,4 +1,4 @@
-// derive-pattern-input.test.ts — ADR-012 §2.7 lift function coverage.
+// derive-pattern-input.test.ts — lift function coverage.
 //
 // Cases:
 //   • undefined providerOptions → baseSchema unchanged (referential identity)
@@ -50,7 +50,7 @@ function markAsset<T extends ZodTypeAny>(s: T, fromSlot: string): T {
   return s
 }
 
-// Mirrors text-to-image primary input(post-ADR-012)。Used as the base in
+// Mirrors the text-to-image primary input. Used as the base in
 // most tests so we can see what the LLM-facing schema looks like before lift.
 const baseT2iSchema = z.object({
   prompt: z.string().min(1),
@@ -80,10 +80,10 @@ describe('deriveLlmFacingInputSchema', () => {
     })
 
     it('builds typed input.providerOptions even when providerOptions has no LIFTABLE field (v1.2 behavior)', () => {
-      // v1.1 expectation:return baseSchema unchanged (referential identity).
-      // v1.2 expectation:always replace input.providerOptions with typed
+      // v1.1 expectation: return baseSchema unchanged (referential identity).
+      // v1.2 expectation: always replace input.providerOptions with typed
       // z.object(remaining) so LLM sees concrete field names instead of
-      // z.record(z.unknown()) — see ADR-012 v1.2 §2.7.
+      // z.record(z.unknown()).
       const providerOpts = z.object({
         negativePrompt: z.string().optional(),
         style: z.string().optional(),
