@@ -50,17 +50,22 @@ Neither pulls in a provider SDK.
 schemas on the public API, so your app and Orchestral must share one zod
 instance.
 
-Two runnable hosts live in this repo:
+Three runnable hosts live in this repo:
 
 - [`examples/atomic-hello-world`](examples/atomic-hello-world) — one atomic
   `text-to-image` dispatch, with the whole provider bridge in `src/ai-sdk-wiring.ts`.
 - [`examples/agent-hello-world`](examples/agent-hello-world) — an agent-kind
   dispatch: an LLM tool-loop that picks and runs patterns.
+- [`examples/consented-fallback`](examples/consented-fallback) — a catalog with
+  no `image-to-image` model: the router explains the miss, the runtime refuses
+  and names the declared fallback, a meta asks the user before taking it, and
+  `alternatives: 'auto'` takes it on request. Runs offline on mock models.
 
 ```sh
 pnpm install
 pnpm --filter atomic-hello-world start   # needs OPENAI_API_KEY
 pnpm --filter atomic-hello-world test    # no key: same wiring, mock model
+pnpm --filter consented-fallback start   # no key: the fallback narrative on mocks
 ```
 
 ## Minimal example
