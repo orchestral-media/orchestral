@@ -34,9 +34,9 @@ export type SpeechModelInstance = Exclude<SpeechModel, string>
  * Reads off the input: `text` (required), the AI SDK's own shared speech
  * fields when present on the top level — `voice`, `outputFormat`,
  * `instructions`, `speed`, `language` — plus a flat `providerOptions`.
- * Returns a `TextToSpeechOutput`: one `assets[]` element, `url` a `data:` URI
- * of the audio bytes, `cost: null`. `audioDurationMs` is omitted — the SDK
- * does not report it.
+ * Returns a `TextToSpeechOutput`: one `assets[]` element (no `url` — the
+ * bytes arrive as `artifacts` and on the `job:artifact` event), `cost: null`.
+ * `audioDurationMs` is omitted — the SDK does not report it.
  *
  * Not mapped: the `voiceClone` asset slot (see README).
  */
@@ -93,11 +93,11 @@ export function fromSpeechModel(
       }
       events?.onArtifact?.(artifact)
 
+      // `url` deliberately unset — see fromImageModel for why the bytes ride
+      // on `artifacts` / `job:artifact` rather than in the bounded output.
       const output = {
         modality: 'audio' as const,
-        assets: [
-          { assetId: 'aisdk-audio-0', modality: 'audio' as const, url: artifact.uri },
-        ],
+        assets: [{ assetId: 'aisdk-audio-0', modality: 'audio' as const }],
         ...dispatchEnvelope(identity, startedAt),
       }
       return { output: output as O, artifacts: [artifact] }

@@ -63,11 +63,13 @@ describe('fromSpeechModel', () => {
     expect(parsed.audioDurationMs).toBeUndefined()
     expect(parsed.assets).toHaveLength(1)
     expect(parsed.assets[0]!.modality).toBe('audio')
-    expect(parsed.assets[0]!.url).toMatch(/^data:audio\/[\w.+-]+;base64,/)
+    // `url` is deliberately unset: the bounded output is never the channel
+    // for the bytes.
+    expect(parsed.assets[0]!.url).toBeUndefined()
 
     expect(artifacts).toHaveLength(1)
     expect(artifacts![0]!.kind).toBe('audio')
-    expect(artifacts![0]!.uri).toBe(parsed.assets[0]!.url)
+    expect(artifacts![0]!.uri).toMatch(/^data:audio\/[\w.+-]+;base64,/)
     expect(artifacts![0]!.meta).toEqual({ format: expect.any(String) })
     expect(onArtifact).toHaveBeenCalledTimes(1)
   })

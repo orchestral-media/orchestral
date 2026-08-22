@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { MockImageModelV3 } from 'ai/test'
 import {
+  type Artifact,
   createDefaultCapabilityRouter,
   InMemoryJobStore,
   PatternRegistry,
@@ -48,10 +49,15 @@ describe('atomic hello-world wiring', () => {
       },
     ])
     const router = createDefaultCapabilityRouter({ getModels })
+    const artifacts: Artifact[] = []
     const runtime = new InlineRuntime({
       store: new InMemoryJobStore(),
       registry,
       router,
+      onJobCreated: (jobId) =>
+        runtime.subscribe(jobId, (ev) => {
+          if (ev.type === 'job:artifact') artifacts.push(ev.artifact)
+        }),
     })
 
     const job = await runtime.submitJob<{ prompt: string }, TextToImageOutput>({
@@ -71,9 +77,13 @@ describe('atomic hello-world wiring', () => {
     expect(parsed.model).toBe('openai:gpt-image-1')
     expect(parsed.provider).toBe('openai')
 
-    // A real image asset came back, carrying the data-URI the bridge synthesizes.
+    // The inventory came back on the output — and the bytes did NOT: `url` is
+    // unset, because the bounded output is never the channel for a blob.
     expect(parsed.assets).toHaveLength(1)
     expect(parsed.assets[0]!.modality).toBe('image')
-    expect(parsed.assets[0]!.url).toMatch(/^data:image\/png;base64,/)
+    expect(parsed.assets[0]!.url).toBeUndefined()
+    // The bytes arrived on `job:artifact`, collected from the creation hook.
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]!.uri).toMatch(/^data:image\/png;base64,/)
   })
 })

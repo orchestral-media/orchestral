@@ -15,6 +15,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockImageModelV3, MockLanguageModelV3 } from 'ai/test'
 import {
+  type Artifact,
   createDefaultCapabilityRouter,
   InMemoryJobStore,
   PatternRegistry,
@@ -85,7 +86,6 @@ function scriptedLlm(): MockLanguageModelV3 {
         {
           type: 'text',
           text: JSON.stringify({
-            imageUrl: 'data:image/png;base64,STUB',
             summary: 'A red bicycle leaning against a wall.',
           }),
         },
@@ -120,11 +120,19 @@ describe('agent hello-world wiring', () => {
     const resolveModel = vi.fn(() => scriptedLlm())
     const agentRunImpl = createInProcessAgentRunImpl({ resolveModel })
 
+    // The image bytes arrive on the text-to-image CHILD job's `job:artifact`;
+    // the creation hook fires for every job in the tree, so one subscription
+    // from it sees the child's artifact.
+    const artifacts: Artifact[] = []
     const runtime = new InlineRuntime({
       store: new InMemoryJobStore(),
       registry,
       router,
       agentRunImpl,
+      onJobCreated: (jobId) =>
+        runtime.subscribe(jobId, (ev) => {
+          if (ev.type === 'job:artifact') artifacts.push(ev.artifact)
+        }),
     })
 
     const job = await runtime.submitJob<
@@ -148,7 +156,11 @@ describe('agent hello-world wiring', () => {
     // contract runtime enforces via pattern.outputs.parse().
     const parsed = AgentImageOutputSchema.parse(job.output)
     expect(parsed.summary).toBe('A red bicycle leaning against a wall.')
-    expect(parsed.imageUrl).toBe('data:image/png;base64,STUB')
+    expect(parsed).not.toHaveProperty('imageUrl')
+    // The image reached the host on the CHILD job's `job:artifact`, through
+    // the one subscription made from the creation hook — never via the agent.
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]!.uri).toMatch(/^data:image\/png;base64,/)
   })
 
   it('recurses through onToolCall into the runtime for the tool dispatch', async () => {

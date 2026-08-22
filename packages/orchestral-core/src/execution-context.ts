@@ -197,6 +197,14 @@ export interface ExecutionContext<S = unknown, P = unknown, W = unknown>
    *
    * In meta.compose() use `ctx.step` instead — it adds id-keyed cache,
    * retry policy, and progress events on top of submitJob.
+   *
+   * Failure REJECTS here, unlike the host-facing `Runtime.submitJob`, which
+   * resolves with the failed row. The two contracts differ on purpose: this
+   * call runs inside a `compose()`, where a thrown error is what unwinds the
+   * composition and carries CANCELLED through an abort cascade — exactly as
+   * `ctx.step` does. A returned `cancelled` row would read as a settled
+   * value to the code around it. The host boundary has no stack to unwind
+   * and a `Job` to return; this one has the opposite.
    */
   submitJob<TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,

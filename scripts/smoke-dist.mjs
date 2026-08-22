@@ -155,7 +155,8 @@ function inlineImageModels() {
       events?.onArtifact?.(artifact)
       const output = {
         modality: 'image',
-        assets: [{ assetId: 'mock-image-0', modality: 'image', url: PNG_DATA_URI }],
+        // No `url`: the bytes are the artifact above. See the adapters README.
+        assets: [{ assetId: 'mock-image-0', modality: 'image' }],
         cost: 0,
         latencyMs: 1,
         model: 'mock:mock-image',
@@ -168,6 +169,10 @@ function inlineImageModels() {
 }
 
 console.log('\ndispatch:')
+// The bytes travel on `job:artifact`, not in the output. Collected from the
+// creation hook, because `submitJob` resolves at terminal — after every event
+// has already fired.
+const artifacts = []
 let job
 try {
   const registry = new core.PatternRegistry()
@@ -178,6 +183,10 @@ try {
     store: new core.InMemoryJobStore(),
     registry,
     router,
+    onJobCreated: (id) =>
+      rt.subscribe(id, (ev) => {
+        if (ev.type === 'job:artifact') artifacts.push(ev.artifact)
+      }),
   })
 
   job = await rt.submitJob({
@@ -212,7 +221,8 @@ if (parsed) {
   check('@orchestral/patterns', 'parsed.model === "mock:mock-image"', parsed.model === 'mock:mock-image')
   check('@orchestral/patterns', 'parsed.provider === "mock"', parsed.provider === 'mock')
   check('@orchestral/patterns', 'parsed.assets has one image asset', parsed.assets.length === 1 && parsed.assets[0]?.modality === 'image')
-  check('@orchestral/patterns', 'asset.url is a png data URI', /^data:image\/png;base64,/.test(parsed.assets[0]?.url ?? ''))
+  check('@orchestral/patterns', 'asset.url is unset (bytes are never inlined in the output)', parsed.assets[0]?.url === undefined)
+  check('@orchestral/runtime', 'job:artifact delivered the png data URI', artifacts.length === 1 && /^data:image\/png;base64,/.test(artifacts[0]?.uri ?? ''))
 }
 
 // 5. The same dispatch through the shipped AI SDK adapter instead of the
@@ -226,6 +236,7 @@ const adaptersRequire = createRequire(
 )
 const { MockImageModelV3 } = await import(pathToFileURL(adaptersRequire.resolve('ai/test')).href)
 let adapterJob
+const adapterArtifacts = []
 try {
   const registry = new core.PatternRegistry()
   registry.add(patterns.createTextToImagePattern())
@@ -246,6 +257,10 @@ try {
     router: core.createDefaultCapabilityRouter({
       getModels: (cap) => [envelope].filter((env) => env.capabilities.includes(cap)),
     }),
+    onJobCreated: (id) =>
+      rt.subscribe(id, (ev) => {
+        if (ev.type === 'job:artifact') adapterArtifacts.push(ev.artifact)
+      }),
   })
   adapterJob = await rt.submitJob({
     patternId: patterns.TEXT_TO_IMAGE_PATTERN_ID,
@@ -268,7 +283,8 @@ try {
 if (adapterParsed) {
   check('@orchestral/adapters-ai-sdk', 'parsed.model === "openai:gpt-image-1"', adapterParsed.model === 'openai:gpt-image-1')
   check('@orchestral/adapters-ai-sdk', 'parsed.cost === null (the AI SDK reports no cost)', adapterParsed.cost === null)
-  check('@orchestral/adapters-ai-sdk', 'asset.url is a png data URI', /^data:image\/png;base64,/.test(adapterParsed.assets[0]?.url ?? ''))
+  check('@orchestral/adapters-ai-sdk', 'asset.url is unset (bytes are never inlined in the output)', adapterParsed.assets[0]?.url === undefined)
+  check('@orchestral/adapters-ai-sdk', 'job:artifact delivered the png data URI', adapterArtifacts.length === 1 && /^data:image\/png;base64,/.test(adapterArtifacts[0]?.uri ?? ''))
 }
 
 if (failures > 0) {

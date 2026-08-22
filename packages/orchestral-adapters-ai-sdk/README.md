@@ -142,14 +142,17 @@ the download. The media type is sniffed from the bytes by the SDK either way.
 - **No progress events.** `generateImage` / `generateSpeech` / `transcribe` are
   single awaited calls with nothing in between, so `events.onProgress` is never
   fired. `onArtifact` fires once per produced file.
-- **Output `url` is a `data:` URI, and the schema caps it at 2048 chars.**
-  Exactly what the hand-written example does, and fine for the tiny fixtures
-  the tests use — but a real image or audio file is far larger, and
-  `producedAssetShape`'s `url` field is bounded. The runtime does not validate
-  atomic output against the pattern schema, so a dispatch still succeeds; a
-  host that does validate, or that wants the bytes stored rather than inlined,
-  reads `DispatchResult.artifacts` (unbounded `uri`) in its asset store and
-  rewrites `assets[].url` / `assetId` to its own canonical handles.
+- **`assets[].url` is not set; the bytes are artifacts.** Every produced file
+  is returned in `DispatchResult.artifacts` and fired on `events.onArtifact`
+  (the runtime's `job:artifact` event) as a `data:` URI. Nothing is inlined
+  in the output: `producedAssetShape.url` is bounded to 2048 chars precisely
+  so a multi-megabyte blob cannot ride in a value a model or a transcript
+  might see, and a real image or audio file is far larger than that. A host
+  collects the artifacts — subscribe from `InlineRuntimeInit.onJobCreated`,
+  which fires for every job including the children of a meta or agent —
+  stores the bytes, and rewrites `assets[].url` / `assetId` to its own
+  canonical handles if it wants them on the output. `assetId` is a placeholder
+  (`aisdk-image-0`) until it does.
 - **One spec version per envelope.** Each envelope declares the adapter-contract
   generation it was built against (`MODEL_SPEC_VERSION`); a runtime that cannot
   execute it refuses the envelope with `MODEL_SPEC_VERSION_UNSUPPORTED` rather

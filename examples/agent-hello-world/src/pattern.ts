@@ -15,6 +15,7 @@ import { z } from 'zod'
 import {
   agentInputSchema,
   type AgentPattern,
+  boundedText,
   type ZodSchema,
 } from '@orchestral/core'
 import { TEXT_TO_IMAGE_PATTERN_ID } from '@orchestral/patterns'
@@ -24,13 +25,15 @@ import { TEXT_TO_IMAGE_PATTERN_ID } from '@orchestral/patterns'
 export const AgentImageInputSchema = agentInputSchema({})
 export type AgentImageInput = z.infer<typeof AgentImageInputSchema>
 
+// `summary` only. The image is not in the agent's output: the model never
+// sees the bytes — the tool result it reads is projected to handles, and this
+// standalone host injects no AgentAssetBridge, so it sees an empty inventory —
+// and a bounded output is never the channel for a blob anyway. The host
+// collects the generated file from the `job:artifact` event (see main.ts).
 export const AgentImageOutputSchema = z.object({
-  imageUrl: z
-    .string()
-    .describe('URL (data URI in the standalone bridge) of the generated image.'),
-  summary: z
-    .string()
-    .describe('One-sentence description of what the agent produced.'),
+  summary: boundedText(512).describe(
+    'One-sentence description of what the agent produced.',
+  ),
 })
 export type AgentImageOutput = z.infer<typeof AgentImageOutputSchema>
 
@@ -44,9 +47,9 @@ const SYSTEM = `You are an image agent. You have a single tool: \`text-to-image\
 
 Your job, given the user's brief:
 1. Call \`text-to-image\` once with a vivid prompt derived from the brief.
-2. Read the tool result — it contains \`assets[0].url\` (the generated image).
+2. The generated image is delivered to the host directly; the tool result will not contain a URL and you do not need to reference the image.
 3. Reply with ONLY a JSON object, no prose and no code fence, exactly:
-   {"imageUrl": "<assets[0].url>", "summary": "<one sentence describing the image>"}
+   {"summary": "<one sentence describing the image you asked for>"}
 
 Do not call the tool more than once.`
 
@@ -70,11 +73,11 @@ export function createAgentHelloWorldPattern(): AgentPattern<
     searchHint: 'generate an image and summarize it via an LLM agent loop',
     namespace: 'image-gen',
     description:
-      'A minimal image agent: the LLM calls text-to-image once, then reports the produced image URL plus a one-sentence summary as JSON.',
+      'A minimal image agent: the LLM calls text-to-image once, then reports a one-sentence summary as JSON. The image itself reaches the host as a job:artifact.',
     primary: {
       tool: {
         description:
-          'Generate an image from a brief and return its URL with a one-sentence summary.',
+          'Generate an image from a brief and return a one-sentence summary; the image is delivered to the host out of band.',
         inputs: AgentImageInputSchema as unknown as ZodSchema<AgentImageInput>,
       },
     },

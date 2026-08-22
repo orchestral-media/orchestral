@@ -87,13 +87,15 @@ describe('fromImageModel', () => {
     expect(Number.isInteger(parsed.latencyMs)).toBe(true)
     expect(parsed.assets).toHaveLength(1)
     expect(parsed.assets[0]!.modality).toBe('image')
-    expect(parsed.assets[0]!.url).toMatch(/^data:image\/png;base64,/)
+    // `url` is deliberately unset: the bounded output is never the channel
+    // for the bytes.
+    expect(parsed.assets[0]!.url).toBeUndefined()
 
-    // The same bytes travel on the artifact channel, and the event fired once
+    // The bytes travel on the artifact channel only, and the event fired once
     // per image.
     expect(artifacts).toHaveLength(1)
     expect(artifacts![0]!.kind).toBe('image')
-    expect(artifacts![0]!.uri).toBe(parsed.assets[0]!.url)
+    expect(artifacts![0]!.uri).toMatch(/^data:image\/png;base64,/)
     expect(onArtifact).toHaveBeenCalledTimes(1)
   })
 

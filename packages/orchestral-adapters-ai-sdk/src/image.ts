@@ -44,7 +44,8 @@ const ASPECT_RE = /^\d+:\d+$/
  * the first-party pattern documents as the adapter contract — `size`
  * (`WxH`), `aspectRatio` (`W:H`), `n`, `seed` — plus a flat
  * `providerOptions`. Returns a `TextToImageOutput`: one `assets[]` element per
- * generated image, `url` a `data:` URI of the bytes, `cost: null`.
+ * generated image (no `url` — the bytes arrive as `artifacts` and on the
+ * `job:artifact` event), `cost: null`.
  *
  * Not mapped: the `reference` / `control` asset slots (see README).
  */
@@ -109,14 +110,18 @@ export function fromImageModel(
       })
       for (const artifact of artifacts) events?.onArtifact?.(artifact)
 
-      // No asset store at this seam, so `url` is the data URI and `assetId` a
-      // placeholder; a host that records assets stamps canonical ids afterward.
+      // No asset store at this seam, so `assetId` is a placeholder a host that
+      // records assets replaces with its canonical id — and `url` is left
+      // unset rather than filled with the data: URI. The bytes travel on
+      // `artifacts` / `events.onArtifact` (the runtime's `job:artifact`
+      // event), which is the channel built for them; `producedAssetShape.url`
+      // is bounded precisely so a multi-megabyte blob cannot ride in the
+      // output a model or a transcript might see.
       const output = {
         modality: 'image' as const,
-        assets: artifacts.map((artifact, i) => ({
+        assets: artifacts.map((_artifact, i) => ({
           assetId: `aisdk-image-${i}`,
           modality: 'image' as const,
-          url: artifact.uri,
         })),
         ...dispatchEnvelope(identity, startedAt),
       }
