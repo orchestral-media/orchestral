@@ -14,6 +14,7 @@ import {
   asRecord,
   buildRecord,
   dispatchEnvelope,
+  mintAssetIds,
   optionalNumber,
   optionalString,
   providerOptionsFor,
@@ -34,9 +35,11 @@ export type SpeechModelInstance = Exclude<SpeechModel, string>
  * Reads off the input: `text` (required), the AI SDK's own shared speech
  * fields when present on the top level — `voice`, `outputFormat`,
  * `instructions`, `speed`, `language` — plus a flat `providerOptions`.
- * Returns a `TextToSpeechOutput`: one `assets[]` element (no `url` — the
- * bytes arrive as `artifacts` and on the `job:artifact` event), `cost: null`.
- * `audioDurationMs` is omitted — the SDK does not report it.
+ * Returns a `TextToSpeechOutput`: one `assets[]` element, its `assetId` from
+ * `options.mintAssetId` (a placeholder by default; no `url` — the bytes
+ * arrive as `artifacts` and on the `job:artifact` event, stamped with the
+ * same id on `meta.assetId`), `cost: null`. `audioDurationMs` is omitted —
+ * the SDK does not report it.
  *
  * Not mapped: the `voiceClone` asset slot (see README).
  */
@@ -91,16 +94,26 @@ export function fromSpeechModel(
         mime,
         meta: { format: audio.format },
       }
-      events?.onArtifact?.(artifact)
+      const minted = mintAssetIds(
+        [artifact],
+        ctx,
+        events,
+        options,
+        'text-to-speech',
+        () => 'aisdk-audio-0',
+      )
 
       // `url` deliberately unset — see fromImageModel for why the bytes ride
       // on `artifacts` / `job:artifact` rather than in the bounded output.
       const output = {
         modality: 'audio' as const,
-        assets: [{ assetId: 'aisdk-audio-0', modality: 'audio' as const }],
+        assets: minted.map(({ assetId }) => ({
+          assetId,
+          modality: 'audio' as const,
+        })),
         ...dispatchEnvelope(identity, startedAt),
       }
-      return { output: output as O, artifacts: [artifact] }
+      return { output: output as O, artifacts: minted.map((m) => m.artifact) }
     },
   }
 }

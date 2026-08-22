@@ -1,45 +1,31 @@
 // Host-local ai-sdk wiring — the two `ModelCapability` envelopes this host
-// serves, one per model. core / runtime / patterns never import a provider
-// SDK; talking to one is host territory, and this file is the whole of it:
+// serves, one per model, both from @orchestral/adapters-ai-sdk. core /
+// runtime / patterns never import a provider SDK; talking to one is host
+// territory, and this file is the whole of it. What the adapters cannot know
+// is the one thing that is the host's alone: how an assetId and bytes relate.
 //
-//   • text-to-image  → a hand-written bridge over ai-sdk `generateImage`
-//                      (same as atomic-hello-world, plus the `size` / `n`
-//                      params a meta fills directly). Hand-written because
-//                      this host records every produced image into its own
-//                      store and wants the store's ids on the output.
-//   • image-to-text  → `fromVisionModel` from @orchestral/adapters-ai-sdk over
-//                      a vision-capable language model. The one thing the
-//                      adapter cannot know is how an assetId becomes bytes;
-//                      that is the `loadImage` hook, answered from the store.
+//   • text-to-image  → `fromImageModel` over an ai-sdk image model. This host
+//                      records every produced image into its own store and
+//                      wants the store's id on the output, at the moment the
+//                      output is produced — that is the `mintAssetId` hook.
+//   • image-to-text  → `fromVisionModel` over a vision-capable language
+//                      model. The hook in the other direction: `loadImage`
+//                      turns an assetId on `ctx.assets` back into bytes,
+//                      answered from the same store.
 //
-// There is deliberately NO image-to-image bridge. That gap is what main.ts is
-// about. Both take a model INSTANCE the host built (a real `openai.image(...)`
-// / `openai(...)`, or an `ai/test` mock) so the same code runs offline and live.
+// There is deliberately NO image-to-image envelope. That gap is what main.ts
+// is about. Both take a model INSTANCE the host built (a real
+// `openai.image(...)` / `openai(...)`, or an `ai/test` mock) so the same code
+// runs offline and live.
 
-import { generateImage } from 'ai'
 import {
+  fromImageModel,
   fromVisionModel,
+  type ImageModelInstance,
   type LanguageModelInstance,
 } from '@orchestral/adapters-ai-sdk'
-import type {
-  CallEvents,
-  Capability,
-  DispatchContext,
-  DispatchResult,
-  ModelCapability,
-} from '@orchestral/core'
-import { MODEL_SPEC_VERSION } from '@orchestral/core'
-import type { HostAssetStore } from './asset-store'
-
-// The resolved image-model OBJECT type, pulled out of the ai-sdk call
-// signature (avoids a transitive `@ai-sdk/provider` import). `generateImage`
-// also accepts a bare provider-registry id string; the bridge needs the
-// instance, because it reads `.provider` / `.modelId` off it. The language
-// model's counterpart comes from the adapters package.
-type ImageModelInstance = Exclude<
-  Parameters<typeof generateImage>[0]['model'],
-  string
->
+import type { Artifact, Capability, ModelCapability } from '@orchestral/core'
+import type { HostAssetStore, StoredAsset } from './asset-store'
 
 /** One model the host serves, with its own ai-sdk instance (BYOK). */
 export interface ModelSpec<M> {
@@ -54,81 +40,19 @@ export interface HostModels {
   caption: ModelSpec<LanguageModelInstance>
 }
 
-function readString(input: unknown, key: string): string | undefined {
-  const value = (input as Record<string, unknown> | null)?.[key]
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
+// The adapters hand produced bytes over as a `data:` URI — the artifact
+// channel's form — and this store keeps mime + base64, the shape `loadImage`
+// hands back. One split between the two.
+const BASE64_MARKER = ';base64,'
 
-function readNumber(input: unknown, key: string): number | undefined {
-  const value = (input as Record<string, unknown> | null)?.[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-// ── text-to-image ───────────────────────────────────────────────────────────
-
-/**
- * Bridge an ai-sdk ImageModel to `ModelCapability.call`. Reads `prompt` plus
- * the top-level `ImageGenerationParams` (`size` / `n` / `seed` /
- * `aspectRatio`) — the channel a meta `compose()` fills directly, and the
- * one text-to-image's contract says an adapter must honour rather than
- * silently rendering at its own default. Produced images are recorded into
- * the host store; the output carries their ids (plus a data-URI `url`, since
- * this host has no public asset URLs) in patterns' TextToImageOutput shape.
- */
-function imageCall(
-  model: ImageModelInstance,
-  store: HostAssetStore,
-): ModelCapability['call'] {
-  return async function aiSdkImageCall<I, O>(
-    input: I,
-    ctx: DispatchContext,
-    events?: CallEvents,
-  ): Promise<DispatchResult<O>> {
-    const prompt = readString(input, 'prompt')
-    if (!prompt) {
-      throw new Error('text-to-image call: input.prompt (non-empty string) is required')
-    }
-    const size = readString(input, 'size')
-    const aspectRatio = readString(input, 'aspectRatio')
-
-    const startedAt = Date.now()
-    const { images } = await generateImage({
-      model,
-      prompt,
-      ...(readNumber(input, 'n') !== undefined ? { n: readNumber(input, 'n') } : {}),
-      // ai-sdk types these as template literals; the pattern contract says
-      // "WIDTHxHEIGHT" / "W:H", so a string that matches the shape passes through.
-      ...(size && /^\d+x\d+$/.test(size) ? { size: size as `${number}x${number}` } : {}),
-      ...(aspectRatio && /^\d+:\d+$/.test(aspectRatio)
-        ? { aspectRatio: aspectRatio as `${number}:${number}` }
-        : {}),
-      ...(readNumber(input, 'seed') !== undefined ? { seed: readNumber(input, 'seed') } : {}),
-      abortSignal: ctx.signal,
-    })
-
-    const latencyMs = Date.now() - startedAt
-    const produced = (images ?? []).filter((img) => !!img?.base64)
-    if (produced.length === 0) {
-      throw new Error(`${model.provider}: ai-sdk image generation returned no images`)
-    }
-
-    const assets = produced.map((img) => {
-      const mime = img.mediaType || 'image/png'
-      const assetId = store.record({ mime, base64: img.base64 })
-      const uri = store.dataUri(assetId)
-      events?.onArtifact?.({ kind: 'image', uri, mime })
-      return { assetId, modality: 'image' as const, url: uri }
-    })
-
-    const output = {
-      modality: 'image' as const,
-      assets,
-      cost: 0,
-      latencyMs,
-      model: `${model.provider}:${model.modelId}`,
-      provider: model.provider,
-    }
-    return { output: output as O }
+function toStoredAsset(artifact: Artifact): StoredAsset {
+  const at = artifact.uri.indexOf(BASE64_MARKER)
+  if (!artifact.uri.startsWith('data:') || at < 0) {
+    throw new Error(`expected a base64 data: URI artifact, got "${artifact.uri.slice(0, 40)}"`)
+  }
+  return {
+    mime: artifact.mime ?? artifact.uri.slice('data:'.length, at),
+    base64: artifact.uri.slice(at + BASE64_MARKER.length),
   }
 }
 
@@ -145,17 +69,16 @@ export function createModels(
   store: HostAssetStore,
 ): (cap: Capability) => readonly ModelCapability[] {
   const envelopes: ModelCapability[] = [
-    {
-      specificationVersion: MODEL_SPEC_VERSION,
-      capabilities: ['text-to-image'],
+    // Every produced image is recorded into the host store under a fresh id,
+    // and THAT id is what the output element carries — minted here, when the
+    // output is produced, not rewritten afterwards. The adapter stamps the
+    // same id on the artifact's `meta.assetId`, so a `job:artifact`
+    // subscriber and the output agree on what to look up.
+    fromImageModel(models.image.model, {
       provider: models.image.provider,
       modelId: models.image.modelId,
-      inputs: ['text'],
-      outputs: ['image'],
-      tags: [],
-      source: 'user',
-      call: imageCall(models.image.model, store),
-    },
+      mintAssetId: (artifact) => store.record(toStoredAsset(artifact)),
+    }),
     // The source image(s) arrive as assetIds on `ctx.assets` (slot `source`,
     // array cardinality — the adapter sends every ref, in order, as a `file`
     // part). The runtime only ever passes ids; `loadImage` is where one

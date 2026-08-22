@@ -1,7 +1,7 @@
 // Offline stand-ins for the two models, built from `ai/test`. main.ts runs on
 // these by default (so the narrative records without a key) and the smoke
-// test runs on the same ones — the bridges in ./ai-sdk-wiring never know the
-// difference, which is the point: `--live` swaps only the instances.
+// test runs on the same ones — the envelopes in ./ai-sdk-wiring never know
+// the difference, which is the point: `--live` swaps only the instances.
 
 import { MockImageModelV3, MockLanguageModelV3 } from 'ai/test'
 import type { HostModels } from './ai-sdk-wiring'

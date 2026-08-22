@@ -4,7 +4,11 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { MockImageModelV3, MockImageModelV4 } from 'ai/test'
-import { MODEL_SPEC_VERSION, type DispatchContext } from '@orchestral/core'
+import {
+  MODEL_SPEC_VERSION,
+  type Artifact,
+  type DispatchContext,
+} from '@orchestral/core'
 import { TextToImageOutputSchema } from '@orchestral/patterns'
 
 import { fromImageModel } from '../image'
@@ -97,6 +101,118 @@ describe('fromImageModel', () => {
     expect(artifacts![0]!.kind).toBe('image')
     expect(artifacts![0]!.uri).toMatch(/^data:image\/png;base64,/)
     expect(onArtifact).toHaveBeenCalledTimes(1)
+  })
+
+  it('defaults assetId to the aisdk-image-<i> placeholder, and stamps it on each artifact', async () => {
+    const onArtifact = vi.fn<(artifact: Artifact) => void>()
+    const { output, artifacts } = await fromImageModel(mockImageModel()).call(
+      { prompt: 'x', n: 2 },
+      ctx(),
+      { onArtifact },
+    )
+    const parsed = TextToImageOutputSchema.parse(output)
+    expect(parsed.assets.map((a) => a.assetId)).toEqual(['aisdk-image-0', 'aisdk-image-1'])
+    // The artifact says which output element it is, whoever minted the id.
+    expect(artifacts!.map((a) => a.meta)).toEqual([
+      { assetId: 'aisdk-image-0' },
+      { assetId: 'aisdk-image-1' },
+    ])
+    expect(onArtifact.mock.calls.map(([a]) => a.meta?.assetId)).toEqual([
+      'aisdk-image-0',
+      'aisdk-image-1',
+    ])
+  })
+
+  it('calls mintAssetId once per image, in order, with (artifact, index, ctx), and puts its answer on the output', async () => {
+    const mintAssetId = vi.fn<
+      (artifact: Artifact, index: number, ctx: DispatchContext) => string
+    >((_artifact, index) => `img-${index + 1}`)
+    const envelope = fromImageModel(mockImageModel(), { mintAssetId })
+    const context = ctx()
+
+    const { output, artifacts } = await envelope.call({ prompt: 'x', n: 2 }, context)
+
+    expect(mintAssetId).toHaveBeenCalledTimes(2)
+    for (const [i, [artifact, index, passedCtx]] of mintAssetId.mock.calls.entries()) {
+      expect(index).toBe(i)
+      expect(passedCtx).toBe(context)
+      // The hook sees the bare artifact — bytes and mime, no id yet: the id
+      // is what it is being asked for.
+      expect(artifact).toEqual({
+        kind: 'image',
+        uri: `data:image/png;base64,${PNG_B64}`,
+        mime: 'image/png',
+      })
+    }
+    const parsed = TextToImageOutputSchema.parse(output)
+    expect(parsed.assets.map((a) => a.assetId)).toEqual(['img-1', 'img-2'])
+    expect(artifacts!.map((a) => a.meta?.assetId)).toEqual(['img-1', 'img-2'])
+  })
+
+  it('fires onArtifact after minting, with the minted id on meta.assetId, so the event and the output agree', async () => {
+    const order: string[] = []
+    const mintAssetId = vi.fn<
+      (artifact: Artifact, index: number, ctx: DispatchContext) => string
+    >((_artifact, index) => {
+      order.push(`mint:${index}`)
+      return `stored-${index}`
+    })
+    const onArtifact = vi.fn<(artifact: Artifact) => void>((artifact) => {
+      order.push(`artifact:${String(artifact.meta?.assetId)}`)
+    })
+
+    const { output } = await fromImageModel(mockImageModel(), { mintAssetId }).call(
+      { prompt: 'x', n: 2 },
+      ctx(),
+      { onArtifact },
+    )
+
+    // Every id is minted before the first event fires: a host that keys its
+    // store from `job:artifact` sees the id the output will carry.
+    expect(order).toEqual(['mint:0', 'mint:1', 'artifact:stored-0', 'artifact:stored-1'])
+    const parsed = TextToImageOutputSchema.parse(output)
+    expect(onArtifact.mock.calls.map(([a]) => a.meta?.assetId)).toEqual(
+      parsed.assets.map((a) => a.assetId),
+    )
+  })
+
+  it('fails with MINT_ASSET_ID_INVALID on an empty, over-long or non-string id, firing no artifact event', async () => {
+    const onArtifact = vi.fn<(artifact: Artifact) => void>()
+    const attempt = (id: unknown) =>
+      fromImageModel(mockImageModel(), { mintAssetId: () => id as string }).call(
+        { prompt: 'x' },
+        ctx(),
+        { onArtifact },
+      )
+
+    await expect(attempt('')).rejects.toMatchObject({
+      code: 'MINT_ASSET_ID_INVALID',
+      message: expect.stringContaining(
+        'MINT_ASSET_ID_INVALID: text-to-image call: mintAssetId returned an empty string for artifact 0',
+      ),
+    })
+    await expect(attempt('x'.repeat(200))).rejects.toMatchObject({
+      code: 'MINT_ASSET_ID_INVALID',
+      message: expect.stringContaining('a 200-character string'),
+    })
+    // A JS host that forgot a `return` — the type says string, the runtime
+    // check is what catches it.
+    await expect(attempt(undefined)).rejects.toMatchObject({
+      code: 'MINT_ASSET_ID_INVALID',
+      message: expect.stringContaining('returned undefined for artifact 0'),
+    })
+    // Minted before fired: a bad id for the SECOND image means no event for
+    // the first either — nothing is announced that the output will not name.
+    await expect(
+      fromImageModel(mockImageModel(), {
+        mintAssetId: (_artifact, index) => (index === 0 ? 'ok' : ''),
+      }).call({ prompt: 'x', n: 2 }, ctx(), { onArtifact }),
+    ).rejects.toMatchObject({ code: 'MINT_ASSET_ID_INVALID' })
+    expect(onArtifact).not.toHaveBeenCalled()
+
+    // The bound is assetIdField()'s: 128 is the last length that passes.
+    const { output } = await attempt('y'.repeat(128))
+    expect(TextToImageOutputSchema.parse(output).assets[0]!.assetId).toHaveLength(128)
   })
 
   it('passes the pattern generation params, merged providerOptions and the abort signal to the SDK', async () => {

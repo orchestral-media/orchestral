@@ -14,6 +14,7 @@ import {
   asRecord,
   buildRecord,
   dispatchEnvelope,
+  mintAssetIds,
   optionalNumber,
   optionalString,
   providerOptionsFor,
@@ -44,8 +45,10 @@ const ASPECT_RE = /^\d+:\d+$/
  * the first-party pattern documents as the adapter contract — `size`
  * (`WxH`), `aspectRatio` (`W:H`), `n`, `seed` — plus a flat
  * `providerOptions`. Returns a `TextToImageOutput`: one `assets[]` element per
- * generated image (no `url` — the bytes arrive as `artifacts` and on the
- * `job:artifact` event), `cost: null`.
+ * generated image, its `assetId` from `options.mintAssetId` (a placeholder by
+ * default; no `url` — the bytes arrive as `artifacts` and on the
+ * `job:artifact` event, each stamped with the same id on `meta.assetId`),
+ * `cost: null`.
  *
  * Not mapped: the `reference` / `control` asset slots (see README).
  */
@@ -104,28 +107,34 @@ export function fromImageModel(
         )
       }
 
-      const artifacts: Artifact[] = produced.map((img) => {
-        const mime = img.mediaType || 'image/png'
-        return { kind: 'image', uri: `data:${mime};base64,${img.base64}`, mime }
-      })
-      for (const artifact of artifacts) events?.onArtifact?.(artifact)
+      const minted = mintAssetIds(
+        produced.map((img): Artifact => {
+          const mime = img.mediaType || 'image/png'
+          return { kind: 'image', uri: `data:${mime};base64,${img.base64}`, mime }
+        }),
+        ctx,
+        events,
+        options,
+        'text-to-image',
+        (i) => `aisdk-image-${i}`,
+      )
 
-      // No asset store at this seam, so `assetId` is a placeholder a host that
-      // records assets replaces with its canonical id — and `url` is left
-      // unset rather than filled with the data: URI. The bytes travel on
+      // `assetId` is whatever the host's `mintAssetId` answered — by default a
+      // placeholder that names nothing in any store — and `url` is left unset
+      // rather than filled with the data: URI. The bytes travel on
       // `artifacts` / `events.onArtifact` (the runtime's `job:artifact`
       // event), which is the channel built for them; `producedAssetShape.url`
       // is bounded precisely so a multi-megabyte blob cannot ride in the
       // output a model or a transcript might see.
       const output = {
         modality: 'image' as const,
-        assets: artifacts.map((_artifact, i) => ({
-          assetId: `aisdk-image-${i}`,
+        assets: minted.map(({ assetId }) => ({
+          assetId,
           modality: 'image' as const,
         })),
         ...dispatchEnvelope(identity, startedAt),
       }
-      return { output: output as O, artifacts }
+      return { output: output as O, artifacts: minted.map((m) => m.artifact) }
     },
   }
 }
