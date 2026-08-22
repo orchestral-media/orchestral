@@ -1,18 +1,26 @@
-// Host-local ai-sdk wiring — two `ModelCapability.call` bridges, one per
-// model this host serves. core / runtime / patterns never import a provider
+// Host-local ai-sdk wiring — the two `ModelCapability` envelopes this host
+// serves, one per model. core / runtime / patterns never import a provider
 // SDK; talking to one is host territory, and this file is the whole of it:
 //
-//   • text-to-image  → ai-sdk `generateImage`  (same bridge as atomic-hello-world,
-//                      plus the `size` / `n` params a meta fills directly)
-//   • image-to-text  → ai-sdk `generateText` over a vision-capable language
-//                      model, the source image(s) read from the host asset store
+//   • text-to-image  → a hand-written bridge over ai-sdk `generateImage`
+//                      (same as atomic-hello-world, plus the `size` / `n`
+//                      params a meta fills directly). Hand-written because
+//                      this host records every produced image into its own
+//                      store and wants the store's ids on the output.
+//   • image-to-text  → `fromVisionModel` from @orchestral/adapters-ai-sdk over
+//                      a vision-capable language model. The one thing the
+//                      adapter cannot know is how an assetId becomes bytes;
+//                      that is the `loadImage` hook, answered from the store.
 //
 // There is deliberately NO image-to-image bridge. That gap is what main.ts is
-// about. Both bridges take a model INSTANCE the host built (a real
-// `openai.image(...)` / `openai(...)`, or an `ai/test` mock) so the same code
-// runs offline and live.
+// about. Both take a model INSTANCE the host built (a real `openai.image(...)`
+// / `openai(...)`, or an `ai/test` mock) so the same code runs offline and live.
 
-import { generateImage, generateText } from 'ai'
+import { generateImage } from 'ai'
+import {
+  fromVisionModel,
+  type LanguageModelInstance,
+} from '@orchestral/adapters-ai-sdk'
 import type {
   CallEvents,
   Capability,
@@ -23,16 +31,13 @@ import type {
 import { MODEL_SPEC_VERSION } from '@orchestral/core'
 import type { HostAssetStore } from './asset-store'
 
-// The resolved model OBJECT types, pulled out of the ai-sdk call signatures
-// (avoids a transitive `@ai-sdk/provider` import). `generateImage` /
-// `generateText` also accept a bare provider-registry id string; the bridges
-// need the instance, because they read `.provider` / `.modelId` off it.
+// The resolved image-model OBJECT type, pulled out of the ai-sdk call
+// signature (avoids a transitive `@ai-sdk/provider` import). `generateImage`
+// also accepts a bare provider-registry id string; the bridge needs the
+// instance, because it reads `.provider` / `.modelId` off it. The language
+// model's counterpart comes from the adapters package.
 type ImageModelInstance = Exclude<
   Parameters<typeof generateImage>[0]['model'],
-  string
->
-type LanguageModelInstance = Exclude<
-  Parameters<typeof generateText>[0]['model'],
   string
 >
 
@@ -127,80 +132,11 @@ function imageCall(
   }
 }
 
-// ── image-to-text ───────────────────────────────────────────────────────────
-
-const MODE_SYSTEM: Record<string, string> = {
-  caption: 'Write a one-line caption for the image.',
-  describe: 'Describe the image in detail.',
-  judge: 'Evaluate the image against the instruction and explain your verdict.',
-  'extract-style': 'Describe the visual style of the image: medium, palette, lighting, composition.',
-}
-
-/**
- * Bridge a vision-capable ai-sdk LanguageModel to `ModelCapability.call` for
- * image-to-text. The source image(s) arrive as assetIds on `ctx.assets`
- * (slot `source`, declared array-cardinality — every ref is sent, in order);
- * the adapter turns each id into bytes through the host store, because the
- * runtime only ever passes ids. `system` / `prompt` / `mode` / `maxLength`
- * follow the pattern's input contract; `responseFormat: 'json'` is not
- * wired here (this host never asks for it).
- */
-function captionCall(
-  model: LanguageModelInstance,
-  store: HostAssetStore,
-): ModelCapability['call'] {
-  return async function aiSdkCaptionCall<I, O>(
-    input: I,
-    ctx: DispatchContext,
-  ): Promise<DispatchResult<O>> {
-    const sources = (ctx.assets ?? []).filter((a) => a.slot === 'source')
-    if (sources.length === 0) {
-      throw new Error('image-to-text call: no `source` asset on ctx.assets')
-    }
-    const mode = readString(input, 'mode') ?? 'caption'
-    const system = readString(input, 'system') ?? MODE_SYSTEM[mode] ?? MODE_SYSTEM.caption
-    const text = readString(input, 'prompt') ?? system
-    const maxLength = readNumber(input, 'maxLength')
-
-    const startedAt = Date.now()
-    const result = await generateText({
-      model,
-      ...(system ? { system } : {}),
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text },
-            // ai-sdk's `file` part, raw base64 plus the media type — the id
-            // the runtime passed becomes bytes only here, in the host.
-            ...sources.map((ref) => {
-              const { mime, base64 } = store.get(ref.assetId)
-              return { type: 'file' as const, data: base64, mediaType: mime }
-            }),
-          ],
-        },
-      ],
-      abortSignal: ctx.signal,
-    })
-
-    const output = {
-      modality: 'text' as const,
-      // `maxLength` is a soft cap in characters per the pattern's contract.
-      text: maxLength ? result.text.slice(0, maxLength) : result.text,
-      cost: 0,
-      latencyMs: Date.now() - startedAt,
-      model: `${model.provider}:${model.modelId}`,
-      provider: model.provider,
-    }
-    return { output: output as O }
-  }
-}
-
 // ── getModels ───────────────────────────────────────────────────────────────
 
 /**
  * Pack the host's two models into the `getModels(cap)` the default router
- * consumes. Each becomes a `ModelCapability` envelope declaring exactly one
+ * consumes. Each is a `ModelCapability` envelope declaring exactly one
  * capability; asking for any other capability — image-to-image included —
  * returns `[]`, which is what the router reports as `no-model-in-catalog`.
  */
@@ -220,17 +156,18 @@ export function createModels(
       source: 'user',
       call: imageCall(models.image.model, store),
     },
-    {
-      specificationVersion: MODEL_SPEC_VERSION,
-      capabilities: ['image-to-text'],
+    // The source image(s) arrive as assetIds on `ctx.assets` (slot `source`,
+    // array cardinality — the adapter sends every ref, in order, as a `file`
+    // part). The runtime only ever passes ids; `loadImage` is where one
+    // becomes bytes, and only this host can answer that.
+    fromVisionModel(models.caption.model, {
       provider: models.caption.provider,
       modelId: models.caption.modelId,
-      inputs: ['image', 'text'],
-      outputs: ['text'],
-      tags: [],
-      source: 'user',
-      call: captionCall(models.caption.model, store),
-    },
+      loadImage: (ref) => {
+        const { mime, base64 } = store.get(ref.assetId)
+        return { data: base64, mediaType: mime }
+      },
+    }),
   ]
   return (cap) => envelopes.filter((env) => env.capabilities.includes(cap))
 }

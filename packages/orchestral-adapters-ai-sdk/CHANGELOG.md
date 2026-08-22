@@ -8,6 +8,30 @@ this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
+## [Unreleased]
+
+### Added
+
+- **`fromLanguageModel(model, options?)`** — `generateText` as
+  `text-generation`, the capability every first-party meta dispatches and the
+  one the package did not serve. Reads `prompt`, `system`, the sampling fields
+  the pattern already names after the SDK's (`maxOutputTokens`, `temperature`,
+  `topP`, `topK`, `stopSequences`), `responseFormat` / `jsonSchema`, and a
+  flat `providerOptions`; returns a `TextGenerationOutput` with `usage` when
+  reported and `finishReason` on the pattern's enum.
+- **`fromVisionModel(model, options)`** — `generateText` on a vision-capable
+  language model as `image-to-text`. Every resolved `source` asset is loaded
+  through the required `options.loadImage` (same posture as `loadAudio`) and
+  sent as a `file` part, in `ctx.assets` order, ahead of the prompt text;
+  `mode` / `system` / `prompt` / `maxLength` follow the pattern's field
+  descriptions. `VisionAdapterOptions`, `ImageSource`, and the
+  `LanguageModelInstance` object type the two share.
+- **Structured output.** Both map `responseFormat: 'json'` onto the SDK's v7
+  `output` (`Output.object` over the caller's `jsonSchema`, `Output.json`
+  without one), validate the reply against that schema through zod's
+  `fromJSONSchema`, and return the object in `text` as JSON — the shape the
+  first-party metas parse.
+
 ## [0.1.0] - 2026-08-21 — Initial public release
 
 ### Added

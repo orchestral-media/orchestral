@@ -27,7 +27,7 @@ Plus a beat on `router.explain` + `formatRoutingExplanation`: the routing
 decision as data, printed as a `--dump-config`-style block.
 
 The whole host is [`src/main.ts`](./src/main.ts) (the narrative), the two
-`ModelCapability.call` bridges in [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts),
+`ModelCapability` envelopes in [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts),
 a Map-backed [`src/asset-store.ts`](./src/asset-store.ts), and the meta. There
 is zero host engine code.
 
@@ -175,15 +175,17 @@ and completes in image-to-image's shape. It also runs as part of the repo's
 
 - **`JobStore` and `CapabilityRouter`** are the zero-dependency defaults
   (`InMemoryJobStore`, `createDefaultCapabilityRouter`).
-- **`ModelCapability.call`** — two bridges in
-  [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts): `generateImage` for
-  text-to-image (honouring the `size` / `n` params a meta fills directly), and
-  `generateText` over a vision model for image-to-text. The packages ship
-  neither; the example installs `ai@^7` and `@ai-sdk/openai` itself.
+- **`ModelCapability.call`** — two envelopes in
+  [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts): a hand-written bridge over
+  `generateImage` for text-to-image (honouring the `size` / `n` params a meta
+  fills directly, and recording what it produced into the host store), and
+  `fromVisionModel` from `@orchestral/adapters-ai-sdk` over a vision model for
+  image-to-text. The core packages ship neither; the example installs `ai@^7`
+  and `@ai-sdk/openai` itself.
 - **Asset bytes** — [`src/asset-store.ts`](./src/asset-store.ts). Orchestral
   passes media between steps as assetIds and never reads or writes bytes; the
-  caption bridge turns `ctx.assets` ids into bytes through this store, and the
-  image bridge records what it produced into it.
+  vision adapter's `loadImage` hook turns `ctx.assets` ids into bytes through
+  this store, and the image bridge records what it produced into it.
 - **`AskUserHandler`** — `askOnStdin` in `main.ts`. The runtime hands it an
   `AskUserRequest`; `kind` names the interaction and the payload / answer
   shapes per kind are the schemas in core's `ask-user.ts`

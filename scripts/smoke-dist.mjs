@@ -124,6 +124,8 @@ check('@orchestral/agent', 'createOrchestratorAgent is a function', typeof agent
 check('@orchestral/adapters-ai-sdk', 'fromImageModel is a function', typeof adapters.fromImageModel === 'function')
 check('@orchestral/adapters-ai-sdk', 'fromSpeechModel is a function', typeof adapters.fromSpeechModel === 'function')
 check('@orchestral/adapters-ai-sdk', 'fromTranscriptionModel is a function', typeof adapters.fromTranscriptionModel === 'function')
+check('@orchestral/adapters-ai-sdk', 'fromLanguageModel is a function', typeof adapters.fromLanguageModel === 'function')
+check('@orchestral/adapters-ai-sdk', 'fromVisionModel is a function', typeof adapters.fromVisionModel === 'function')
 
 if (failures > 0) {
   console.error(`\nsmoke:dist FAILED — ${failures} missing/invalid export(s); cannot run the dispatch flow.`)
@@ -234,7 +236,7 @@ console.log('\ndispatch via @orchestral/adapters-ai-sdk:')
 const adaptersRequire = createRequire(
   new URL('../packages/orchestral-adapters-ai-sdk/package.json', import.meta.url),
 )
-const { MockImageModelV3 } = await import(pathToFileURL(adaptersRequire.resolve('ai/test')).href)
+const { MockImageModelV3, MockLanguageModelV3 } = await import(pathToFileURL(adaptersRequire.resolve('ai/test')).href)
 let adapterJob
 const adapterArtifacts = []
 try {
@@ -285,6 +287,63 @@ if (adapterParsed) {
   check('@orchestral/adapters-ai-sdk', 'parsed.cost === null (the AI SDK reports no cost)', adapterParsed.cost === null)
   check('@orchestral/adapters-ai-sdk', 'asset.url is unset (bytes are never inlined in the output)', adapterParsed.assets[0]?.url === undefined)
   check('@orchestral/adapters-ai-sdk', 'job:artifact delivered the png data URI', adapterArtifacts.length === 1 && /^data:image\/png;base64,/.test(adapterArtifacts[0]?.uri ?? ''))
+}
+
+// 6. text-generation through the shipped language-model adapter — the
+//    capability every first-party meta dispatches. Same shape as the image
+//    section above: the adapters dist links to `generateText` post-publish and
+//    returns the first-party TextGenerationOutput.
+console.log('\ndispatch text-generation via @orchestral/adapters-ai-sdk:')
+let textJob
+try {
+  const registry = new core.PatternRegistry()
+  registry.add(patterns.createTextGenerationPattern())
+  const envelope = adapters.fromLanguageModel(
+    new MockLanguageModelV3({
+      provider: 'openai',
+      modelId: 'gpt-4o-mini',
+      doGenerate: async () => ({
+        content: [{ type: 'text', text: 'A red bicycle.' }],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 4, text: 4, reasoning: 0 },
+        },
+        warnings: [],
+      }),
+    }),
+  )
+  const rt = new runtime.InlineRuntime({
+    store: new core.InMemoryJobStore(),
+    registry,
+    router: core.createDefaultCapabilityRouter({
+      getModels: (cap) => [envelope].filter((env) => env.capabilities.includes(cap)),
+    }),
+  })
+  textJob = await rt.submitJob({
+    patternId: patterns.TEXT_GENERATION_PATTERN_ID,
+    input: { prompt: 'Name one thing in the picture.' },
+  })
+} catch (err) {
+  console.error('  ✗ [@orchestral/adapters-ai-sdk] submitJob threw instead of completing:')
+  console.error(err)
+  process.exit(1)
+}
+check('@orchestral/adapters-ai-sdk', 'job.status === "done"', textJob.status === 'done')
+let textParsed
+try {
+  textParsed = patterns.TextGenerationOutputSchema.parse(textJob.output)
+  check('@orchestral/adapters-ai-sdk', 'TextGenerationOutputSchema.parse(job.output) succeeds', true)
+} catch (err) {
+  check('@orchestral/adapters-ai-sdk', 'TextGenerationOutputSchema.parse(job.output) succeeds', false)
+  console.error(err)
+}
+if (textParsed) {
+  check('@orchestral/adapters-ai-sdk', 'parsed.text === "A red bicycle."', textParsed.text === 'A red bicycle.')
+  check('@orchestral/adapters-ai-sdk', 'parsed.model === "openai:gpt-4o-mini"', textParsed.model === 'openai:gpt-4o-mini')
+  check('@orchestral/adapters-ai-sdk', 'parsed.cost === null (the AI SDK reports no cost)', textParsed.cost === null)
+  check('@orchestral/adapters-ai-sdk', 'parsed.usage carries both token counts', textParsed.usage?.inputTokens === 10 && textParsed.usage?.outputTokens === 4)
+  check('@orchestral/adapters-ai-sdk', 'parsed.finishReason === "stop"', textParsed.finishReason === 'stop')
 }
 
 if (failures > 0) {

@@ -6,11 +6,13 @@ Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral
 — see the repo README for how the packages fit together.
 
 Ready-made `ModelCapability` envelopes over a [Vercel AI SDK](https://ai-sdk.dev)
-model instance: `fromImageModel`, `fromSpeechModel`, `fromTranscriptionModel`.
-Each one is the ~40-line call adapter a host would otherwise write by hand,
-extracted from the examples in this repo, so a host already on the AI SDK
-serves `text-to-image`, `text-to-speech` and `automatic-speech-recognition`
-without writing one.
+model instance: `fromLanguageModel`, `fromVisionModel`, `fromImageModel`,
+`fromSpeechModel`, `fromTranscriptionModel`. Each one is the ~40-line call
+adapter a host would otherwise write by hand, extracted from the examples in
+this repo, so a host already on the AI SDK serves `text-generation` (the
+capability every first-party meta dispatches), `image-to-text`,
+`text-to-image`, `text-to-speech` and `automatic-speech-recognition` without
+writing one.
 
 ```sh
 npm install @orchestral/adapters-ai-sdk @orchestral/core ai zod
@@ -26,9 +28,19 @@ pass in comes from your copy of the AI SDK, and the package must share it.
 ```ts
 import { openai } from '@ai-sdk/openai'
 import { createDefaultCapabilityRouter } from '@orchestral/core'
-import { fromImageModel, fromSpeechModel } from '@orchestral/adapters-ai-sdk'
+import {
+  fromImageModel,
+  fromLanguageModel,
+  fromSpeechModel,
+  fromVisionModel,
+} from '@orchestral/adapters-ai-sdk'
 
 const models = [
+  fromLanguageModel(openai('gpt-4o-mini'), { tags: ['fast'] }),
+  fromVisionModel(openai('gpt-4o'), {
+    // Only the host knows how an assetId becomes bytes — see below.
+    loadImage: async (ref) => store.readBytes(ref.assetId),
+  }),
   fromImageModel(openai.image('gpt-image-1'), { tags: ['fast'] }),
   fromSpeechModel(openai.speech('tts-1')),
 ]
@@ -65,6 +77,8 @@ bug it is.
 
 | Function | AI SDK call | Capability | Reads off the input | Asset slot consumed | Output schema (`@orchestral/patterns`) |
 | --- | --- | --- | --- | --- | --- |
+| `fromLanguageModel(model, options?)` | `generateText` | `text-generation` | `prompt`; `system`; `maxOutputTokens`, `temperature`, `topP`, `topK`, `stopSequences`; `responseFormat` + `jsonSchema`; flat `providerOptions` | none — the pattern declares no asset slot | `TextGenerationOutputSchema` |
+| `fromVisionModel(model, options)` | `generateText` on a vision model | `image-to-text` | `mode`, `system`, `prompt`, `maxLength`; `responseFormat` + `jsonSchema`; flat `providerOptions` | `source` (required, one or more) via `options.loadImage` | `ImageToTextOutputSchema` |
 | `fromImageModel(model, options?)` | `generateImage` | `text-to-image` | `prompt`; `size` (`WxH`), `aspectRatio` (`W:H`), `n`, `seed`; flat `providerOptions` | none — `reference` / `control` are **not** mapped | `TextToImageOutputSchema` |
 | `fromSpeechModel(model, options?)` | `generateSpeech` | `text-to-speech` | `text`; `voice`, `outputFormat`, `instructions`, `speed`, `language`; flat `providerOptions` | none — `voiceClone` is **not** mapped | `TextToSpeechOutputSchema` |
 | `fromTranscriptionModel(model, options)` | `transcribe` | `automatic-speech-recognition` | flat `providerOptions` | `source` (required) via `options.loadAudio` | `AutomaticSpeechRecognitionOutputSchema` |
@@ -81,11 +95,13 @@ first-party pattern field-for-field — the package's tests assert
 `Schema.parse(output)` succeeds for each. Produced media also travels on
 `DispatchResult.artifacts` and fires `events.onArtifact` once per file.
 
-The `model` parameter is the resolved model **object** (`openai.image('…')`),
-not the `'provider:model-id'` string some AI SDK helpers accept through a
-provider registry: the adapter has to read `.provider` / `.modelId` off it. The
-exported `ImageModelInstance` / `SpeechModelInstance` /
-`TranscriptionModelInstance` types are that object form.
+The `model` parameter is the resolved model **object** (`openai('…')`,
+`openai.image('…')`), not the `'provider/model-id'` string some AI SDK helpers
+accept through a provider registry: the adapter has to read `.provider` /
+`.modelId` off it. The exported `LanguageModelInstance` (shared by
+`fromLanguageModel` and `fromVisionModel`) / `ImageModelInstance` /
+`SpeechModelInstance` / `TranscriptionModelInstance` types are that object
+form.
 
 ### `providerOptions`
 
@@ -101,6 +117,29 @@ Two sources feed the SDK's `providerOptions`, and they are shaped differently:
 
 Per-call wins: a key in `input.providerOptions` overrides the same key in
 `ctx.providerOptions[provider]`.
+
+### Structured output (`responseFormat: 'json'`)
+
+`text-generation` and `image-to-text` carry the same pair: `responseFormat`
+(`'text'` | `'json'`) and an opaque `jsonSchema`. Both adapters map `'json'`
+onto the AI SDK's v7 structured output — `generateText`'s `output` option
+(`Output.object({ schema })` with a schema, `Output.json()` without one);
+there is no separate `generateObject` call in v7 to reach for. The SDK sends
+the schema to the provider as its JSON response format and parses the reply.
+
+The reply is then **validated against the caller's JSON Schema** before the
+adapter returns: `jsonSchema` is compiled with zod's `z.fromJSONSchema` and
+handed to the SDK as the schema's `validate` hook, so a reply that parses but
+does not match fails the call (`No object generated: response did not match
+schema.`) instead of reaching a meta that will `JSON.parse` it and choke on a
+field later. A reply cut off before a `stop` finish fails the same way.
+
+The object lands in the output's `text` as a JSON string — the shape every
+first-party meta reads (`JSON.parse(judgeOut.text)`,
+`parseJsonWithSchema(out.text, schema)`). Neither pattern's output schema
+declares a separate object field, and the adapters invent none. The
+`toJsonSchemaCached(zodSchema)` a meta passes is what the round trip is
+tested against.
 
 ### Transcription needs a loader
 
@@ -119,18 +158,66 @@ host identifier, and `@orchestral/core` deliberately defines no way to read its
 bytes. Return a `URL` (`https:`, `file:`, or a `data:` URI) to let the SDK do
 the download. The media type is sniffed from the bytes by the SDK either way.
 
+### Vision needs one too
+
+```ts
+import { fromVisionModel } from '@orchestral/adapters-ai-sdk'
+
+fromVisionModel(openai('gpt-4o'), {
+  // Called once per `source` asset, in ctx.assets order. Return bytes or a
+  // URL (the SDK sniffs the media type), or state it: { data, mediaType }.
+  loadImage: async (ref) => {
+    const { mime, base64 } = await store.read(ref.assetId)
+    return { data: base64, mediaType: mime }
+  },
+})
+```
+
+Same posture as `loadAudio`, for the same reason. `image-to-text` declares
+its `source` slot with array cardinality, and the adapter honours that: every
+resolved `source` ref becomes a `file` part of the one user message, in
+`ctx.assets` order, ahead of the prompt text — so a meta that sends reference
+images and candidates in a deliberate order (`image-best-of-n`'s judge) gets
+them in that order. `mode` / `system` / `prompt` land where the pattern's own
+field descriptions say: `system` wins and `mode` is ignored; without a
+`system`, a `prompt` replaces the mode-default text; with neither, the mode
+default is the system text and the images go up alone.
+
 ## Honest limitations
 
 - **`cost` is always `null`.** The AI SDK does not report what a call cost, and
   the output envelope's `null` means exactly "not reported" — a `0` would claim
   the call was free. A host with a price list fills it in afterwards (a
   `DispatchMiddleware`, or its own wrapper around `call`).
-- **Asset slots other than ASR `source` are not mapped.** `text-to-image`'s
-  `reference` / `control` images and `text-to-speech`'s `voiceClone` audio are
-  resolved onto `ctx.assets` by the runtime but ignored here: `generateImage`'s
-  image-editing input and the various voice-cloning APIs are provider-specific
-  enough that a generic mapping would be a guess. A host that needs them writes
-  its own adapter (or wraps this one and adds them).
+- **Asset slots other than the two `source` slots are not mapped.**
+  `text-to-image`'s `reference` / `control` images and `text-to-speech`'s
+  `voiceClone` audio are resolved onto `ctx.assets` by the runtime but ignored
+  here: `generateImage`'s image-editing input and the various voice-cloning
+  APIs are provider-specific enough that a generic mapping would be a guess. A
+  host that needs them writes its own adapter (or wraps this one and adds
+  them). ASR's and image-to-text's `source` are mapped, through `loadAudio` /
+  `loadImage`.
+- **`loadImage` / `loadAudio` are the host's, not defaults.** `@orchestral/core`
+  defines no assetId → bytes read on purpose (an id is whatever the host's
+  store says it is), so the adapters cannot ship one; a vision or transcription
+  adapter without the hook would have nothing to send.
+- **`image-to-text`'s `maxLength` is an instruction, not a cut.** The pattern
+  declares it a *soft* cap in characters, and the only way to give a model a
+  soft cap is to ask: in text mode the adapter appends `Keep the answer under
+  N characters.` to the user text. The reply is never truncated (a cut JSON
+  document is worse than a long one), and the hint is left out of a
+  `responseFormat: 'json'` request, whose shape is the schema's business.
+- **`jsonSchema` has to be something zod can compile.** Validation runs
+  through `z.fromJSONSchema` (draft 2020-12 / draft-7 / draft-4 / OpenAPI 3.0;
+  no `if` / `then` / `else`, no unresolved `$ref`), and a schema it rejects
+  fails the call *before* the model is called rather than running a
+  validated-looking call that validated nothing. Anything rendered by
+  `toJsonSchemaCached` / `z.toJSONSchema` compiles. In `'json'` mode `text` is
+  the validated object re-serialised, not the model's raw characters.
+- **`text-generation`'s `usage` and `finishReason` are best effort.** `usage`
+  is set only when the provider reported both token counts; `finishReason`
+  maps the SDK's unified reasons onto the pattern's enum, and the SDK's
+  `error` — which the pattern does not name — lands on `other`.
 - **ASR `language` / `prompt` / `timestamps` / `format` are not mapped.**
   `transcribe` in AI SDK 7 has no shared fields for any of them — each provider
   names them differently under `providerOptions` (`openai: { language,
@@ -139,9 +226,10 @@ the download. The media type is sniffed from the bytes by the SDK either way.
   whatever the provider returned, already in seconds.
 - **`audioDurationMs` is only set for ASR.** `generateSpeech` does not report
   the length of the audio it produced.
-- **No progress events.** `generateImage` / `generateSpeech` / `transcribe` are
-  single awaited calls with nothing in between, so `events.onProgress` is never
-  fired. `onArtifact` fires once per produced file.
+- **No progress events.** `generateText` / `generateImage` / `generateSpeech`
+  / `transcribe` are single awaited calls with nothing in between, so
+  `events.onProgress` is never fired. `onArtifact` fires once per produced
+  media file; the two text adapters produce none.
 - **`assets[].url` is not set; the bytes are artifacts.** Every produced file
   is returned in `DispatchResult.artifacts` and fired on `events.onArtifact`
   (the runtime's `job:artifact` event) as a `data:` URI. Nothing is inlined

@@ -1,7 +1,7 @@
 {
   "name": "@orchestral/adapters-ai-sdk",
   "version": "0.1.0",
-  "description": "Vercel AI SDK adapters for @orchestral/core — wrap an AI SDK image / speech / transcription model instance as a ModelCapability envelope, so a host serves text-to-image, text-to-speech and automatic-speech-recognition without hand-writing a call adapter. Leaf package — nothing in @orchestral/* depends on it.",
+  "description": "Vercel AI SDK adapters for @orchestral/core \u2014 wrap an AI SDK language / vision / image / speech / transcription model instance as a ModelCapability envelope, so a host serves text-generation, image-to-text, text-to-image, text-to-speech and automatic-speech-recognition without hand-writing a call adapter. Leaf package \u2014 nothing in @orchestral/* depends on it.",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20.18"
@@ -22,6 +22,9 @@
     "vercel-ai-sdk",
     "orchestration",
     "capability-routing",
+    "text-generation",
+    "image-to-text",
+    "structured-output",
     "text-to-image",
     "text-to-speech",
     "speech-recognition",

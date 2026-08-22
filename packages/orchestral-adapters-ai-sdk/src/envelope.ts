@@ -1,8 +1,9 @@
 // The half of every adapter that is the same across image / speech /
-// transcription: who the model is, the record fields the router reads, the
-// dispatch envelope the output carries, and the input / providerOptions
-// readers. Each `from*` function is then only the capability-specific
-// translation between the orchestral dispatch contract and one AI SDK call.
+// transcription / language / vision: who the model is, the record fields the
+// router reads, the dispatch envelope the output carries, and the input /
+// providerOptions readers. Each `from*` function is then only the
+// capability-specific translation between the orchestral dispatch contract
+// and one AI SDK call.
 
 import type { generateImage } from 'ai'
 import type {
@@ -142,14 +143,26 @@ export function optionalNumber(
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+/** An array of strings, or `undefined` when the field is absent or not one. */
+export function optionalStringArray(
+  input: InputRecord,
+  key: string,
+): string[] | undefined {
+  const value = input[key]
+  return Array.isArray(value) &&
+    value.every((item): item is string => typeof item === 'string')
+    ? value
+    : undefined
+}
+
 // ── providerOptions ───────────────────────────────────────────────────────
 
 /**
  * The AI SDK's `providerOptions` wire shape: an outer record keyed by provider
  * name, an inner JSON object of provider-specific fields. Pulled off
- * `generateImage`'s own signature (it is the same type on `generateSpeech` and
- * `transcribe`) so the package does not import `@ai-sdk/provider` for one
- * type.
+ * `generateImage`'s own signature (it is the same type on `generateSpeech`,
+ * `transcribe` and `generateText`) so the package does not import
+ * `@ai-sdk/provider` for one type.
  */
 export type SdkProviderOptions = NonNullable<
   Parameters<typeof generateImage>[0]['providerOptions']
