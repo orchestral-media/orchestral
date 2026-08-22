@@ -59,6 +59,11 @@ Three runnable hosts live in this repo:
   `text-to-image` dispatch, with the whole provider bridge in `src/ai-sdk-wiring.ts`.
 - [`examples/agent-hello-world`](examples/agent-hello-world) — an agent-kind
   dispatch: an LLM tool-loop that picks and runs patterns.
+- [`examples/consented-fallback`](examples/consented-fallback) — a catalog with
+  no `image-to-image` model: the router explains the miss, the runtime refuses
+  and names the declared fallback with what it would lose, a meta asks the
+  user before taking it, and `alternatives: 'auto'` takes it on request. Runs
+  offline on mock models.
 - [`examples/incremental-rerun`](examples/incremental-rerun) — a three-step
   meta re-submitted with one input changed: the unchanged steps come back from
   the `JobStore` under their original child job ids, only the changed step and
@@ -68,6 +73,7 @@ Three runnable hosts live in this repo:
 pnpm install
 pnpm --filter atomic-hello-world start   # needs OPENAI_API_KEY
 pnpm --filter atomic-hello-world test    # no key: same wiring, mock model
+pnpm --filter consented-fallback start   # no key: the fallback narrative on mocks
 pnpm --filter incremental-rerun start    # no key: content-addressed re-run, mock models
 ```
 

@@ -1,0 +1,26 @@
+{
+  "name": "consented-fallback",
+  "private": true,
+  "type": "module",
+  "description": "Minimal host: a catalog with no image-to-image model, and what @orchestral/* does about it — explain the routing miss, refuse with the declared fallback named, ask the user before taking it, or redirect automatically on request.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "start:live": "tsx src/main.ts --live",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orchestral/core": "workspace:*",
+    "@orchestral/runtime": "workspace:*",
+    "@orchestral/patterns": "workspace:*",
+    "@ai-sdk/openai": "^4.0.0",
+    "ai": "^7.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  }
+}

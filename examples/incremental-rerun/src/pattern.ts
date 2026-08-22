@@ -137,7 +137,9 @@ export function createShortClipMeta(): MetaPattern<ShortClipInput, ShortClipOutp
           modality: 'video' as const,
           ...(a.url !== undefined ? { url: a.url } : {}),
         })),
-        cost: sumCosts(shot, still, clip),
+        // Any sub-step that did not report a cost makes the total null — a
+        // partial sum would read as a confident figure.
+        cost: sumCosts([shot.cost, still.cost, clip.cost]),
         latencyMs: Date.now() - startedAt,
       }
     },

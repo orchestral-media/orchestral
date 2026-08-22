@@ -101,30 +101,39 @@ importers:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
 
-  packages/orchestral-adapters-ai-sdk:
+  examples/consented-fallback:
     dependencies:
+      '@ai-sdk/openai':
+        specifier: ^4.0.0
+        version: 4.0.42(zod@4.4.3)
       '@orchestral/core':
         specifier: workspace:*
-        version: link:../orchestral-core
-    devDependencies:
+        version: link:../../packages/orchestral-core
       '@orchestral/patterns':
         specifier: workspace:*
-        version: link:../orchestral-patterns
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.1
+        version: link:../../packages/orchestral-patterns
+      '@orchestral/runtime':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-runtime
       ai:
         specifier: ^7.0.0
         version: 7.0.66(zod@4.4.3)
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
       vitest:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
-      zod:
-        specifier: ^4.3.6
-        version: 4.4.3
 
   examples/incremental-rerun:
     dependencies:
@@ -152,7 +161,32 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.6
-        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)(yaml@2.9.0)
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
+
+  packages/orchestral-adapters-ai-sdk:
+    dependencies:
+      '@orchestral/core':
+        specifier: workspace:*
+        version: link:../orchestral-core
+    devDependencies:
+      '@orchestral/patterns':
+        specifier: workspace:*
+        version: link:../orchestral-patterns
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      ai:
+        specifier: ^7.0.0
+        version: 7.0.66(zod@4.4.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
 
   packages/orchestral-agent:
     dependencies:

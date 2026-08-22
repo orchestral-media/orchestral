@@ -221,17 +221,12 @@ describe('incremental re-run wiring', () => {
     const session = 'session-fail'
     const run1 = await host.run(RED_BIKE, session)
 
-    // Fail animate once. The runtime logs the provider error; keep the test
-    // output clean. submitJob rejects with the provider's own error.
+    // Fail animate once. A dispatch that ran and failed is data: `submitJob`
+    // resolves with the errored row, and the provider's own message is on it.
     host.calls.imageToVideo.mockRejectedValueOnce(new Error('mock provider blip'))
-    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-    try {
-      await expect(host.run({ ...RED_BIKE, motion: 'tilt up' }, session)).rejects.toThrow(
-        'mock provider blip',
-      )
-    } finally {
-      quiet.mockRestore()
-    }
+    const failed = await host.run({ ...RED_BIKE, motion: 'tilt up' }, session)
+    expect(failed.job.status).toBe('error')
+    expect(failed.job.error?.message).toContain('mock provider blip')
     const errored = await host.store.query({ status: ['error'] })
     expect(errored.map((j) => j.patternId).sort()).toEqual(['image-to-video', SHORT_CLIP_PATTERN_ID])
 

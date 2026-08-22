@@ -43,45 +43,43 @@ pnpm --filter incremental-rerun start
 Ids differ per run (they are UUIDs, shown truncated); the shape does not.
 
 ```
-[patterns] OUTPUTS_UNBOUNDED_FIELDS (text-generation): text, model, provider
-[patterns] OUTPUTS_UNBOUNDED_FIELDS (text-to-image): assets[].assetId, assets[].url, model, provider
-[patterns] OUTPUTS_UNBOUNDED_FIELDS (image-to-video): assets[].assetId, assets[].url, model, provider
+[patterns] OUTPUTS_UNBOUNDED_FIELDS (text-generation): text
 
 Run 1 — cold
-  input {"prompt":"a red bicycle","motion":"slow pan"}  →  meta job 4a6e1fdd (done), 1212 ms across steps
-  step      pattern           ms     childJobId  assets
-  describe  text-generation   304    d9c83055
-  render    text-to-image     504    1e021875    img-1
-  animate   image-to-video    404    66d2af3b    clip-1
+  input {"prompt":"a red bicycle","motion":"slow pan"}  →  meta job e6a7ba18 (done), 1207 ms across steps
+  step      pattern           ms     childJobId  assets    
+  describe  text-generation   303    5f59d85e              
+  render    text-to-image     502    0558e637    img-1     
+  animate   image-to-video    402    41dcc44c    clip-1    
   rows inserted this run: meta_short-clip, text-generation, text-to-image, image-to-video
   output: "Still of a red bicycle: centred in frame, soft morning light, shallow depth of field." → still img-1 → clip clip-1
 
 Run 2 — same session, motion changed
-  input {"prompt":"a red bicycle","motion":"orbit"}  →  meta job 59dcf9ca (done), 403 ms across steps
+  input {"prompt":"a red bicycle","motion":"orbit"}  →  meta job 930adc93 (done), 402 ms across steps
   step      pattern           ms     childJobId  assets    cached
-  describe  text-generation   0      d9c83055              yes — same childJobId as run 1, no row inserted
-  render    text-to-image     0      1e021875    img-1     yes — same childJobId as run 1, no row inserted
-  animate   image-to-video    403    2c339f9c    clip-2    no  — new childJobId, row inserted
+  describe  text-generation   0      5f59d85e              yes — same childJobId as run 1, no row inserted
+  render    text-to-image     0      0558e637    img-1     yes — same childJobId as run 1, no row inserted
+  animate   image-to-video    402    e7aae9f2    clip-2    no  — new childJobId, row inserted
   rows inserted this run: meta_short-clip, image-to-video
   output: "Still of a red bicycle: centred in frame, soft morning light, shallow depth of field." → still img-1 → clip clip-2
 
 Run 3 — prompt changed
-  input {"prompt":"a blue kettle","motion":"orbit"}  →  meta job cdfae4cb (done), 1205 ms across steps
+  input {"prompt":"a blue kettle","motion":"orbit"}  →  meta job 64547677 (done), 1203 ms across steps
   step      pattern           ms     childJobId  assets    cached
-  describe  text-generation   302    41c0a421              no  — new childJobId, row inserted
-  render    text-to-image     502    f1a46c44    img-2     no  — new childJobId, row inserted
-  animate   image-to-video    401    c443c902    clip-3    no  — new childJobId, row inserted
+  describe  text-generation   300    3b3683e3              no  — new childJobId, row inserted
+  render    text-to-image     502    7b0cc0a1    img-2     no  — new childJobId, row inserted
+  animate   image-to-video    401    325c16df    clip-3    no  — new childJobId, row inserted
   rows inserted this run: meta_short-clip, text-generation, text-to-image, image-to-video
   output: "Still of a blue kettle: centred in frame, soft morning light, shallow depth of field." → still img-2 → clip clip-3
 
 Second runtime over the same store — abandonOrphanedJobs() found 0 row(s) mid-flight
 
 Run 4 — second runtime, run 1 prompt, new motion
-  input {"prompt":"a red bicycle","motion":"dolly zoom"}  →  meta job 532bfffb (done), 402 ms across steps
+  input {"prompt":"a red bicycle","motion":"dolly zoom"}  →  meta job c5dfbb45 (done), 401 ms across steps
   step      pattern           ms     childJobId  assets    cached
-  describe  text-generation   0      d9c83055              yes — same childJobId as run 1, no row inserted
-  render    text-to-image     0      1e021875    img-1     yes — same childJobId as run 1, no row inserted
-  animate   image-to-video    402    33c1ad45    clip-4    no  — new childJobId, row inserted
+  describe  text-generation   0      5f59d85e              yes — same childJobId as run 1, no row inserted
+  render    text-to-image     0      0558e637    img-1     yes — same childJobId as run 1, no row inserted
+  animate   image-to-video    401    80f75376    clip-4    no  — new childJobId, row inserted
   rows inserted this run: meta_short-clip, image-to-video
   output: "Still of a red bicycle: centred in frame, soft morning light, shallow depth of field." → still img-1 → clip clip-4
 
@@ -94,10 +92,10 @@ What breaks it: a different sessionId. The key never crosses a session, so run 1
   new key too.
 ```
 
-The three `OUTPUTS_UNBOUNDED_FIELDS` lines are the registry's authoring lint
-firing on the shipped atomics' own outputs schemas; the meta in this example
-uses the bounded vocabulary (`boundedText` / `assetIdField` / `urlField`) and
-is not flagged.
+The `OUTPUTS_UNBOUNDED_FIELDS` line is the registry's authoring lint firing
+on `text-generation`'s unbounded `text` output; the meta in this example uses
+the bounded vocabulary (`boundedText` / `assetIdField` / `urlField`) and is
+not flagged.
 
 ### How "cached" is decided
 
