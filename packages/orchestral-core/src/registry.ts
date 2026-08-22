@@ -8,6 +8,7 @@ import { DEFAULT_AGENT_FINISH_SPEC, defaultAgentFinishOutputs } from './agent-fi
 import { idCarriesKind, ManifestError, OrchestralManifestSchema } from './manifest'
 import { auditOutputsSchema } from './output-fields'
 import { consoleDiagnosticsLogger, type DiagnosticsLogger } from './logger'
+import { FIRST_PARTY_CAPABILITIES } from './capability'
 
 /**
  * In-memory pattern lookup. Host code registers concrete Pattern instances
@@ -47,11 +48,11 @@ export class PatternRegistry {
     Alternative<unknown, unknown>[]
   >()
   /**
-   * Where the registry's non-fatal findings go — today, the two authoring
-   * lints `register` runs over a pattern's outputs schema. They are addressed
-   * to the developer wiring patterns up, so the console is the right default;
-   * a host with its own diagnostics channel, or a test that wants silence,
-   * injects a `DiagnosticsLogger` instead.
+   * Where the registry's non-fatal findings go — today, the authoring lints
+   * `register` runs: two over a pattern's outputs schema, one over an atomic's
+   * id. They are addressed to the developer wiring patterns up, so the
+   * console is the right default; a host with its own diagnostics channel, or
+   * a test that wants silence, injects a `DiagnosticsLogger` instead.
    */
   private readonly logger: DiagnosticsLogger
 
@@ -197,6 +198,25 @@ export class PatternRegistry {
           `[patterns] OUTPUTS_UNAUDITED_FIELDS (${pattern.id}): ${audit.notTraversed.join(', ')}`,
         )
       }
+    }
+    // Registration-time authoring lint (warn-only), same channel: an atomic's
+    // id IS its capability — `Pattern.id ≡ Capability` is the equation the
+    // runtime dispatches on — and `Capability` is open, so two packages that
+    // each ship a `video-concat` are the same key here. The second to load
+    // fails on PATTERN_ALREADY_REGISTERED above, with nothing in either
+    // manifest to say why. A capability core does not name is namespaced by
+    // its vendor instead: `<vendor>__<capability>` (`acme__video-concat`) —
+    // a separator no first-party id uses, still a legal tool name, and the
+    // shape MCP gives a server's tools. Warned, not refused: a host that
+    // loads exactly one such package has nothing to fix, and the line is
+    // addressed to the package's author.
+    if (pattern.kind === 'atomic' && !isNamespacedCapability(pattern.id)) {
+      this.logger.warn(
+        `[patterns] CAPABILITY_NOT_NAMESPACED (${pattern.id}): not a first-party ` +
+          `capability and carries no vendor prefix — another package's ` +
+          `"${pattern.id}" would collide with it in the registry; name it ` +
+          `<vendor>__${pattern.id}`,
+      )
     }
     this.byId.set(pattern.id, pattern as Pattern)
     this.byShortName.set(dn, pattern.id)
@@ -606,6 +626,18 @@ const EMPTY_PATTERNS: readonly Pattern[] = []
 function shortNameOf(patternId: PatternId): string {
   const idx = patternId.lastIndexOf('/')
   return idx === -1 ? patternId : patternId.slice(idx + 1)
+}
+
+const FIRST_PARTY_CAPABILITY_SET: ReadonlySet<string> = new Set(FIRST_PARTY_CAPABILITIES)
+
+/**
+ * A capability name that cannot collide with another package's: one core
+ * defines, or `<vendor>__<capability>` with both halves present.
+ */
+function isNamespacedCapability(id: string): boolean {
+  if (FIRST_PARTY_CAPABILITY_SET.has(id)) return true
+  const sep = id.indexOf('__')
+  return sep > 0 && sep + 2 < id.length
 }
 
 /** What a factory actually returned, for the mismatch error message. */

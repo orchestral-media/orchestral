@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import type { z } from 'zod'
 
 import type {
+  AskUserGeneric,
   ExecutionContext,
   MetaPattern,
   PatternRef,
   StepOptions,
 } from '@orchestral/core'
+import { buildAskUserFacade } from '@orchestral/core'
 import {
   createStoryboardMeta,
   StoryboardInputSchema,
@@ -33,15 +36,36 @@ interface RecordedStep {
  *
  * `compute` just runs the fn (parallel() leans on it being awaited, but the
  * meta uses ctx.step + parallel over the panel promises directly).
+ *
+ * `askUser` answers the render gate (`confirmAnswer`, default confirmed) and
+ * records it; `timeline` interleaves step dispatches with askUser parks so a
+ * test can assert what ran before the gate. `designXml` scripts the JSON→XML
+ * fallback: the json-mode design call throws and the text-mode one returns
+ * the XML.
  */
 function makeCtx(
-  opts: { designJson?: string; emptyI2iAssets?: boolean; designCost?: number } = {},
+  opts: {
+    designJson?: string
+    designXml?: string
+    emptyI2iAssets?: boolean
+    designCost?: number
+    confirmAnswer?: boolean
+  } = {},
 ) {
   const recorded: RecordedStep[] = []
+  const askUserCalls: Array<{ kind: string; payload: unknown }> = []
+  const timeline: string[] = []
   let i2iCount = 0
   let bestOfNCount = 0
+  const rawBridge = async (o: { kind: string; payload: unknown }) => {
+    askUserCalls.push({ kind: o.kind, payload: o.payload })
+    timeline.push(`ask:${o.kind}`)
+    if (o.kind === 'confirm') return { confirmed: opts.confirmAnswer ?? true }
+    throw new Error(`unexpected askUser kind ${o.kind}`)
+  }
   const ctx = {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
+    askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     step: async <T>(ref: PatternRef, options?: StepOptions): Promise<T> => {
       recorded.push({
         patternId: ref.patternId,
@@ -49,10 +73,15 @@ function makeCtx(
         assets: ref.assets,
         stepOptions: options,
       })
+      timeline.push(`step:${ref.patternId}`)
       if (ref.patternId === 'text-generation') {
+        const fmt = (ref.input as { responseFormat?: string }).responseFormat
+        if (opts.designXml !== undefined && fmt === 'json') {
+          throw new Error('STRUCTURED_OUTPUT_MISSING: model returned no schema-shaped output')
+        }
         return {
           modality: 'text',
-          text: opts.designJson ?? '{"storyboard":[]}',
+          text: opts.designXml ?? opts.designJson ?? '{"storyboard":[]}',
           cost: opts.designCost ?? 0.03,
           latencyMs: 10,
           model: 'test:llm',
@@ -85,7 +114,7 @@ function makeCtx(
       } as unknown as T
     },
   } as unknown as ExecutionContext
-  return { ctx, recorded }
+  return { ctx, recorded, askUserCalls, timeline }
 }
 
 /**
@@ -195,6 +224,8 @@ function makeRecursiveCtx(designJson: string) {
 
     return {
       compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
+      // The render gate, confirmed — this harness is about stepId namespacing.
+      askUser: { confirm: async () => true },
       step: step as ExecutionContext['step'],
     } as unknown as ExecutionContext
   }
@@ -221,6 +252,11 @@ const shot = (
   audio_desc: opts.audio_desc ?? '',
 })
 
+// compose() is typed on the parsed input, where the `.default()` fields are
+// set; a test writes only what it means to set and parses the rest in.
+const inputOf = (i: z.input<typeof StoryboardInputSchema>): StoryboardInput =>
+  StoryboardInputSchema.parse(i)
+
 describe('meta_storyboard', () => {
   it('designs the storyboard via the storyboard-design prompt + json mode, injecting the roster + scene', async () => {
     const meta = createStoryboardMeta()
@@ -233,11 +269,11 @@ describe('meta_storyboard', () => {
 
     await meta.compose(
       {
-        input: {
+        input: inputOf({
           scene: 'a duel unfolds at the temple gate',
           characters: CHARACTERS,
           userRequirement: 'no more than 6 shots; cinematic realism',
-        },
+        }),
       },
       ctx,
     )
@@ -265,22 +301,43 @@ describe('meta_storyboard', () => {
     expect(tg.prompt).toContain('no more than 6 shots; cinematic realism')
   })
 
-  it('omits <USER_REQUIREMENT> when no userRequirement is supplied', async () => {
+  it('tells the design model the shot bound through <USER_REQUIREMENT>, after the caller\'s own requirement', async () => {
     const meta = createStoryboardMeta()
     const designJson = JSON.stringify({
       storyboard: [shot(0, '<仙姬> close-up, facing the camera.')],
     })
-    const { ctx, recorded } = makeCtx({ designJson })
+    const designPrompt = (recorded: RecordedStep[]) =>
+      (recorded.find((r) => r.patternId === 'text-generation')!.input as { prompt: string })
+        .prompt
 
+    // No requirement of the caller's own: the block carries the bound alone,
+    // at its default — the shared prompt reads "desired number of shots"
+    // from exactly this block, so it is never omitted.
+    const bare = makeCtx({ designJson })
     await meta.compose(
-      { input: { scene: 'a quiet moment', characters: CHARACTERS } },
-      ctx,
+      { input: inputOf({ scene: 'a quiet moment', characters: CHARACTERS }) },
+      bare.ctx,
+    )
+    expect(designPrompt(bare.recorded)).toContain(
+      '<USER_REQUIREMENT>\nUse at most 12 shots.\n</USER_REQUIREMENT>',
     )
 
-    const tg = recorded.find((r) => r.patternId === 'text-generation')!.input as {
-      prompt: string
-    }
-    expect(tg.prompt).not.toContain('<USER_REQUIREMENT>')
+    // With one: the caller's text first, the bound under it.
+    const both = makeCtx({ designJson })
+    await meta.compose(
+      {
+        input: inputOf({
+          scene: 'a quiet moment',
+          characters: CHARACTERS,
+          userRequirement: 'cartoon, for children',
+          maxShots: 5,
+        }),
+      },
+      both.ctx,
+    )
+    expect(designPrompt(both.recorded)).toContain(
+      '<USER_REQUIREMENT>\ncartoon, for children\nUse at most 5 shots.\n</USER_REQUIREMENT>',
+    )
   })
 
   it('feeds EVERY on-screen character\'s refs (extracted from visual_desc <Name> tags) into the panel i2i source[] (two characters in one shot keep both)', async () => {
@@ -297,7 +354,7 @@ describe('meta_storyboard', () => {
     const { ctx, recorded } = makeCtx({ designJson })
 
     const out = await meta.compose(
-      { input: { scene: 'two rivals meet at the gate', characters: CHARACTERS } },
+      { input: inputOf({ scene: 'two rivals meet at the gate', characters: CHARACTERS }) },
       ctx,
     )
 
@@ -362,7 +419,7 @@ describe('meta_storyboard', () => {
     const { ctx } = makeCtx({ designJson, designCost: Number.NaN })
 
     const out = await meta.compose(
-      { input: { scene: 'a quiet moment', characters: CHARACTERS } },
+      { input: inputOf({ scene: 'a quiet moment', characters: CHARACTERS }) },
       ctx,
     )
 
@@ -384,7 +441,7 @@ describe('meta_storyboard', () => {
     const { ctx, recorded } = makeCtx({ designJson })
 
     await meta.compose(
-      { input: { scene: 'three beats with 仙姬', characters: CHARACTERS } },
+      { input: inputOf({ scene: 'three beats with 仙姬', characters: CHARACTERS }) },
       ctx,
     )
 
@@ -411,7 +468,7 @@ describe('meta_storyboard', () => {
     const { ctx, recorded } = makeCtx({ designJson })
 
     const out = await meta.compose(
-      { input: { scene: 's', characters: CHARACTERS } },
+      { input: inputOf({ scene: 's', characters: CHARACTERS }) },
       ctx,
     )
 
@@ -432,7 +489,7 @@ describe('meta_storyboard', () => {
 
     const out = await meta.compose(
       {
-        input: { scene: 'quality matters', characters: CHARACTERS, bestOfN: 3 },
+        input: inputOf({ scene: 'quality matters', characters: CHARACTERS, bestOfN: 3 }),
       },
       ctx,
     )
@@ -493,11 +550,11 @@ describe('meta_storyboard', () => {
 
     const out = await meta.compose(
       {
-        input: {
+        input: inputOf({
           scene: 'two beats, quality-gated',
           characters: CHARACTERS,
           bestOfN: 2,
-        },
+        }),
       },
       ctx,
     )
@@ -531,7 +588,7 @@ describe('meta_storyboard', () => {
 
     await expect(
       meta.compose(
-        { input: { scene: 'mystery guest', characters: CHARACTERS } },
+        { input: inputOf({ scene: 'mystery guest', characters: CHARACTERS }) },
         ctx,
       ),
     ).rejects.toThrow(/STORYBOARD_UNKNOWN_CHARACTER.*幽灵/)
@@ -548,7 +605,7 @@ describe('meta_storyboard', () => {
 
     await expect(
       meta.compose(
-        { input: { scene: 'empty room', characters: CHARACTERS } },
+        { input: inputOf({ scene: 'empty room', characters: CHARACTERS }) },
         ctx,
       ),
     ).rejects.toThrow(/STORYBOARD_NO_SOURCE: panel 0/)
@@ -588,7 +645,7 @@ describe('meta_storyboard', () => {
 
     await expect(
       meta.compose(
-        { input: { scene: 'a duel unfolds', characters: CHARACTERS } },
+        { input: inputOf({ scene: 'a duel unfolds', characters: CHARACTERS }) },
         ctx,
       ),
     ).rejects.toThrow(/STORYBOARD_DECOMPOSE_FAILED/)
@@ -601,7 +658,7 @@ describe('meta_storyboard', () => {
 
     await expect(
       meta.compose(
-        { input: { scene: 'a duel unfolds', characters: CHARACTERS } },
+        { input: inputOf({ scene: 'a duel unfolds', characters: CHARACTERS }) },
         ctx,
       ),
     ).rejects.toThrow(/STORYBOARD_DECOMPOSE_FAILED/)
@@ -614,7 +671,7 @@ describe('meta_storyboard', () => {
 
     await expect(
       meta.compose(
-        { input: { scene: 'nothing happens', characters: CHARACTERS } },
+        { input: inputOf({ scene: 'nothing happens', characters: CHARACTERS }) },
         ctx,
       ),
     ).rejects.toThrow(/STORYBOARD_DECOMPOSE_FAILED/)
@@ -629,7 +686,7 @@ describe('meta_storyboard', () => {
 
     await expect(
       meta.compose(
-        { input: { scene: 'one beat', characters: CHARACTERS } },
+        { input: inputOf({ scene: 'one beat', characters: CHARACTERS }) },
         ctx,
       ),
     ).rejects.toThrow(/STORYBOARD_EMPTY_PANEL: panel 0/)
@@ -647,6 +704,7 @@ describe('meta_storyboard', () => {
     let i2i = 0
     const ctx = {
       compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
+      askUser: { confirm: async () => true },
       step: async <T>(
         ref: { patternId: string; input: unknown },
         options?: { stepId?: string },
@@ -679,7 +737,7 @@ describe('meta_storyboard', () => {
     } as unknown as ExecutionContext
 
     const out = await meta.compose(
-      { input: { scene: 'a duel at the gate', characters: CHARACTERS } },
+      { input: inputOf({ scene: 'a duel at the gate', characters: CHARACTERS }) },
       ctx,
     )
 
@@ -724,8 +782,212 @@ describe('meta_storyboard', () => {
     } as unknown as ExecutionContext
 
     await expect(
-      meta.compose({ input: { scene: 's', characters: CHARACTERS } }, ctx),
+      meta.compose({ input: inputOf({ scene: 's', characters: CHARACTERS }) }, ctx),
     ).rejects.toThrow(/STORYBOARD_DECOMPOSE_FAILED/)
+  })
+
+  // ── spend is bounded and confirmed before the first paid render ─────────
+
+  it('refuses a storyboard longer than maxShots with a coded error before any render or gate', async () => {
+    const meta = createStoryboardMeta()
+    const designJson = JSON.stringify({
+      storyboard: [shot(0, '<仙姬> beat 1'), shot(1, '<仙姬> beat 2', { is_last: true })],
+    })
+    const { ctx, recorded, askUserCalls } = makeCtx({ designJson })
+
+    let err: (Error & { code?: string }) | undefined
+    try {
+      await meta.compose(
+        { input: inputOf({ scene: 'two beats', characters: CHARACTERS, maxShots: 1 }) },
+        ctx,
+      )
+    } catch (e) {
+      err = e as Error & { code?: string }
+    }
+    expect(err?.code).toBe('STORYBOARD_SHOT_CAP_EXCEEDED')
+    expect(err?.message).toContain('plans 2 shots')
+    expect(err?.message).toContain('maxShots is 1')
+    // Refused, not sliced: the design call is the only dispatch, nobody was
+    // asked to pay for a storyboard that is not the one they bounded.
+    expect(recorded.map((r) => r.patternId)).toEqual(['text-generation'])
+    expect(askUserCalls).toHaveLength(0)
+  })
+
+  it('asks one confirm stating the exact counts, after the design step and before the first paid render', async () => {
+    const meta = createStoryboardMeta()
+    const designJson = JSON.stringify({
+      storyboard: [
+        shot(0, '<仙姬> beat 1'),
+        shot(1, '<张院君> beat 2'),
+        shot(2, '<仙姬> beat 3', { is_last: true, cam_idx: 1 }),
+      ],
+    })
+    const { ctx, recorded, askUserCalls, timeline } = makeCtx({ designJson })
+
+    await meta.compose(
+      { input: inputOf({ scene: 'three beats', characters: CHARACTERS }) },
+      ctx,
+    )
+
+    // 3 shots, one image-to-image each → 3 images, no judge.
+    expect(askUserCalls).toHaveLength(1)
+    expect(askUserCalls[0]!.kind).toBe('confirm')
+    const payload = askUserCalls[0]!.payload as { title: string; body: string }
+    expect(payload.title).toBe('Render 3 shots, 3 images, and 0 judge calls?')
+    expect(payload.body).toContain('One image-to-image render per shot')
+    expect(payload.body).toContain('1. [cam 0] <仙姬> beat 1')
+    expect(payload.body).toContain('3. [cam 1] <仙姬> beat 3')
+    expect(recorded.filter((r) => r.patternId === 'image-to-image')).toHaveLength(3)
+
+    // Ordering: the design step precedes the gate; every paid image step
+    // follows it.
+    const gateAt = timeline.indexOf('ask:confirm')
+    expect(gateAt).toBeGreaterThan(0)
+    for (const [i, entry] of timeline.entries()) {
+      if (entry === 'step:text-generation') expect(i).toBeLessThan(gateAt)
+      if (entry.startsWith('step:') && entry !== 'step:text-generation') {
+        expect(i).toBeGreaterThan(gateAt)
+      }
+    }
+  })
+
+  it('states shots × bestOfN images and one judge call per shot when bestOfN is set', async () => {
+    const meta = createStoryboardMeta()
+    const designJson = JSON.stringify({
+      storyboard: [shot(0, '<仙姬> beat 1'), shot(1, '<仙姬> beat 2', { is_last: true })],
+    })
+    const { ctx, askUserCalls, timeline } = makeCtx({ designJson })
+
+    await meta.compose(
+      { input: inputOf({ scene: 'two beats', characters: CHARACTERS, bestOfN: 3 }) },
+      ctx,
+    )
+
+    // 2 shots × 3 candidates → 6 images; best-of-n judges once per shot.
+    const payload = askUserCalls[0]!.payload as { title: string; body: string }
+    expect(payload.title).toBe('Render 2 shots, 6 images, and 2 judge calls?')
+    expect(payload.body).toContain('3 image-to-image candidates per shot')
+    expect(payload.body).toContain('one judge call per shot')
+
+    // Every best-of-n fan-out follows the gate.
+    const gateAt = timeline.indexOf('ask:confirm')
+    expect(timeline.indexOf('step:text-generation')).toBeLessThan(gateAt)
+    const bestOfAt = timeline
+      .map((e, i) => (e === 'step:meta_image-best-of-n' ? i : -1))
+      .filter((i) => i >= 0)
+    expect(bestOfAt).toHaveLength(2)
+    for (const i of bestOfAt) expect(i).toBeGreaterThan(gateAt)
+  })
+
+  it('asks after the XML fallback has produced the storyboard, not after the failed json attempt', async () => {
+    const meta = createStoryboardMeta()
+    const xml = `<storyboard>
+      <shot><idx>0</idx><is_last>true</is_last><cam_idx>0</cam_idx>
+        <visual_desc>Wide shot. <张院君> at the gate, facing right.</visual_desc>
+        <audio_desc></audio_desc></shot>
+    </storyboard>`
+    const { ctx, askUserCalls, timeline } = makeCtx({ designXml: xml })
+
+    const out = await meta.compose(
+      { input: inputOf({ scene: 'a duel at the gate', characters: CHARACTERS }) },
+      ctx,
+    )
+
+    // Both design attempts precede the one gate; the render follows it.
+    expect(timeline).toEqual([
+      'step:text-generation',
+      'step:text-generation',
+      'ask:confirm',
+      'step:image-to-image',
+    ])
+    expect((askUserCalls[0]!.payload as { title: string }).title).toBe(
+      'Render 1 shots, 1 images, and 0 judge calls?',
+    )
+    expect(out.assets).toHaveLength(1)
+  })
+
+  it('declined gate → no paid render, empty assets, the designed panels, cost = design only', async () => {
+    const meta = createStoryboardMeta()
+    const designJson = JSON.stringify({
+      storyboard: [
+        shot(0, '<仙姬> beat 1'),
+        shot(1, '<张院君> faces <仙姬>', { is_last: true, cam_idx: 1, audio_desc: '[SFX] wind' }),
+      ],
+    })
+    const { ctx, recorded, askUserCalls } = makeCtx({ designJson, confirmAnswer: false })
+
+    const out = await meta.compose(
+      { input: inputOf({ scene: 'two beats', characters: CHARACTERS }) },
+      ctx,
+    )
+
+    expect(askUserCalls.map((c) => c.kind)).toEqual(['confirm'])
+    expect(recorded.map((r) => r.patternId)).toEqual(['text-generation'])
+    expect(out.assets).toEqual([])
+    // The plan the user declined to pay for is still returned: it was paid
+    // for, and it is what the declined counts were stated over.
+    expect(out.panels.map((p) => p.shotIndex)).toEqual([0, 1])
+    expect(out.panels[1]).toEqual({
+      shotIndex: 1,
+      visualDesc: '<张院君> faces <仙姬>',
+      audioDesc: '[SFX] wind',
+      camIdx: 1,
+      characterNames: ['张院君', '仙姬'],
+    })
+    expect(out.cost).toBeCloseTo(0.03)
+    expect(StoryboardOutputSchema.safeParse(out).success).toBe(true)
+  })
+
+  it('confirmBeforeRender: false skips the gate for a headless caller and renders', async () => {
+    const meta = createStoryboardMeta()
+    const designJson = JSON.stringify({
+      storyboard: [shot(0, '<仙姬> beat 1'), shot(1, '<仙姬> beat 2', { is_last: true })],
+    })
+    const { ctx, recorded, askUserCalls } = makeCtx({ designJson })
+
+    const out = await meta.compose(
+      {
+        input: inputOf({
+          scene: 'two beats',
+          characters: CHARACTERS,
+          confirmBeforeRender: false,
+        }),
+      },
+      ctx,
+    )
+
+    expect(askUserCalls).toHaveLength(0)
+    expect(recorded.filter((r) => r.patternId === 'image-to-image')).toHaveLength(2)
+    expect(out.assets.map((a) => a.label)).toEqual(['panel-0', 'panel-1'])
+  })
+
+  it('plans every panel before the gate: a shot tagging an unknown character fails closed with zero asks', async () => {
+    const meta = createStoryboardMeta()
+    const designJson = JSON.stringify({
+      storyboard: [shot(0, '<仙姬> beat 1'), shot(1, '<幽灵> appears', { is_last: true })],
+    })
+    const { ctx, recorded, askUserCalls } = makeCtx({ designJson })
+
+    await expect(
+      meta.compose({ input: inputOf({ scene: 'mystery guest', characters: CHARACTERS }) }, ctx),
+    ).rejects.toThrow(/STORYBOARD_UNKNOWN_CHARACTER.*幽灵/)
+
+    // Panel 0 was renderable; the user was still never asked to pay for it,
+    // because a storyboard that cannot complete is refused whole.
+    expect(askUserCalls).toHaveLength(0)
+    expect(recorded.map((r) => r.patternId)).toEqual(['text-generation'])
+  })
+
+  it('schema defaults: maxShots 12, confirmBeforeRender true; maxShots is bounded', () => {
+    const parsed = StoryboardInputSchema.parse({ scene: 'x', characters: CHARACTERS })
+    expect(parsed.maxShots).toBe(12)
+    expect(parsed.confirmBeforeRender).toBe(true)
+    const withMax = (maxShots: number) =>
+      StoryboardInputSchema.safeParse({ scene: 'x', characters: CHARACTERS, maxShots }).success
+    expect(withMax(0)).toBe(false)
+    expect(withMax(1)).toBe(true)
+    expect(withMax(24)).toBe(true)
+    expect(withMax(25)).toBe(false)
   })
 
   it('declares a meta Pattern with stable id, kind, and discovery tokens', () => {
