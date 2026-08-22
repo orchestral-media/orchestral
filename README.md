@@ -50,17 +50,22 @@ Neither pulls in a provider SDK.
 schemas on the public API, so your app and Orchestral must share one zod
 instance.
 
-Two runnable hosts live in this repo:
+Three runnable hosts live in this repo:
 
 - [`examples/atomic-hello-world`](examples/atomic-hello-world) — one atomic
   `text-to-image` dispatch, with the whole provider bridge in `src/ai-sdk-wiring.ts`.
 - [`examples/agent-hello-world`](examples/agent-hello-world) — an agent-kind
   dispatch: an LLM tool-loop that picks and runs patterns.
+- [`examples/incremental-rerun`](examples/incremental-rerun) — a three-step
+  meta re-submitted with one input changed: the unchanged steps come back from
+  the `JobStore` under their original child job ids, only the changed step and
+  its downstream re-run. Mock models, no key.
 
 ```sh
 pnpm install
 pnpm --filter atomic-hello-world start   # needs OPENAI_API_KEY
 pnpm --filter atomic-hello-world test    # no key: same wiring, mock model
+pnpm --filter incremental-rerun start    # no key: content-addressed re-run, mock models
 ```
 
 ## Minimal example

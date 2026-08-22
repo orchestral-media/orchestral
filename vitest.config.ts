@@ -14,6 +14,7 @@ export default defineConfig({
       './packages/orchestral-dsh-plugin/vitest.config.ts',
       './examples/atomic-hello-world/vitest.config.ts',
       './examples/agent-hello-world/vitest.config.ts',
+      './examples/incremental-rerun/vitest.config.ts',
     ],
     coverage: {
       provider: 'v8',
