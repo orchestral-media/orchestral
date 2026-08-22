@@ -2,25 +2,38 @@
 //
 // Turn a single-scene script into a video clip via an 8-stage DAG.
 //   1. character-extraction        (text-generation)   — skip if provided
-//   2. portrait-{front,side,back}  (3-view per visible character ∥:
+//   2. storyboard-design           (text-generation; refused past maxShots)
+//   3. shot-visual-decomposition   (text-generation, ∥ per shot)
+//      ∥ camera-tree-construction  (text-generation; keyed by cam_idx and
+//                                   checked against the storyboard, consumed
+//                                   by Stage 6 to route child shots through
+//                                   image-to-image with their parent shot's
+//                                   first frame as visual source)
+//   4. render gate                 (ctx.askUser.confirm stating the exact
+//                                   portrait / frame / clip counts; skipped
+//                                   only on confirmBeforeRender: false)
+//   5. portrait-{front,side,back}  (3-view per visible character ∥:
 //                                   front = text-to-image,
 //                                   side = image-to-image (ref = front),
 //                                   back = image-to-image (ref = front))
-//   3. storyboard-design           (text-generation)
-//   4. shot-visual-decomposition   (text-generation, ∥ per shot)
-//   5. camera-tree-construction    (text-generation; consumed by Stage 6 to
-//                                   route child shots through image-to-image
-//                                   with their parent shot's first frame as
-//                                   visual source)
 //   6. cinematic-shot-framing      (per shot, sequential by parent→child:
 //                                    root shot  = text-to-image (char portraits)
 //                                    child shot = image-to-image (parent frame
-//                                                 as source + missing_info hint))
-//   7. i2v-shot-single             (image-to-video, ∥ per shot, startFrame=frame;
+//                                                 as source + missing_info hint);
+//                                   a medium/large-variation shot renders its
+//                                   last frame the same way, ∥ with the first)
+//   7. i2v-shot-single             (image-to-video, ∥ per shot, startFrame=frame,
+//                                   endFrame=last frame where one was rendered;
 //                                   under transitionMode 'between-shots', N-1
 //                                   extra clips render via i2v-shot-transition
 //                                   and interleave into the concat order)
 //   8. concatenate                 (host op — injected, no HF capability)
+//
+// Nothing paid beyond text-generation runs before Stage 4. The storyboard is
+// planned, decomposed, and checked against maxShots and the camera tree
+// first, so the gate can state the real counts and a refusal costs only the
+// planning calls. Portraits therefore render after the gate, not before the
+// storyboard as they once did.
 //
 // FIDELITY NOTE: Stage 6 uses image-to-image primary for child shots (the
 // primary path supported by modern multi-modal image-edit-capable models).
@@ -90,28 +103,47 @@ const ShotBriefSchema = z.object({
   visual_desc: z.string(),
   audio_desc: z.string(),
 })
-const StoryboardResponseSchema = z.object({ storyboard: z.array(ShotBriefSchema) })
+type ShotBrief = z.infer<typeof ShotBriefSchema>
+// `.min(1)`: an empty storyboard would reach Stage 8 as a concat of nothing.
+const StoryboardResponseSchema = z.object({ storyboard: z.array(ShotBriefSchema).min(1) })
 
-const ShotDecompositionSchema = z.object({
+/**
+ * Stage 3 output per shot — mirrors SHOT_VISUAL_DECOMPOSITION_PROMPT's
+ * [Output]. Every key here has a reader in compose(): the `ff_*` pair drives
+ * the first frame, the `lf_*` pair the optional last frame, `motion_desc` is
+ * the clip prompt, and `variation_type` decides whether the last frame is
+ * rendered at all. The model is paid per output token, so a key nothing reads
+ * is money spent on nothing — which is what `lf_desc`, `lf_vis_char_idxs`,
+ * and `variation_type` were until the last frame was wired, and what
+ * `variation_reason` (a justification written after the decision it
+ * justified) was until it was dropped from the schema and the prompt. The
+ * source-level test in meta-script2video.test.ts holds that line; this is
+ * exported for it, not re-exported from the package.
+ */
+export const ShotDecompositionSchema = z.object({
   ff_desc: z.string(),
   ff_vis_char_idxs: z.array(z.number().int()),
   lf_desc: z.string(),
   lf_vis_char_idxs: z.array(z.number().int()),
   motion_desc: z.string(),
   variation_type: z.enum(['large', 'medium', 'small']),
-  variation_reason: z.string(),
 })
+type ShotDecomposition = z.infer<typeof ShotDecompositionSchema>
 
-// Camera-tree response schema — Stage 5 output, consumed by Stage 6 to
+// Camera-tree response schema — Stage 3 output, consumed by Stage 6 to
 // route child shots through image-to-image with their parent's first frame.
 // Mirrors CAMERA_TREE_CONSTRUCTION_PROMPT's [Output] shape:
 //   { camera_parent_items: [
-//       { parent_cam_idx | null, parent_shot_idx | null,
+//       { cam_idx, parent_cam_idx | null, parent_shot_idx | null,
 //         reason?, is_parent_fully_covers_child | null,
 //         missing_info | null }
 //     ] }
-// One entry per camera (indexed by cam_idx); root entries have null parents.
+// Exactly one entry per camera the storyboard uses, matched by the `cam_idx`
+// the model echoes — never by array position (see indexCameraTree). A root
+// or free-standing camera is an entry with null parent fields, not a null
+// entry: a null carries no index to match on.
 const CameraParentItemSchema = z.object({
+  cam_idx: z.number().int(),
   parent_cam_idx: z.number().int().nullable(),
   parent_shot_idx: z.number().int().nullable(),
   reason: z.string().optional(),
@@ -119,15 +151,13 @@ const CameraParentItemSchema = z.object({
   missing_info: z.string().nullable().optional(),
 })
 type CameraParentItem = z.infer<typeof CameraParentItemSchema>
-// CAMERA_TREE_CONSTRUCTION_PROMPT explicitly allows "null entries ... for
-// free-standing cameras" — camera positions with no parent and no children.
-// They appear at the same array index as the corresponding `cam_idx`, just
-// signalling "root / orphan, no parent shot to consult".
 const CameraTreeResponseSchema = z.object({
-  camera_parent_items: z.array(CameraParentItemSchema.nullable()),
+  camera_parent_items: z.array(CameraParentItemSchema),
 })
 
 // ── Pattern I/O ────────────────────────────────────────────────────────────
+
+const DEFAULT_MAX_SHOTS = 12
 
 export const ScriptToVideoInputSchema = z.object({
   sceneScript: z
@@ -143,15 +173,44 @@ export const ScriptToVideoInputSchema = z.object({
     .array(CharacterInSceneSchema)
     .optional()
     .describe('Pre-extracted characters; when present, stage 1 is skipped.'),
+  // The spend of this meta used to be whatever the storyboard model decided:
+  // no input bounded the shot count, and every shot is at least one image and
+  // one clip. The bound is told to the planning model and enforced after it
+  // answers; the ceiling on the field itself is a sanity bound on an
+  // LLM-filled number, not a product limit.
+  maxShots: z
+    .number()
+    .int()
+    .min(1)
+    .max(24)
+    .default(DEFAULT_MAX_SHOTS)
+    .describe(
+      'Upper bound on storyboard shots. The storyboard step decides how many shots the scene needs and is told this bound; a storyboard that still exceeds it is refused (SCRIPT2VIDEO_SHOT_CAP_EXCEEDED) before any image or video is rendered. Each shot costs one first frame and one clip, plus a last frame when its motion is a medium/large change and, with transitionMode "between-shots", N-1 transition clips across the scene.',
+    ),
+  // `.default('none')` alone: the field is optional on the way in and always
+  // set on the way out. The earlier `.default('none').optional()` declared
+  // both that a missing value becomes 'none' and that the parsed value may be
+  // undefined — the second undid the first in the inferred type.
   transitionMode: z
     .enum(['none', 'between-shots'])
     .default('none')
-    .optional()
     .describe(
       'Cross-shot transition rendering. "none" (default) keeps the legacy single-shot path. "between-shots" inserts an N-1 transition clip between each adjacent storyboard shot pair (consumes the i2v-shot-transition skill); raises i2v fan-out to 2N-1 clips before concat.',
     ),
+  confirmBeforeRender: z
+    .boolean()
+    .default(true)
+    .describe(
+      'Pause on a confirm that states the exact render counts (portraits, frames, clips) after planning and before the first paid image or video call. Set false only for a caller that has already bounded the spend through maxShots and has nobody to answer the prompt — on a runtime built without an askUser handler the gate fails with ASK_USER_NOT_SUPPORTED.',
+    ),
 })
 export type ScriptToVideoInput = z.infer<typeof ScriptToVideoInputSchema>
+
+// The dispatch-facing input uses the zod INPUT type (schema-`.default()`
+// fields stay optional — the sub-step dispatch path applies no parse, so a
+// parent meta fills only what it means to set and compose() resolves the
+// rest). Same arrangement as the atomic PatternFns.
+type ScriptToVideoDispatchInput = z.input<typeof ScriptToVideoInputSchema>
 
 // Produced media rides in `assets[]` with a role `label` and nowhere else —
 // see labelledAssetShape for why the projection needs it that way.
@@ -159,9 +218,13 @@ export const ScriptToVideoOutputSchema = z.object({
   assets: z
     .array(z.object(labelledAssetShape('video')))
     .describe(
-      'The produced video: exactly one element, labelled `final-video` — every shot clip (and transition clip, when requested) concatenated in storyboard order.',
+      'The produced video: exactly one element, labelled `final-video` — every shot clip (and transition clip, when requested) concatenated in storyboard order. Empty when the user declined the render gate.',
     ),
-  shotCount: z.number().int().min(0).describe('Number of shots rendered.'),
+  shotCount: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Number of shots rendered; 0 when the user declined the render gate.'),
   ...metaEnvelopeShape,
 })
 export type ScriptToVideoOutput = z.infer<typeof ScriptToVideoOutputSchema>
@@ -170,7 +233,7 @@ export const SCRIPT2VIDEO_PATTERN_ID = 'meta_script2video'
 
 /** Typed `ctx.step` sugar — dispatch this meta from another meta's compose(). */
 export const script2videoMeta = createPatternFn<
-  ScriptToVideoInput,
+  ScriptToVideoDispatchInput,
   ScriptToVideoOutput
 >(SCRIPT2VIDEO_PATTERN_ID)
 
@@ -226,10 +289,10 @@ export function createScript2VideoMeta(
     // can dispatch script→video in one hop (no find_pattern hop).
     exposureMode: 'always-load',
     description:
-      'Turn a scene script into a video: extract characters, design a storyboard, decompose shots, build a camera tree, render first frames, animate each shot, and concatenate.',
+      'Turn a scene script into a video: extract characters, design a storyboard, decompose shots, build a camera tree, confirm the render counts, render first frames, animate each shot, and concatenate.',
     tool: {
       description:
-        'Generate a video from a scene script. Plans characters, storyboard, and per-shot framing, renders a first frame per shot, animates each into a clip, and stitches the clips into one video.',
+        'Generate a video from a scene script. Plans characters, storyboard, and per-shot framing, confirms the render counts with the user, renders a first frame per shot, animates each into a clip, and stitches the clips into one video.',
       inputs: ScriptToVideoInputSchema,
     },
     outputs: ScriptToVideoOutputSchema,
@@ -237,6 +300,11 @@ export function createScript2VideoMeta(
       const { input } = params
       const startedAt = Date.now()
       const styleSuffix = input.style ? `\n\nStyle: ${input.style}` : ''
+      // A nested dispatch hands compose() the input as the parent wrote it,
+      // so the schema defaults are applied here as well as declared above.
+      const maxShots = input.maxShots ?? DEFAULT_MAX_SHOTS
+      const transitionMode = input.transitionMode ?? 'none'
+      const confirmBeforeRender = input.confirmBeforeRender ?? true
 
       // Running total of every paid sub-step's cost. The DAG is deep and
       // heterogeneous (text-gen + image + video across many stages), so we push
@@ -256,77 +324,33 @@ export function createScript2VideoMeta(
         costs.push(charRun.cost)
         characters = charRun.data.characters
       }
-
-      // Stage 2 — 3-view portrait registry per visible character. Each
-      // character runs in parallel; within a character, front (t2i) must
-      // finish before side ∥ back (both i2i, source = front). Front is
-      // the only step that consumes character features — side and back
-      // inherit identity from the front portrait via image-to-image and
-      // never re-state features (avoids identity double-anchoring).
-      //
-      // The registry holds real assetIds (not handles): side/back chain
-      // front's assetId through the internal-asset channel (ref.assets), and
-      // Stage 6 root frames reference the 3-view portraits by assetId too.
-      // image-to-image's `source` slot (assetNeeds: source[]) receives front.
-      //
-      // Image-gen atomics (text-to-image / image-to-image) have no system
-      // slot, so each per-view prompt is folded into the prompt prefix.
       const visible = characters.filter((c) => c.isVisible)
-      const portraitByCharIdx = new Map<
-        number,
-        { front: string; side: string; back: string }
-      >()
-      await parallel(
-        visible.map(async (c) => {
-          // Stage 2a — front view (text-to-image, no reference).
-          const front = await textToImage(ctx, {
-            // No generation overrides — the slimmed atomic defers to the
-            // resolved model's native defaults; this meta consumes only the
-            // first produced still, and a still's dimensions don't drive the
-            // clip output (the image-to-video step owns that).
-            prompt: `${skills.portraitFront}\n\nIdentifier: ${c.identifierInScene}\nFeatures: ${c.staticFeatures} ${c.dynamicFeatures}${styleSuffix}`,
-          })
-          const frontId = firstAssetId(front, 'script2video: step')
 
-          // Stage 2b/2c — side ∥ back (image-to-image, source = front).
-          const [side, back] = await parallel([
-            imageToImage(
-              ctx,
-              {
-                prompt: `${skills.portraitSide}\n\nIdentifier: ${c.identifierInScene}`,
-              },
-              { assets: [{ slot: 'source', assetId: frontId, modality: 'image' }] },
-            ),
-            imageToImage(
-              ctx,
-              {
-                prompt: `${skills.portraitBack}\n\nIdentifier: ${c.identifierInScene}`,
-              },
-              { assets: [{ slot: 'source', assetId: frontId, modality: 'image' }] },
-            ),
-          ])
-          costs.push(front.cost, side.cost, back.cost)
-
-          portraitByCharIdx.set(c.idx, {
-            front: frontId,
-            side: firstAssetId(side, 'script2video: step'),
-            back: firstAssetId(back, 'script2video: step'),
-          })
-        }),
-      )
-
-      // Stage 3 — storyboard.
+      // Stage 2 — storyboard. The shot bound goes to the model as a planning
+      // constraint (the shared prompt reads it from <USER_REQUIREMENT>) and
+      // is enforced on what comes back: a storyboard planned past it is
+      // refused here, before decomposition and before anything is rendered.
+      // Refused rather than sliced — a scene cut at shot N drops its ending,
+      // and the caller asked for a bound, not an abridgement.
       const storyboardRun = await runText(
         skills.storyboard,
-        buildStoryboardPrompt(input.sceneScript, characters, input.userRequirement),
+        buildStoryboardPrompt(input.sceneScript, characters, input.userRequirement, maxShots),
         StoryboardResponseSchema,
         'storyboard',
       )
       costs.push(storyboardRun.cost)
       const { storyboard } = storyboardRun.data
+      if (storyboard.length > maxShots) {
+        throw Object.assign(
+          new Error(
+            `SCRIPT2VIDEO_SHOT_CAP_EXCEEDED: the storyboard plans ${storyboard.length} shots and maxShots is ${maxShots}; nothing was rendered. Raise maxShots or give the scene fewer beats.`,
+          ),
+          { code: 'SCRIPT2VIDEO_SHOT_CAP_EXCEEDED' },
+        )
+      }
 
-      // Stage 4 ∥ Stage 5 — decompose + camera tree (both depend on
-      // storyboard, independent of each other).
+      // Stage 3 — decompose ∥ camera tree (both depend on the storyboard,
+      // independent of each other).
       const [decompositionRuns, cameraTreeRun] = await parallel([
         parallel(
           storyboard.map((shot) =>
@@ -347,12 +371,87 @@ export function createScript2VideoMeta(
       ])
       const decompositions = decompositionRuns.map((r) => r.data)
       costs.push(...decompositionRuns.map((r) => r.cost), cameraTreeRun.cost)
-      const cameraTree = cameraTreeRun.data.camera_parent_items
+      const cameraTree = indexCameraTree(cameraTreeRun.data.camera_parent_items, storyboard)
 
-      // Stage 6 — first frame per shot. Sequential by parent→child order so
-      // a child shot's image-to-image dispatch can reference its parent's
-      // already-rendered frame. Root shots (parent_cam_idx === null) go
-      // through text-to-image with the character portrait registry; child
+      // Stage 4 — render gate. Everything after this line is a paid image or
+      // video call, and the counts are now exact: the storyboard fixes the
+      // shots, the decompositions fix which shots get a last frame, and the
+      // visible characters fix the portraits.
+      const counts = renderCounts(visible, storyboard, decompositions, transitionMode)
+      if (confirmBeforeRender) {
+        const confirmed = await ctx.askUser.confirm({
+          title: `Render ${counts.portraits} portraits, ${counts.frames} frames, and ${counts.clips} clips?`,
+          body: renderGateBody(visible, storyboard, decompositions),
+        })
+        if (!confirmed) {
+          return {
+            assets: [],
+            shotCount: 0,
+            cost: sumCosts(costs),
+            latencyMs: Date.now() - startedAt,
+          }
+        }
+      }
+
+      // Stage 5 — 3-view portrait registry per visible character. Each
+      // character runs in parallel; within a character, front (t2i) must
+      // finish before side ∥ back (both i2i, source = front). Front is
+      // the only step that consumes character features — side and back
+      // inherit identity from the front portrait via image-to-image and
+      // never re-state features (avoids identity double-anchoring).
+      //
+      // The registry holds real assetIds (not handles): side/back chain
+      // front's assetId through the internal-asset channel (ref.assets), and
+      // Stage 6 root frames reference the 3-view portraits by assetId too.
+      // image-to-image's `source` slot (assetNeeds: source[]) receives front.
+      //
+      // Image-gen atomics (text-to-image / image-to-image) have no system
+      // slot, so each per-view prompt is folded into the prompt prefix.
+      const portraitByCharIdx = new Map<number, PortraitSet>()
+      await parallel(
+        visible.map(async (c) => {
+          // Stage 5a — front view (text-to-image, no reference).
+          const front = await textToImage(ctx, {
+            // No generation overrides — the slimmed atomic defers to the
+            // resolved model's native defaults; this meta consumes only the
+            // first produced still, and a still's dimensions don't drive the
+            // clip output (the image-to-video step owns that).
+            prompt: `${skills.portraitFront}\n\nCharacter: ${c.identifierInScene}\nFeatures: ${c.staticFeatures} ${c.dynamicFeatures}${styleSuffix}`,
+          })
+          const frontId = firstAssetId(front, 'script2video: step')
+
+          // Stage 5b/5c — side ∥ back (image-to-image, source = front).
+          const [side, back] = await parallel([
+            imageToImage(
+              ctx,
+              {
+                prompt: `${skills.portraitSide}\n\nCharacter: ${c.identifierInScene}`,
+              },
+              { assets: [{ slot: 'source', assetId: frontId, modality: 'image' }] },
+            ),
+            imageToImage(
+              ctx,
+              {
+                prompt: `${skills.portraitBack}\n\nCharacter: ${c.identifierInScene}`,
+              },
+              { assets: [{ slot: 'source', assetId: frontId, modality: 'image' }] },
+            ),
+          ])
+          costs.push(front.cost, side.cost, back.cost)
+
+          portraitByCharIdx.set(c.idx, {
+            identifier: c.identifierInScene,
+            front: frontId,
+            side: firstAssetId(side, 'script2video: step'),
+            back: firstAssetId(back, 'script2video: step'),
+          })
+        }),
+      )
+
+      // Stage 6 — frames. Sequential by parent→child order so a child
+      // shot's image-to-image dispatch can reference its parent's
+      // already-rendered first frame. Root shots (parent_cam_idx === null)
+      // go through text-to-image with the character portrait registry; child
       // shots go through image-to-image primary with the parent's first
       // frame as the `source` asset + missing_info from the camera tree
       // appended to the prompt.
@@ -363,94 +462,111 @@ export function createScript2VideoMeta(
       // with portraits), and double-anchoring portraits + parent confuses
       // the image-edit provider.
       //
-      // `frameIds[i]` and `frameIdByShotIdx[shot.idx]` are kept in lock-step,
-      // both carrying real assetIds. The array carries the storyboard-order
-      // sequence Stage 7 consumes; the map handles parent lookup by
-      // model-reported global `parent_shot_idx`, which is not guaranteed to
-      // equal the storyboard array position when the LLM emits non-contiguous
-      // shot indices. Sub-step source/reference assets flow by assetId via the
-      // internal-asset channel (ref.assets), not the LLM-facing handle layer.
-      const frameIds: string[] = []
-      const frameIdByShotIdx = new Map<number, string>()
-      for (let i = 0; i < storyboard.length; i++) {
-        const shot = storyboard[i]
-        const d = decompositions[i]
-        if (!shot || !d) continue
-        const parentEntry = cameraTree[shot.cam_idx]
-        const parentShotIdx = parentEntry?.parent_shot_idx ?? null
-        const parentFrameId =
-          parentShotIdx !== null
-            ? frameIdByShotIdx.get(parentShotIdx)
-            : undefined
-
-        let frameId: string
-        if (parentFrameId && parentEntry) {
+      // A shot's last frame, when its variation is medium or large, takes
+      // the same path as its first frame — same parent source or the same
+      // portrait anchors (now for the characters visible at the end, which
+      // can differ: a 'medium' variation is typically someone entering) —
+      // and the two render in parallel. The decomposition prompt has always
+      // asked for `lf_desc`; until this was wired it was paid for and thrown
+      // away, and the video model never saw the end composition the prompt
+      // promised it.
+      //
+      // `frames[i]` (storyboard order, consumed by Stage 7) and
+      // `frameIdByShotIdx` (parent lookup by the model-reported global
+      // `parent_shot_idx`, which is not guaranteed to equal the storyboard
+      // array position) are kept in lock-step. Sub-step source/reference
+      // assets flow by assetId via the internal-asset channel (ref.assets),
+      // not the LLM-facing handle layer.
+      const renderFrame = async (
+        desc: string,
+        visCharIdxs: readonly number[],
+        entry: CameraParentItem,
+        parentFrameId: string | undefined,
+      ): Promise<string> => {
+        if (parentFrameId !== undefined) {
           // Child shot — image-to-image, source = parent's first frame.
           const childFrame = await imageToImage(
             ctx,
-            {
-              prompt: composeChildFramePrompt(
-                skills.frame,
-                d,
-                parentEntry,
-                styleSuffix,
-              ),
-            },
+            { prompt: composeChildFramePrompt(skills.frame, desc, entry, styleSuffix) },
             { assets: [{ slot: 'source', assetId: parentFrameId, modality: 'image' }] },
           )
           costs.push(childFrame.cost)
-          frameId = firstAssetId(childFrame, 'script2video: step')
-        } else {
-          // Root shot (no parent, or parent frame not yet computed —
-          // defensive: the camera-tree prompt says the first camera must be
-          // the root, so index 0 is always root and processed first in this
-          // loop). The 3-view portraits feed text-to-image's `reference` slot
-          // by assetId.
-          const rootFrame = await textToImage(
-            ctx,
-            {
-              // No generation overrides — defers to the resolved model's
-              // native defaults (see the Stage 2a note above).
-              prompt: `${skills.frame}\n\n${d.ff_desc}${styleSuffix}`,
-            },
-            {
-              assets: d.ff_vis_char_idxs.flatMap((idx) => {
-                const p = portraitByCharIdx.get(idx)
-                return p
-                  ? ([
-                      { slot: 'reference', assetId: p.front, modality: 'image' as const },
-                      { slot: 'reference', assetId: p.side, modality: 'image' as const },
-                      { slot: 'reference', assetId: p.back, modality: 'image' as const },
-                    ])
-                  : []
-              }),
-            },
-          )
-          costs.push(rootFrame.cost)
-          frameId = firstAssetId(rootFrame, 'script2video: step')
+          return firstAssetId(childFrame, 'script2video: step')
         }
-        frameIds.push(frameId)
-        frameIdByShotIdx.set(shot.idx, frameId)
+        // Root shot (no parent, or parent frame not yet computed —
+        // defensive: the camera-tree prompt says the first camera must be
+        // the root, so index 0 is always root and processed first in this
+        // loop). The 3-view portraits feed text-to-image's `reference` slot
+        // by assetId, in the order the prompt's legend names them.
+        const portraits = visCharIdxs.flatMap((idx) => {
+          const p = portraitByCharIdx.get(idx)
+          return p ? [p] : []
+        })
+        const rootFrame = await textToImage(
+          ctx,
+          {
+            // No generation overrides — defers to the resolved model's
+            // native defaults (see the Stage 5a note above).
+            prompt: composeRootFramePrompt(skills.frame, desc, portraits, styleSuffix),
+          },
+          {
+            assets: portraits.flatMap((p) => [
+              { slot: 'reference', assetId: p.front, modality: 'image' as const },
+              { slot: 'reference', assetId: p.side, modality: 'image' as const },
+              { slot: 'reference', assetId: p.back, modality: 'image' as const },
+            ]),
+          },
+        )
+        costs.push(rootFrame.cost)
+        return firstAssetId(rootFrame, 'script2video: step')
       }
 
-      // Stage 7 — animate each shot from its first frame (∥). The single-shot
-      // path renders one clip per storyboard shot; when transitionMode is
-      // 'between-shots' we additionally render N-1 transition clips (each
-      // anchored at the earlier shot's first frame, prompted with both shots'
-      // visual descriptions via the i2v-shot-transition skill) and interleave
-      // them into [shot0, trans0, shot1, trans1, ..., shotN-1] before concat.
-      const transitionMode = input.transitionMode ?? 'none'
+      const frames: Array<{ first: string; last?: string }> = []
+      const frameIdByShotIdx = new Map<number, string>()
+      for (let i = 0; i < storyboard.length; i++) {
+        const shot = storyboard[i]!
+        const d = decompositions[i]!
+        // indexCameraTree already failed the run if any storyboard camera
+        // had no entry, so the lookup cannot miss here.
+        const entry = cameraTree.get(shot.cam_idx)!
+        const parentFrameId =
+          entry.parent_shot_idx !== null
+            ? frameIdByShotIdx.get(entry.parent_shot_idx)
+            : undefined
+        const [first, last] = await parallel([
+          renderFrame(d.ff_desc, d.ff_vis_char_idxs, entry, parentFrameId),
+          needsLastFrame(d)
+            ? renderFrame(d.lf_desc, d.lf_vis_char_idxs, entry, parentFrameId)
+            : Promise.resolve(undefined),
+        ])
+        frames.push(last !== undefined ? { first, last } : { first })
+        frameIdByShotIdx.set(shot.idx, first)
+      }
 
+      // Stage 7 — animate each shot from its first frame (∥), towards its
+      // last frame where one was rendered. The single-shot path renders one
+      // clip per storyboard shot; when transitionMode is 'between-shots' we
+      // additionally render N-1 transition clips (each anchored at the
+      // earlier shot's first frame, prompted with both shots' visual
+      // descriptions via the i2v-shot-transition skill) and interleave them
+      // into [shot0, trans0, shot1, trans1, ..., shotN-1] before concat.
       const singleClips = await parallel(
-        decompositions.map((d, i) =>
+        frames.map((f, i) =>
           imageToVideo(
             ctx,
             {
-              prompt: `${skills.shotSingle}\n\n${d.motion_desc}`,
+              prompt: buildShotClipPrompt(
+                skills.shotSingle,
+                decompositions[i]!.motion_desc,
+                storyboard[i]!.audio_desc,
+              ),
             },
             {
               assets: [
-                { slot: 'startFrame', assetId: frameIds[i]!, modality: 'image' },
+                { slot: 'startFrame', assetId: f.first, modality: 'image' as const },
+                ...(f.last !== undefined
+                  ? [{ slot: 'endFrame', assetId: f.last, modality: 'image' as const }]
+                  : []),
               ],
             },
           ),
@@ -477,7 +593,7 @@ export function createScript2VideoMeta(
               },
               {
                 assets: [
-                  { slot: 'startFrame', assetId: frameIds[i]!, modality: 'image' },
+                  { slot: 'startFrame', assetId: frames[i]!.first, modality: 'image' },
                 ],
               },
             ),
@@ -529,6 +645,14 @@ interface LoadedSkills {
   shotTransition: string
 }
 
+/** One visible character's 3-view portrait registry entry (real assetIds). */
+interface PortraitSet {
+  identifier: string
+  front: string
+  side: string
+  back: string
+}
+
 // Stage prompts are compile-time constants, so "loading" them is a plain
 // object literal — no ctx.compute, no async, nothing read at dispatch. Kept as
 // a single helper so compose() reads one `skills.X` shape. The override merge
@@ -550,20 +674,114 @@ function loadSkills(overrides?: ScriptToVideoPromptOverrides): LoadedSkills {
   }
 }
 
+/** A medium or large variation ends on a composition the first frame does not show. */
+function needsLastFrame(d: ShotDecomposition): boolean {
+  return d.variation_type !== 'small'
+}
+
+/**
+ * Key the camera-tree answer by the `cam_idx` each entry echoes, and check it
+ * covers every camera the storyboard uses. Storyboard camera indices are not
+ * guaranteed contiguous — the storyboard prompt has the model reuse camera
+ * positions, and a scene can end up on cameras 0 and 2 with no 1. The tree
+ * used to be read positionally (`items[shot.cam_idx]`), which for that scene
+ * made camera 2 index past a two-entry answer and quietly rendered the shot
+ * as a root — the wrong frame, with no error anywhere. A camera the model did
+ * not answer for, or answered twice, is now a coded failure before any render.
+ */
+function indexCameraTree(
+  items: ReadonlyArray<CameraParentItem>,
+  storyboard: ReadonlyArray<ShotBrief>,
+): Map<number, CameraParentItem> {
+  const byCam = new Map<number, CameraParentItem>()
+  for (const item of items) {
+    if (byCam.has(item.cam_idx)) {
+      throw Object.assign(
+        new Error(
+          `SCRIPT2VIDEO_CAMERA_TREE_DUPLICATE: the camera tree answers for cam_idx ${item.cam_idx} more than once`,
+        ),
+        { code: 'SCRIPT2VIDEO_CAMERA_TREE_DUPLICATE' },
+      )
+    }
+    byCam.set(item.cam_idx, item)
+  }
+  const used = [...new Set(storyboard.map((s) => s.cam_idx))].sort((a, b) => a - b)
+  const missing = used.filter((cam) => !byCam.has(cam))
+  if (missing.length > 0) {
+    throw Object.assign(
+      new Error(
+        `SCRIPT2VIDEO_CAMERA_TREE_INCOMPLETE: the camera tree has no entry for cam_idx ${missing.join(', ')} (the storyboard uses ${used.join(', ')})`,
+      ),
+      { code: 'SCRIPT2VIDEO_CAMERA_TREE_INCOMPLETE' },
+    )
+  }
+  return byCam
+}
+
+/**
+ * The exact paid-render counts the gate states. Portraits are three per
+ * visible character; frames are one per shot plus one per shot whose
+ * variation earns a last frame; clips are one per shot plus, under
+ * 'between-shots', one per adjacent pair.
+ */
+function renderCounts(
+  visible: ReadonlyArray<CharacterInScene>,
+  storyboard: ReadonlyArray<ShotBrief>,
+  decompositions: ReadonlyArray<ShotDecomposition>,
+  transitionMode: 'none' | 'between-shots',
+): { portraits: number; frames: number; clips: number } {
+  const shots = storyboard.length
+  const transitions = transitionMode === 'between-shots' && shots >= 2 ? shots - 1 : 0
+  return {
+    portraits: visible.length * 3,
+    frames: shots + decompositions.filter(needsLastFrame).length,
+    clips: shots + transitions,
+  }
+}
+
+/** The gate body: who gets portraits, then the shot list as planned. */
+function renderGateBody(
+  visible: ReadonlyArray<CharacterInScene>,
+  storyboard: ReadonlyArray<ShotBrief>,
+  decompositions: ReadonlyArray<ShotDecomposition>,
+): string {
+  const who =
+    visible.length > 0
+      ? `Portraits (front, side, back) for: ${visible.map((c) => c.identifierInScene).join(', ')}`
+      : 'No visible characters — no portraits'
+  const shots = storyboard.map((s, i) => {
+    const d = decompositions[i]!
+    const tail = needsLastFrame(d) ? ' (+ last frame)' : ''
+    return `${i + 1}. [cam ${s.cam_idx}] ${s.visual_desc.slice(0, 80)}${tail}`
+  })
+  return [who, ...shots].join('\n')
+}
+
+/**
+ * The clip prompt for one shot: the i2v-shot-single prefix, then the shot's
+ * motion line and — when the storyboard scripted one — its audio line, joined
+ * by a single newline. The audio line is the storyboard's `audio_desc`
+ * verbatim: its `[Speaker]` / `[Sound Effect]` tags are what the video
+ * model's audio head reads. This meta used to send the motion line alone,
+ * so every shot rendered silent no matter what dialogue the storyboard wrote.
+ */
+function buildShotClipPrompt(prefix: string, motionDesc: string, audioDesc: string): string {
+  const audio = audioDesc.trim()
+  return `${prefix}\n\n${motionDesc}${audio.length > 0 ? `\n${audio}` : ''}`
+}
+
 /**
  * Compose the image-to-video transition prompt for a cut between two
- * adjacent storyboard shots. Mirrors I2V_SHOT_TRANSITION_PROMPT's [Output]
- * template — the prompt body is layered on as the system-level prefix, then
- * the two shots' visual descriptions are injected into the template structure
- * that body specifies.
+ * adjacent storyboard shots: the i2v-shot-transition prefix, then the two
+ * shots' visual descriptions the prefix refers to.
  */
 function buildTransitionPrompt(
-  skillSystem: string,
+  prefix: string,
   firstShotVisualDesc: string,
   secondShotVisualDesc: string,
   styleSuffix: string,
 ): string {
-  return `${skillSystem}\n\nTwo shots. The transition between the shots is a cut to. The style of the two shots should be consistent.\nThe first shot description: ${firstShotVisualDesc}.\nThe second shot description: ${secondShotVisualDesc}.${styleSuffix}`
+  return `${prefix}\n\nFirst shot: ${firstShotVisualDesc}\nSecond shot: ${secondShotVisualDesc}${styleSuffix}`
 }
 
 /**
@@ -651,29 +869,30 @@ function buildStoryboardPrompt(
   script: string,
   characters: ReadonlyArray<CharacterInScene>,
   userRequirement: string | undefined,
+  maxShots: number,
 ): string {
   const chars = characterLines(characters, false)
   // STORYBOARD_DESIGN_PROMPT reads the optional requirement from
   // <USER_REQUIREMENT> — emit that exact tag. Any other tag name is silently
   // ignored: the prompt never looks for it and the model never sees the
-  // requirement, with no error anywhere.
-  const req = userRequirement ? `\n\n<USER_REQUIREMENT>\n${userRequirement}\n</USER_REQUIREMENT>` : ''
-  return `<SCRIPT>\n${script}\n</SCRIPT>\n\n<CHARACTERS>\n${chars}\n</CHARACTERS>${req}`
+  // requirement, with no error anywhere. The shot bound rides in the same
+  // block — "desired number of shots" is one of the things the prompt says
+  // that block may carry — so the cap reaches the model as a planning
+  // constraint, not only as the tripwire compose() applies to its answer.
+  const req = [userRequirement?.trim(), `Use at most ${maxShots} shots.`]
+    .filter((line): line is string => line !== undefined && line.length > 0)
+    .join('\n')
+  return `<SCRIPT>\n${script}\n</SCRIPT>\n\n<CHARACTERS>\n${chars}\n</CHARACTERS>\n\n<USER_REQUIREMENT>\n${req}\n</USER_REQUIREMENT>`
 }
 
 /**
  * Format storyboard into the `<CAMERA_SEQ><CAMERA_N>Shot N: ...</CAMERA_N></CAMERA_SEQ>`
  * shape that CAMERA_TREE_CONSTRUCTION_PROMPT expects as input.
  * Shots are grouped by `cam_idx` (the camera-position index) and listed in
- * storyboard order within each group.
+ * storyboard order within each group. N is the storyboard's own camera
+ * index, gaps included — the answer is matched back on it.
  */
-function buildCameraTreePrompt(
-  storyboard: ReadonlyArray<{
-    idx: number
-    cam_idx: number
-    visual_desc: string
-  }>,
-): string {
+function buildCameraTreePrompt(storyboard: ReadonlyArray<ShotBrief>): string {
   const byCam = new Map<number, string[]>()
   for (const shot of storyboard) {
     const lines = byCam.get(shot.cam_idx) ?? []
@@ -691,22 +910,44 @@ function buildCameraTreePrompt(
 }
 
 /**
- * Compose the image-to-image prompt for a child shot whose first frame
- * inherits from its parent's first frame. Layers CINEMATIC_SHOT_FRAMING_PROMPT
- * on top of the shot's own `ff_desc`, then appends a hint block
- * derived from the camera-tree entry — `missing_info` tells the model
- * what's specifically new in the child shot relative to the parent (e.g.
- * "frontal view of Alice"), and `is_parent_fully_covers_child=false`
- * indicates the child needs additional content beyond the parent's
- * field of view.
+ * Root-shot frame prompt: the framing prefix, a legend naming which of the
+ * attached reference images belong to which character (three views per
+ * character, in attachment order), then the frame description and style.
+ * The legend is what makes the prefix's "identity anchors" sentence
+ * actionable — the image model sees N reference images and otherwise has no
+ * way to know that images 0-2 are one person and 3-5 another.
+ */
+function composeRootFramePrompt(
+  prefix: string,
+  desc: string,
+  portraits: ReadonlyArray<PortraitSet>,
+  styleSuffix: string,
+): string {
+  const legend =
+    portraits.length > 0
+      ? `\n\nReference images: ${portraits
+          .map((p, i) => `images ${i * 3}-${i * 3 + 2} are ${p.identifier} (front, side, back)`)
+          .join('; ')}.`
+      : ''
+  return `${prefix}${legend}\n\n${desc}${styleSuffix}`
+}
+
+/**
+ * Compose the image-to-image prompt for a child shot whose frame inherits
+ * from its parent's first frame. Layers CINEMATIC_SHOT_FRAMING_PROMPT on top
+ * of the frame's own description, then appends a hint block derived from the
+ * camera-tree entry — `missing_info` tells the model what's specifically new
+ * in the child shot relative to the parent (e.g. "frontal view of Alice"),
+ * and `is_parent_fully_covers_child=false` indicates the child needs
+ * additional content beyond the parent's field of view.
  */
 function composeChildFramePrompt(
-  skillSystem: string,
-  d: { ff_desc: string },
+  prefix: string,
+  desc: string,
   parentEntry: CameraParentItem,
   styleSuffix: string,
 ): string {
-  let prompt = `${skillSystem}\n\n${d.ff_desc}${styleSuffix}`
+  let prompt = `${prefix}\n\n${desc}${styleSuffix}`
   if (
     parentEntry.missing_info &&
     parentEntry.missing_info.trim().length > 0

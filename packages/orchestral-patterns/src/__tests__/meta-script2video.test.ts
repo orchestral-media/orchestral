@@ -1,15 +1,23 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
+import type { z } from 'zod'
 
-import type { ExecutionContext, PatternRef } from '@orchestral/core'
+import type { AskUserGeneric, ExecutionContext, PatternRef } from '@orchestral/core'
+import { buildAskUserFacade } from '@orchestral/core'
 import {
   createScript2VideoMeta,
+  ScriptToVideoInputSchema,
   ScriptToVideoOutputSchema,
+  ShotDecompositionSchema,
+  type ScriptToVideoInput,
   type ScriptToVideoMetaDeps,
 } from '../meta/script2video'
 import { expectProducedAssetsEnvelope } from './helpers/produced-assets'
 import {
   CHARACTER_EXTRACTION_PROMPT,
   PORTRAIT_FRONT_PROMPT,
+  PORTRAIT_SIDE_PROMPT,
+  PORTRAIT_BACK_PROMPT,
   STORYBOARD_DESIGN_PROMPT,
   SHOT_VISUAL_DECOMPOSITION_PROMPT,
   CAMERA_TREE_CONSTRUCTION_PROMPT,
@@ -25,6 +33,8 @@ import {
 const promptStartsWith = (input: Record<string, unknown>, prefix: string) =>
   String((input as { prompt?: string }).prompt ?? '').startsWith(prefix)
 
+const promptOf = (c: Call): string => String((c.input as { prompt?: string }).prompt ?? '')
+
 /**
  * Pull the input-block tags a prompt body declares (backticked `<TAG>` /
  * `</TAG>` forms). Guards against prompt↔code tag drift: the prompt body tells
@@ -37,19 +47,82 @@ function declaredTags(prompt: string): string[] {
   return [...found]
 }
 
-// The meta bakes the real inlined prompt bodies into the text-generation
-// `system` field, so the fake ctx routes text-generation by matching `system`
-// against the exported prompt constants. The per-step `prompt` strings still
-// carry the literal markers the assertions check ('portrait-front',
-// 'first frame', 'i2v-shot-single', etc.).
+// compose() is typed on the parsed input — every `.default()` field present,
+// which is what the chat dispatch path hands it. Fixtures are written the way
+// a caller writes them and run through the schema, so the defaults are
+// exercised here rather than restated in every test.
+const inputOf = (i: z.input<typeof ScriptToVideoInputSchema>): ScriptToVideoInput =>
+  ScriptToVideoInputSchema.parse(i)
+
+const ALICE = {
+  idx: 0,
+  identifierInScene: 'Alice',
+  staticFeatures: 'short hair',
+  dynamicFeatures: 'green dress',
+  isVisible: true,
+}
+
+// ── scripted model answers ────────────────────────────────────────────────
+
+interface ShotFixture {
+  idx: number
+  is_last: boolean
+  cam_idx: number
+  visual_desc: string
+  audio_desc: string
+}
+const shot = (
+  idx: number,
+  cam_idx: number,
+  visual_desc: string,
+  extra: Partial<Pick<ShotFixture, 'is_last' | 'audio_desc'>> = {},
+): ShotFixture => ({ idx, is_last: false, cam_idx, visual_desc, audio_desc: '', ...extra })
+
+type Decomposition = z.infer<typeof ShotDecompositionSchema>
+const DEFAULT_DECOMPOSITION: Decomposition = {
+  ff_desc: 'first frame',
+  ff_vis_char_idxs: [0],
+  lf_desc: 'last frame',
+  lf_vis_char_idxs: [0],
+  motion_desc: 'pan left',
+  variation_type: 'small',
+}
+
+// Camera-tree entries as the prompt now asks for them: every entry echoes the
+// cam_idx it answers for; a root is null parent fields, not a null entry.
+const rootCam = (cam_idx: number) => ({
+  cam_idx,
+  parent_cam_idx: null,
+  parent_shot_idx: null,
+  is_parent_fully_covers_child: null,
+  missing_info: null,
+})
+const childCam = (
+  cam_idx: number,
+  parent_cam_idx: number,
+  parent_shot_idx: number,
+  missing_info: string,
+) => ({
+  cam_idx,
+  parent_cam_idx,
+  parent_shot_idx,
+  reason: 'the parent covers the child',
+  is_parent_fully_covers_child: false,
+  missing_info,
+})
+
+// ── fake ctx ──────────────────────────────────────────────────────────────
 
 // Recorded shape per ctx.step call. `assets` carries the internal-asset
-// channel (ref.assets) — source/reference/startFrame now flow there by
-// assetId, not through input.references.
+// channel (ref.assets) — source/reference/startFrame/endFrame flow there by
+// assetId, not through input.references. `producedAssetId` is what the fake
+// handed back for an image/video call, so a later call's slot can be matched
+// to the call that produced it.
 interface Call {
   patternId: string
   input: Record<string, unknown>
   assets: PatternRef['assets']
+  producedAssetId?: string
 }
 
 // Fixed per-patternId cost so the meta's accumulated `out.cost` is countable
@@ -67,10 +140,37 @@ const COST_BY_PATTERN: Record<string, number> = {
 const expectedCost = (calls: ReadonlyArray<Call>): number =>
   calls.reduce((sum, c) => sum + (COST_BY_PATTERN[c.patternId] ?? 0), 0)
 
-// Routing mock: returns the right shape per dispatched capability.
-function makeCtx() {
+const PAID_RENDERS = new Set(['text-to-image', 'image-to-image', 'image-to-video'])
+const renderCalls = (calls: ReadonlyArray<Call>) => calls.filter((c) => PAID_RENDERS.has(c.patternId))
+
+interface CtxOptions {
+  /** Storyboard the design step returns (default: two shots on camera 0). */
+  storyboard?: ShotFixture[]
+  /** Per-shot decomposition overrides, looked up by the shot's visual_desc. */
+  decompositionFor?: (visualDesc: string) => Partial<Decomposition>
+  /** Camera-tree answer (default: camera 0 is the root). */
+  cameraTree?: unknown[]
+  /** What stage 1 extracts when no characters were supplied (default: none). */
+  extractedCharacters?: unknown[]
+  /** Answer to the render-gate confirm (default: confirmed). */
+  confirmAnswer?: boolean
+}
+
+// Routing fake: the meta bakes the real inlined prompt bodies into the
+// text-generation `system` field, so text-generation routes by matching
+// `system` against the exported prompt constants; image/video calls hand back
+// a counter-numbered asset. `timeline` interleaves step dispatches with
+// askUser parks so a test can assert what ran before the gate.
+function makeCtx(opts: CtxOptions = {}) {
   const calls: Array<Call> = []
+  const askUserCalls: Array<{ kind: string; payload: unknown }> = []
+  const timeline: string[] = []
   let asset = 0
+  const storyboard = opts.storyboard ?? [
+    shot(0, 0, 'shot A'),
+    shot(1, 0, 'shot B', { is_last: true }),
+  ]
+  const cameraTree = opts.cameraTree ?? [rootCam(0)]
   const text = (obj: unknown) => ({
     modality: 'text' as const,
     text: JSON.stringify(obj),
@@ -79,80 +179,68 @@ function makeCtx() {
     model: 'm',
     provider: 'p',
   })
+  const produced = (call: Call, prefix: string, modality: 'image' | 'video') => {
+    asset += 1
+    const assetId = `${prefix}-id${asset}`
+    call.producedAssetId = assetId
+    return {
+      modality,
+      assets: [{ handle: `${prefix}-h${asset}`, assetId, modality }],
+      cost: COST_BY_PATTERN[call.patternId]!,
+      latencyMs: 5,
+      model: 'm',
+      provider: 'p',
+    }
+  }
+  const rawBridge = async (o: { kind: string; payload: unknown }) => {
+    askUserCalls.push({ kind: o.kind, payload: o.payload })
+    timeline.push(`ask:${o.kind}`)
+    if (o.kind === 'confirm') return { confirmed: opts.confirmAnswer ?? true }
+    throw new Error(`unexpected askUser kind ${o.kind}`)
+  }
   const ctx = {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
+    askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
+    signal: new AbortController().signal,
+    stepIndex: 0,
     step: async <T>(ref: PatternRef): Promise<T> => {
       const input = ref.input as Record<string, unknown>
-      calls.push({ patternId: ref.patternId, input, assets: ref.assets })
+      const call: Call = { patternId: ref.patternId, input, assets: ref.assets }
+      calls.push(call)
+      timeline.push(`step:${ref.patternId}`)
       if (ref.patternId === 'text-generation') {
         const sys = String(input.system)
-        if (sys === STORYBOARD_DESIGN_PROMPT) {
-          return text({
-            storyboard: [
-              { idx: 0, is_last: false, cam_idx: 0, visual_desc: 'shot A', audio_desc: '' },
-              { idx: 1, is_last: true, cam_idx: 0, visual_desc: 'shot B', audio_desc: '' },
-            ],
-          }) as unknown as T
-        }
+        if (sys === STORYBOARD_DESIGN_PROMPT) return text({ storyboard }) as unknown as T
         if (sys === SHOT_VISUAL_DECOMPOSITION_PROMPT) {
+          const visualDesc =
+            /<VISUAL_DESC>\n([\s\S]*?)\n<\/VISUAL_DESC>/.exec(String(input.prompt))?.[1] ?? ''
           return text({
-            ff_desc: 'first frame',
-            ff_vis_char_idxs: [0],
-            lf_desc: 'last frame',
-            lf_vis_char_idxs: [0],
-            motion_desc: 'pan left',
-            variation_type: 'small',
-            variation_reason: 'minor',
+            ...DEFAULT_DECOMPOSITION,
+            ...(opts.decompositionFor?.(visualDesc) ?? {}),
           }) as unknown as T
         }
         if (sys === CAMERA_TREE_CONSTRUCTION_PROMPT) {
-          return text({ camera_parent_items: [null] }) as unknown as T
+          return text({ camera_parent_items: cameraTree }) as unknown as T
         }
-        return text({ characters: [] }) as unknown as T
+        return text({ characters: opts.extractedCharacters ?? [] }) as unknown as T
       }
-      if (ref.patternId === 'text-to-image') {
-        asset += 1
-        return {
-          modality: 'image',
-          assets: [{ handle: `img-h${asset}`, assetId: `img-id${asset}`, modality: 'image' }],
-          cost: COST_BY_PATTERN['text-to-image']!,
-          latencyMs: 5,
-          model: 'm',
-          provider: 'p',
-        } as unknown as T
-      }
-      if (ref.patternId === 'image-to-image') {
-        asset += 1
-        return {
-          modality: 'image',
-          assets: [{ handle: `i2i-h${asset}`, assetId: `i2i-id${asset}`, modality: 'image' }],
-          cost: COST_BY_PATTERN['image-to-image']!,
-          latencyMs: 5,
-          model: 'm',
-          provider: 'p',
-        } as unknown as T
-      }
-      // image-to-video
-      asset += 1
-      return {
-        modality: 'video',
-        assets: [{ handle: `vid-h${asset}`, assetId: `vid-id${asset}`, modality: 'video' }],
-        cost: COST_BY_PATTERN['image-to-video']!,
-        latencyMs: 5,
-        model: 'm',
-        provider: 'p',
-      } as unknown as T
+      if (ref.patternId === 'text-to-image') return produced(call, 'img', 'image') as unknown as T
+      if (ref.patternId === 'image-to-image') return produced(call, 'i2i', 'image') as unknown as T
+      return produced(call, 'vid', 'video') as unknown as T
     },
   } as unknown as ExecutionContext
-  return { ctx, calls }
+  return { ctx, calls, askUserCalls, timeline }
 }
 
-describe("meta_script2video (W-1')", () => {
+const concatFake = () =>
+  vi.fn(async (ids: readonly string[]) => ({ assetId: `final[${ids.join(',')}]` }))
+
+describe('meta_script2video', () => {
   it('returns the produced-assets envelope: one labelled final-video, no raw-id field anywhere', async () => {
     const meta = createScript2VideoMeta({ concatVideos: async () => ({ assetId: 'final' }) })
     const { ctx } = makeCtx()
     const out = await meta.compose(
-      { input: { sceneScript: 'a short scene', characters: [] } },
+      { input: inputOf({ sceneScript: 'a short scene', characters: [] }) },
       ctx,
     )
     expectProducedAssetsEnvelope(ScriptToVideoOutputSchema, out)
@@ -160,28 +248,13 @@ describe("meta_script2video (W-1')", () => {
   })
 
   it('runs the 8-stage DAG and concatenates the per-shot clips', async () => {
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
+    const concatVideos = concatFake()
     const meta = createScript2VideoMeta({ concatVideos })
-    const { ctx, calls } = makeCtx()
+    const { ctx, calls, askUserCalls } = makeCtx()
 
     const out = await meta.compose(
-      {
-        input: {
-          // pre-supply one visible character so stage 1 is skipped.
-          sceneScript: 'a short scene',
-          characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
-          ],
-        },
-      },
+      // pre-supply one visible character so stage 1 is skipped.
+      { input: inputOf({ sceneScript: 'a short scene', characters: [ALICE] }) },
       ctx,
     )
 
@@ -203,6 +276,9 @@ describe("meta_script2video (W-1')", () => {
     expect(out.cost).toBeCloseTo(expected)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
 
+    // One render gate, confirmed.
+    expect(askUserCalls.map((c) => c.kind)).toEqual(['confirm'])
+
     // Stage 1 skipped (characters provided) → no character-extraction text step.
     const charSteps = calls.filter(
       (c) =>
@@ -211,7 +287,7 @@ describe("meta_script2video (W-1')", () => {
     )
     expect(charSteps).toHaveLength(0)
 
-    // Stage 2 — 3 portrait calls per visible character: 1 t2i (front, prompt
+    // Stage 5 — 3 portrait calls per visible character: 1 t2i (front, prompt
     // prefixed with PORTRAIT_FRONT_PROMPT) and 2 i2i (side + back, each ref =
     // front portrait handle).
     const portraitTextToImage = calls.filter(
@@ -233,7 +309,7 @@ describe("meta_script2video (W-1')", () => {
 
     // Stage 6 — frame steps (prompt prefixed with CINEMATIC_SHOT_FRAMING_PROMPT)
     // carry all 3 portrait views (front + side + back) as identity references so
-    // the t2i model can pick the matching angle — now by assetId via ref.assets,
+    // the t2i model can pick the matching angle — by assetId via ref.assets,
     // slot 'reference'.
     const frameCalls = calls.filter(
       (c) =>
@@ -252,8 +328,8 @@ describe("meta_script2video (W-1')", () => {
     }
 
     // Stage 7 — each video animates from a first-frame assetId (slot
-    // 'startFrame' via ref.assets), prompt prefixed with I2V_SHOT_SINGLE_PROMPT
-    // (the C12 single-shot split).
+    // 'startFrame' via ref.assets), prompt prefixed with I2V_SHOT_SINGLE_PROMPT.
+    // Small-variation shots carry no endFrame.
     const videoCalls = calls.filter((c) => c.patternId === 'image-to-video')
     expect(videoCalls).toHaveLength(2)
     for (const v of videoCalls) {
@@ -265,147 +341,71 @@ describe("meta_script2video (W-1')", () => {
     }
   })
 
-  it('feeds userRequirement to the storyboard step under <USER_REQUIREMENT> (the tag the prompt reads)', async () => {
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
-    const meta = createScript2VideoMeta({ concatVideos })
-    const { ctx, calls } = makeCtx()
+  it('feeds userRequirement and the shot bound to the storyboard step under <USER_REQUIREMENT> (the tag the prompt reads)', async () => {
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    const storyboardPromptOf = (calls: ReadonlyArray<Call>) =>
+      promptOf(
+        calls.find(
+          (c) =>
+            c.patternId === 'text-generation' &&
+            String(c.input.system) === STORYBOARD_DESIGN_PROMPT,
+        )!,
+      )
+
+    const withReq = makeCtx()
     await meta.compose(
       {
-        input: {
+        input: inputOf({
           sceneScript: 'a short scene',
           userRequirement: 'no more than 4 shots',
-          characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
-          ],
-        },
+          characters: [ALICE],
+          maxShots: 6,
+        }),
       },
-      ctx,
+      withReq.ctx,
     )
-    const storyboardCall = calls.find(
-      (c) =>
-        c.patternId === 'text-generation' &&
-        String(c.input.system) === STORYBOARD_DESIGN_PROMPT,
+    // STORYBOARD_DESIGN_PROMPT reads <USER_REQUIREMENT>; a <REQUIREMENT> tag
+    // was never matched so the requirement was silently dropped. The shot
+    // bound rides in the same block — the prompt lists "desired number of
+    // shots" as one of the things that block carries.
+    const prompt = storyboardPromptOf(withReq.calls)
+    expect(prompt).toContain(
+      '<USER_REQUIREMENT>\nno more than 4 shots\nUse at most 6 shots.\n</USER_REQUIREMENT>',
     )
-    const prompt = String(storyboardCall!.input.prompt)
-    // STORYBOARD_DESIGN_PROMPT reads <USER_REQUIREMENT>; a <REQUIREMENT>
-    // tag was never matched so the requirement was silently dropped.
-    expect(prompt).toContain('<USER_REQUIREMENT>\nno more than 4 shots\n</USER_REQUIREMENT>')
     expect(prompt).not.toContain('<REQUIREMENT>')
+
+    // No user requirement: the block still carries the bound (default 12).
+    const noReq = makeCtx()
+    await meta.compose(
+      { input: inputOf({ sceneScript: 'a short scene', characters: [ALICE] }) },
+      noReq.ctx,
+    )
+    expect(storyboardPromptOf(noReq.calls)).toContain(
+      '<USER_REQUIREMENT>\nUse at most 12 shots.\n</USER_REQUIREMENT>',
+    )
   })
 
-  // Stage 5 camera-tree-construction is dispatched and its output drives
-  // Stage 6: child shots route through image-to-image primary with their
-  // parent's first frame as `references.source` instead of text-to-image with
-  // the portrait registry.
+  // Camera-tree-construction is dispatched and its output drives Stage 6:
+  // child shots route through image-to-image primary with their parent's
+  // first frame as `source` instead of text-to-image with the portrait
+  // registry.
   it('routes child shots through image-to-image with parent frame as source', async () => {
-    const calls: Array<Call> = []
-    let asset = 0
-    const text = (obj: unknown) => ({
-      modality: 'text' as const,
-      text: JSON.stringify(obj),
-      cost: COST_BY_PATTERN['text-generation']!,
-      latencyMs: 5,
-      model: 'm',
-      provider: 'p',
+    const { ctx, calls } = makeCtx({
+      // 3 shots: cam 0 (root) → cam 1 (child of cam 0) → cam 0 again
+      storyboard: [
+        shot(0, 0, 'wide street, Alice walking'),
+        shot(1, 1, "close-up Alice's face"),
+        shot(2, 0, 'wide street, Alice approaches Bob', { is_last: true }),
+      ],
+      decompositionFor: () => ({ ff_desc: 'frame description' }),
+      // cam 0 is the root; cam 1's parent is cam 0, shot 0.
+      cameraTree: [rootCam(0), childCam(1, 0, 0, "frontal view of Alice's face")],
     })
-    const ctx = {
-      compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
-      step: async <T>(ref: PatternRef): Promise<T> => {
-        const input = ref.input as Record<string, unknown>
-        calls.push({ patternId: ref.patternId, input, assets: ref.assets })
-        if (ref.patternId === 'text-generation') {
-          const sys = String(input.system)
-          if (sys === STORYBOARD_DESIGN_PROMPT) {
-            // 3 shots: cam 0 (root) → cam 1 (child of cam 0) → cam 0 again
-            return text({
-              storyboard: [
-                { idx: 0, is_last: false, cam_idx: 0, visual_desc: 'wide street, Alice walking', audio_desc: '' },
-                { idx: 1, is_last: false, cam_idx: 1, visual_desc: "close-up Alice's face", audio_desc: '' },
-                { idx: 2, is_last: true, cam_idx: 0, visual_desc: 'wide street, Alice approaches Bob', audio_desc: '' },
-              ],
-            }) as unknown as T
-          }
-          if (sys === SHOT_VISUAL_DECOMPOSITION_PROMPT) {
-            return text({
-              ff_desc: 'frame description',
-              ff_vis_char_idxs: [0],
-              lf_desc: 'last frame',
-              lf_vis_char_idxs: [0],
-              motion_desc: 'pan left',
-              variation_type: 'small',
-              variation_reason: 'minor',
-            }) as unknown as T
-          }
-          if (sys === CAMERA_TREE_CONSTRUCTION_PROMPT) {
-            // cam 0 (root, free-standing entry as null); cam 1's parent is cam 0, shot 0.
-            return text({
-              camera_parent_items: [
-                null,
-                {
-                  parent_cam_idx: 0,
-                  parent_shot_idx: 0,
-                  reason: 'medium covers close-up',
-                  is_parent_fully_covers_child: false,
-                  missing_info: "frontal view of Alice's face",
-                },
-              ],
-            }) as unknown as T
-          }
-          return text({ characters: [] }) as unknown as T
-        }
-        if (ref.patternId === 'text-to-image') {
-          asset += 1
-          return {
-            modality: 'image',
-            assets: [{ handle: `img-h${asset}`, assetId: `img-id${asset}`, modality: 'image' }],
-            cost: COST_BY_PATTERN['text-to-image']!, latencyMs: 5, model: 'm', provider: 'p',
-          } as unknown as T
-        }
-        if (ref.patternId === 'image-to-image') {
-          asset += 1
-          return {
-            modality: 'image',
-            assets: [{ handle: `i2i-h${asset}`, assetId: `i2i-id${asset}`, modality: 'image' }],
-            cost: COST_BY_PATTERN['image-to-image']!, latencyMs: 5, model: 'm', provider: 'p',
-          } as unknown as T
-        }
-        asset += 1
-        return {
-          modality: 'video',
-          assets: [{ handle: `vid-h${asset}`, assetId: `vid-id${asset}`, modality: 'video' }],
-          cost: COST_BY_PATTERN['image-to-video']!, latencyMs: 5, model: 'm', provider: 'p',
-        } as unknown as T
-      },
-    } as unknown as ExecutionContext
-
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
+    const concatVideos = concatFake()
     const meta = createScript2VideoMeta({ concatVideos })
 
     const out = await meta.compose(
-      {
-        input: {
-          sceneScript: 'a scene with close-up cut',
-          characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
-          ],
-        },
-      },
+      { input: inputOf({ sceneScript: 'a scene with close-up cut', characters: [ALICE] }) },
       ctx,
     )
 
@@ -418,15 +418,15 @@ describe("meta_script2video (W-1')", () => {
     expect(out.cost).toBeCloseTo(expected)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
 
-    // Stage 5 — camera-tree-construction was dispatched.
+    // Camera-tree-construction was dispatched with the <CAMERA_SEQ> shape the
+    // prompt body mandates.
     const cameraTreeCalls = calls.filter(
       (c) =>
         c.patternId === 'text-generation' &&
         String(c.input.system) === CAMERA_TREE_CONSTRUCTION_PROMPT,
     )
     expect(cameraTreeCalls).toHaveLength(1)
-    // Camera-tree prompt uses the <CAMERA_SEQ> shape the prompt body mandates.
-    const ctPrompt = String(cameraTreeCalls[0]!.input.prompt)
+    const ctPrompt = promptOf(cameraTreeCalls[0]!)
     expect(ctPrompt).toContain('<CAMERA_SEQ>')
     expect(ctPrompt).toContain('<CAMERA_0>')
     expect(ctPrompt).toContain('<CAMERA_1>')
@@ -472,10 +472,10 @@ describe("meta_script2video (W-1')", () => {
       { slot: 'source', assetId: 'img-id4', modality: 'image' },
     ])
     // Prompt has the camera-tree missing_info hint appended.
-    expect(String(childCall.input.prompt)).toContain('[Camera-tree hint]')
-    expect(String(childCall.input.prompt)).toContain('frontal view')
+    expect(promptOf(childCall)).toContain('[Camera-tree hint]')
+    expect(promptOf(childCall)).toContain('frontal view')
 
-    // Stage 7 — 3 video clips, each animating from a frame handle.
+    // Stage 7 — 3 video clips, each animating from a frame.
     const videoCalls = calls.filter((c) => c.patternId === 'image-to-video')
     expect(videoCalls).toHaveLength(3)
   })
@@ -483,27 +483,17 @@ describe("meta_script2video (W-1')", () => {
   // transitionMode: 'between-shots' inserts N-1 transition clips between
   // adjacent shots and interleaves them into concat order.
   it('renders N-1 transition clips and interleaves when transitionMode=between-shots', async () => {
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
+    const concatVideos = concatFake()
     const meta = createScript2VideoMeta({ concatVideos })
     const { ctx, calls } = makeCtx()
 
     const out = await meta.compose(
       {
-        input: {
+        input: inputOf({
           sceneScript: 'two shots',
-          characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
-          ],
+          characters: [ALICE],
           transitionMode: 'between-shots',
-        },
+        }),
       },
       ctx,
     )
@@ -531,14 +521,12 @@ describe("meta_script2video (W-1')", () => {
     )
     expect(singleShotCalls).toHaveLength(2)
 
-    // Transition prompt carries both shots' visual descriptions verbatim from
-    // the storyboard ("shot A" and "shot B" per makeCtx scripted output).
-    const tPrompt = String(
-      (transitionCalls[0]!.input as { prompt: string }).prompt,
-    )
-    expect(tPrompt).toContain('The first shot description: shot A')
-    expect(tPrompt).toContain('The second shot description: shot B')
-    expect(tPrompt).toContain('cut to')
+    // The transition prefix names the cut; the two shots' visual descriptions
+    // follow verbatim from the storyboard ("shot A" / "shot B" per makeCtx).
+    const tPrompt = promptOf(transitionCalls[0]!)
+    expect(tPrompt).toContain('hard cut')
+    expect(tPrompt).toContain('First shot: shot A')
+    expect(tPrompt).toContain('Second shot: shot B')
 
     // Transition startFrame = first shot's first-frame assetId (the same
     // assetId used by single-shot 0's startFrame), via the internal-asset
@@ -559,91 +547,19 @@ describe("meta_script2video (W-1')", () => {
   })
 
   it('falls back to single-shot path when transitionMode=between-shots but storyboard has < 2 shots', async () => {
-    const calls: Array<Call> = []
-    let asset = 0
-    const text = (obj: unknown) => ({
-      modality: 'text' as const,
-      text: JSON.stringify(obj),
-      cost: COST_BY_PATTERN['text-generation']!,
-      latencyMs: 5,
-      model: 'm',
-      provider: 'p',
+    const { ctx, calls } = makeCtx({
+      storyboard: [shot(0, 0, 'lone shot', { is_last: true })],
     })
-    const ctx = {
-      compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
-      step: async <T>(ref: PatternRef): Promise<T> => {
-        const input = ref.input as Record<string, unknown>
-        calls.push({ patternId: ref.patternId, input, assets: ref.assets })
-        if (ref.patternId === 'text-generation') {
-          const sys = String(input.system)
-          if (sys === STORYBOARD_DESIGN_PROMPT) {
-            return text({
-              storyboard: [
-                { idx: 0, is_last: true, cam_idx: 0, visual_desc: 'lone shot', audio_desc: '' },
-              ],
-            }) as unknown as T
-          }
-          if (sys === SHOT_VISUAL_DECOMPOSITION_PROMPT) {
-            return text({
-              ff_desc: 'first frame',
-              ff_vis_char_idxs: [0],
-              lf_desc: 'last frame',
-              lf_vis_char_idxs: [0],
-              motion_desc: 'pan left',
-              variation_type: 'small',
-              variation_reason: 'minor',
-            }) as unknown as T
-          }
-          if (sys === CAMERA_TREE_CONSTRUCTION_PROMPT) {
-            return text({ camera_parent_items: [null] }) as unknown as T
-          }
-          return text({ characters: [] }) as unknown as T
-        }
-        if (ref.patternId === 'text-to-image') {
-          asset += 1
-          return {
-            modality: 'image',
-            assets: [{ handle: `img-h${asset}`, assetId: `img-id${asset}`, modality: 'image' }],
-            cost: COST_BY_PATTERN['text-to-image']!, latencyMs: 5, model: 'm', provider: 'p',
-          } as unknown as T
-        }
-        if (ref.patternId === 'image-to-image') {
-          asset += 1
-          return {
-            modality: 'image',
-            assets: [{ handle: `i2i-h${asset}`, assetId: `i2i-id${asset}`, modality: 'image' }],
-            cost: COST_BY_PATTERN['image-to-image']!, latencyMs: 5, model: 'm', provider: 'p',
-          } as unknown as T
-        }
-        asset += 1
-        return {
-          modality: 'video',
-          assets: [{ handle: `vid-h${asset}`, assetId: `vid-id${asset}`, modality: 'video' }],
-          cost: COST_BY_PATTERN['image-to-video']!, latencyMs: 5, model: 'm', provider: 'p',
-        } as unknown as T
-      },
-    } as unknown as ExecutionContext
-
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
+    const concatVideos = concatFake()
     const meta = createScript2VideoMeta({ concatVideos })
 
     await meta.compose(
       {
-        input: {
+        input: inputOf({
           sceneScript: 'single shot scene',
-          characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
-          ],
+          characters: [ALICE],
           transitionMode: 'between-shots',
-        },
+        }),
       },
       ctx,
     )
@@ -658,59 +574,36 @@ describe("meta_script2video (W-1')", () => {
     expect(concatVideos.mock.calls[0][0]).toHaveLength(1)
   })
 
-  it('keeps the single-shot path when transitionMode is omitted (backward compat)', async () => {
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
+  it('keeps the single-shot path when transitionMode is omitted (schema default "none")', async () => {
+    const concatVideos = concatFake()
     const meta = createScript2VideoMeta({ concatVideos })
     const { ctx, calls } = makeCtx()
 
-    await meta.compose(
-      {
-        input: {
-          sceneScript: 'two shots, no transitions',
-          characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
-          ],
-        },
-      },
-      ctx,
-    )
+    const input = inputOf({ sceneScript: 'two shots, no transitions', characters: [ALICE] })
+    // `.default('none')` with no trailing `.optional()`: the parsed value is
+    // the enum, never undefined.
+    expect(input.transitionMode).toBe('none')
+    await meta.compose({ input }, ctx)
 
     const videoCalls = calls.filter((c) => c.patternId === 'image-to-video')
     expect(videoCalls).toHaveLength(2) // 2 single shots, 0 transitions
     const transitionCalls = videoCalls.filter((c) =>
-      String((c.input as { prompt: string }).prompt).includes('i2v-shot-transition'),
+      promptStartsWith(c.input, I2V_SHOT_TRANSITION_PROMPT),
     )
     expect(transitionCalls).toHaveLength(0)
     expect(concatVideos.mock.calls[0][0]).toHaveLength(2)
   })
 
   it('emits the input tags shot-visual-decomposition declares, with the indexed character list', async () => {
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
-    const meta = createScript2VideoMeta({ concatVideos })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
     const { ctx, calls } = makeCtx()
 
     await meta.compose(
       {
-        input: {
+        input: inputOf({
           sceneScript: 'a short scene',
           characters: [
-            {
-              idx: 0,
-              identifierInScene: 'Alice',
-              staticFeatures: 'short hair',
-              dynamicFeatures: 'green dress',
-              isVisible: true,
-            },
+            ALICE,
             {
               idx: 1,
               identifierInScene: 'Bob',
@@ -726,7 +619,7 @@ describe("meta_script2video (W-1')", () => {
               isVisible: false,
             },
           ],
-        },
+        }),
       },
       ctx,
     )
@@ -745,7 +638,7 @@ describe("meta_script2video (W-1')", () => {
     const tags = declaredTags(SHOT_VISUAL_DECOMPOSITION_PROMPT)
     expect(tags.sort()).toEqual(['CHARACTERS', 'VISUAL_DESC'])
     for (const call of decomposeCalls) {
-      const prompt = String(call.input.prompt)
+      const prompt = promptOf(call)
       for (const tag of tags) {
         expect(prompt).toContain(`<${tag}>`)
         expect(prompt).toContain(`</${tag}>`)
@@ -758,23 +651,16 @@ describe("meta_script2video (W-1')", () => {
       expect(prompt).toContain('#1 Bob: tall blue shirt')
       expect(prompt).not.toContain('the narrator')
     }
-    expect(String(decomposeCalls[0]!.input.prompt)).toContain(
-      '<VISUAL_DESC>\nshot A\n</VISUAL_DESC>',
-    )
-    expect(String(decomposeCalls[1]!.input.prompt)).toContain(
-      '<VISUAL_DESC>\nshot B\n</VISUAL_DESC>',
-    )
+    expect(promptOf(decomposeCalls[0]!)).toContain('<VISUAL_DESC>\nshot A\n</VISUAL_DESC>')
+    expect(promptOf(decomposeCalls[1]!)).toContain('<VISUAL_DESC>\nshot B\n</VISUAL_DESC>')
   })
 
   it('extracts characters via text-generation when none are supplied', async () => {
-    const concatVideos = vi.fn(async (ids: readonly string[]) => ({
-      assetId: `final[${ids.join(',')}]`,
-    }))
-    const meta = createScript2VideoMeta({ concatVideos })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
     const { ctx, calls } = makeCtx()
 
     const out = await meta.compose(
-      { input: { sceneScript: 'A hero walks into a field.' } },
+      { input: inputOf({ sceneScript: 'A hero walks into a field.' }) },
       ctx,
     )
 
@@ -815,11 +701,11 @@ describe("meta_script2video (W-1')", () => {
     } as unknown as ExecutionContext
 
     await expect(
-      meta.compose({ input: { sceneScript: 'A hero walks into a field.' } }, ctx),
+      meta.compose({ input: inputOf({ sceneScript: 'A hero walks into a field.' }) }, ctx),
     ).rejects.toThrow('script2video: characters: text-generation did not return valid JSON')
 
     // The failed parse short-circuits before any paid image/video dispatch.
-    expect(calls.filter((c) => c.patternId !== 'text-generation')).toHaveLength(0)
+    expect(renderCalls(calls)).toHaveLength(0)
     expect(concatVideos).not.toHaveBeenCalled()
   })
 
@@ -830,5 +716,357 @@ describe("meta_script2video (W-1')", () => {
     expect(meta.kind).toBe('meta')
     expect(meta.namespace).toBe('meta-pipelines')
     expect(meta.tool.description).toBeTruthy()
+  })
+
+  // ── (a) every requested decomposition field is consumed ─────────────────
+
+  it("sends the storyboard's audio_desc to the video model after the motion line, tags intact", async () => {
+    const { ctx, calls } = makeCtx({
+      storyboard: [
+        shot(0, 0, 'shot A', { audio_desc: '[Speaker] Alice (Happy): "Hello"' }),
+        shot(1, 0, 'shot B', { is_last: true }),
+      ],
+    })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    await meta.compose(
+      { input: inputOf({ sceneScript: 'a line of dialogue', characters: [ALICE] }) },
+      ctx,
+    )
+
+    // The prompt is the prefix, then `motion_desc` and `audio_desc` joined by
+    // one newline — the [Speaker] tag reaches the video model's audio head
+    // verbatim. Stage 7 used to send the motion line alone, so every shot
+    // rendered silent no matter what the storyboard scripted.
+    const [clipA, clipB] = calls.filter((c) => c.patternId === 'image-to-video')
+    expect(promptOf(clipA!)).toBe(
+      `${I2V_SHOT_SINGLE_PROMPT}\n\npan left\n[Speaker] Alice (Happy): "Hello"`,
+    )
+    // An empty audio_desc adds nothing — no dangling newline.
+    expect(promptOf(clipB!)).toBe(`${I2V_SHOT_SINGLE_PROMPT}\n\npan left`)
+  })
+
+  it('renders a last frame for a medium/large variation and hands it to image-to-video as endFrame; small shots get none', async () => {
+    const { ctx, calls } = makeCtx({
+      decompositionFor: (visualDesc) =>
+        visualDesc === 'shot A'
+          ? { variation_type: 'medium', lf_desc: 'last frame of A', lf_vis_char_idxs: [0] }
+          : {},
+    })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    await meta.compose(
+      { input: inputOf({ sceneScript: 'a turn to camera', characters: [ALICE] }) },
+      ctx,
+    )
+
+    // 3 frame renders: A first, A last, B first — the last frame takes the
+    // same path as the first (root camera → text-to-image with the portraits
+    // of the characters visible at the end).
+    const frameCalls = calls.filter(
+      (c) =>
+        c.patternId === 'text-to-image' &&
+        promptStartsWith(c.input, CINEMATIC_SHOT_FRAMING_PROMPT),
+    )
+    expect(frameCalls).toHaveLength(3)
+    const lastFrameCall = frameCalls.find((c) => promptOf(c).includes('last frame of A'))
+    expect(lastFrameCall).toBeDefined()
+    expect((lastFrameCall!.assets ?? []).map((a) => a.slot)).toEqual([
+      'reference',
+      'reference',
+      'reference',
+    ])
+
+    const [clipA, clipB] = calls.filter((c) => c.patternId === 'image-to-video')
+    // Shot A: startFrame = its first frame, endFrame = the rendered last frame.
+    expect(clipA!.assets!.map((a) => a.slot)).toEqual(['startFrame', 'endFrame'])
+    expect(clipA!.assets![1]!.assetId).toBe(lastFrameCall!.producedAssetId)
+    expect(clipA!.assets![0]!.assetId).not.toBe(lastFrameCall!.producedAssetId)
+    // Shot B (small): first frame only.
+    expect(clipB!.assets!.map((a) => a.slot)).toEqual(['startFrame'])
+  })
+
+  it('every field the decomposition schema asks the model for is read by index.ts', () => {
+    // Source-level guard, in the spirit of the runtime's error-code scan: the
+    // model is paid for every key the schema requires, so a key nothing reads
+    // is spend with no consumer. Comments are stripped first — a mention in
+    // prose is not a reader.
+    const src = readFileSync(new URL('../meta/script2video/index.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '')
+    const keys = Object.keys(ShotDecompositionSchema.shape)
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys) {
+      // A reader is a property access off a parsed decomposition
+      // (`d.lf_desc`); the schema's own `lf_desc: z.string()` line is not one.
+      expect(src, `${key} is requested from the model but nothing reads it`).toMatch(
+        new RegExp(`\\.${key}\\b`),
+      )
+    }
+  })
+
+  // ── (b) render prompts address the image/video model, not an LLM ────────
+
+  it('render prompts are direct image/video prompts — no LLM brief, no template-of-a-template', () => {
+    const renderPrompts = {
+      PORTRAIT_FRONT_PROMPT,
+      PORTRAIT_SIDE_PROMPT,
+      PORTRAIT_BACK_PROMPT,
+      CINEMATIC_SHOT_FRAMING_PROMPT,
+      I2V_SHOT_SINGLE_PROMPT,
+      I2V_SHOT_TRANSITION_PROMPT,
+    }
+    for (const [name, body] of Object.entries(renderPrompts)) {
+      // These go verbatim into a diffusion / video model's `prompt`. A
+      // section header, the word "prompt", or second-person address means
+      // the text is briefing an LLM that never runs.
+      expect(body, name).not.toMatch(/\[(Role|Task|Input|Output|Guidelines)\]/)
+      expect(body, name).not.toMatch(/\bprompt\b/i)
+      expect(body, name).not.toMatch(/\byou (are|will|generate|author|may|must)\b/i)
+      expect(body, name).not.toMatch(/[{<](identifier|features|style|motion_desc|audio_desc|ff_desc)[}>]/)
+    }
+    // The planning prompts are LLM-facing and keep their sections — the
+    // distinction is the point.
+    for (const body of [
+      CHARACTER_EXTRACTION_PROMPT,
+      SHOT_VISUAL_DECOMPOSITION_PROMPT,
+      CAMERA_TREE_CONSTRUCTION_PROMPT,
+    ]) {
+      expect(body).toMatch(/\[Output\]/)
+    }
+  })
+
+  it('the portrait and frame prompts carry the visual specifics after the prefix', async () => {
+    const { ctx, calls } = makeCtx()
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    await meta.compose(
+      { input: inputOf({ sceneScript: 'a short scene', characters: [ALICE], style: 'noir' }) },
+      ctx,
+    )
+
+    const front = calls.find(
+      (c) => c.patternId === 'text-to-image' && promptStartsWith(c.input, PORTRAIT_FRONT_PROMPT),
+    )!
+    const frontPrompt = promptOf(front)
+    expect(frontPrompt).toContain('front-view portrait')
+    expect(frontPrompt).toContain('pure white background')
+    expect(frontPrompt).toContain('Character: Alice')
+    expect(frontPrompt).toContain('Features: short hair green dress')
+    expect(frontPrompt).toContain('Style: noir')
+
+    const [side, back] = calls.filter((c) => c.patternId === 'image-to-image')
+    expect(promptOf(side!)).toBe(`${PORTRAIT_SIDE_PROMPT}\n\nCharacter: Alice`)
+    expect(promptOf(back!)).toBe(`${PORTRAIT_BACK_PROMPT}\n\nCharacter: Alice`)
+
+    // A root frame: prefix, then a legend tying the attached reference images
+    // to the character they belong to, then the frame description and style.
+    const frame = calls.find(
+      (c) =>
+        c.patternId === 'text-to-image' &&
+        promptStartsWith(c.input, CINEMATIC_SHOT_FRAMING_PROMPT),
+    )!
+    expect(promptOf(frame)).toBe(
+      `${CINEMATIC_SHOT_FRAMING_PROMPT}\n\nReference images: images 0-2 are Alice (front, side, back).\n\nfirst frame\n\nStyle: noir`,
+    )
+  })
+
+  // ── (c) the camera tree is keyed by cam_idx, never by position ──────────
+
+  it('keys the camera tree by cam_idx: a sparse [0, 2] storyboard routes camera 2 through its parent', async () => {
+    const { ctx, calls } = makeCtx({
+      storyboard: [
+        shot(0, 0, 'wide street'),
+        shot(1, 2, 'close-up on Alice', { is_last: true }),
+      ],
+      // Two entries for cameras 0 and 2. Read positionally, `items[2]` is
+      // undefined and the close-up quietly rendered as a root.
+      cameraTree: [rootCam(0), childCam(2, 0, 0, 'frontal view of Alice')],
+    })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    await meta.compose(
+      { input: inputOf({ sceneScript: 'sparse cameras', characters: [ALICE] }) },
+      ctx,
+    )
+
+    // The camera-tree prompt names the storyboard's own indices, gap included.
+    const ctPrompt = promptOf(
+      calls.find(
+        (c) =>
+          c.patternId === 'text-generation' &&
+          String(c.input.system) === CAMERA_TREE_CONSTRUCTION_PROMPT,
+      )!,
+    )
+    expect(ctPrompt).toContain('<CAMERA_0>')
+    expect(ctPrompt).toContain('<CAMERA_2>')
+    expect(ctPrompt).not.toContain('<CAMERA_1>')
+
+    // The camera-2 shot is a child: image-to-image off shot 0's frame.
+    const childFrames = calls.filter(
+      (c) =>
+        c.patternId === 'image-to-image' &&
+        promptStartsWith(c.input, CINEMATIC_SHOT_FRAMING_PROMPT),
+    )
+    expect(childFrames).toHaveLength(1)
+    const rootFrame = calls.find(
+      (c) =>
+        c.patternId === 'text-to-image' &&
+        promptStartsWith(c.input, CINEMATIC_SHOT_FRAMING_PROMPT),
+    )!
+    expect(childFrames[0]!.assets).toEqual([
+      { slot: 'source', assetId: rootFrame.producedAssetId, modality: 'image' },
+    ])
+    expect(promptOf(childFrames[0]!)).toContain('frontal view of Alice')
+  })
+
+  it('fails closed when the camera tree omits a camera the storyboard uses: coded error, nothing rendered', async () => {
+    const { ctx, calls, askUserCalls } = makeCtx({
+      storyboard: [shot(0, 0, 'wide street'), shot(1, 2, 'close-up', { is_last: true })],
+      cameraTree: [rootCam(0)],
+    })
+    const concatVideos = concatFake()
+    const meta = createScript2VideoMeta({ concatVideos })
+
+    const err = await meta
+      .compose({ input: inputOf({ sceneScript: 'sparse cameras', characters: [ALICE] }) }, ctx)
+      .then(
+        () => undefined,
+        (e: unknown) => e as Error & { code?: string },
+      )
+    expect(err).toBeDefined()
+    expect(err!.code).toBe('SCRIPT2VIDEO_CAMERA_TREE_INCOMPLETE')
+    expect(err!.message).toMatch(/^SCRIPT2VIDEO_CAMERA_TREE_INCOMPLETE: /)
+    expect(err!.message).toContain('cam_idx 2')
+
+    // Refused before the gate and before any paid render.
+    expect(askUserCalls).toHaveLength(0)
+    expect(renderCalls(calls)).toHaveLength(0)
+    expect(concatVideos).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the camera tree answers for one camera twice', async () => {
+    const { ctx, calls } = makeCtx({
+      cameraTree: [rootCam(0), rootCam(0)],
+    })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    await expect(
+      meta.compose({ input: inputOf({ sceneScript: 'x', characters: [ALICE] }) }, ctx),
+    ).rejects.toMatchObject({ code: 'SCRIPT2VIDEO_CAMERA_TREE_DUPLICATE' })
+    expect(renderCalls(calls)).toHaveLength(0)
+  })
+
+  // ── (d) spend is bounded and confirmed before the first paid render ─────
+
+  it('refuses a storyboard longer than maxShots with a coded error before any render or gate', async () => {
+    const { ctx, calls, askUserCalls } = makeCtx() // two shots
+    const concatVideos = concatFake()
+    const meta = createScript2VideoMeta({ concatVideos })
+
+    const err = await meta
+      .compose(
+        { input: inputOf({ sceneScript: 'a long scene', characters: [ALICE], maxShots: 1 }) },
+        ctx,
+      )
+      .then(
+        () => undefined,
+        (e: unknown) => e as Error & { code?: string },
+      )
+    expect(err).toBeDefined()
+    expect(err!.code).toBe('SCRIPT2VIDEO_SHOT_CAP_EXCEEDED')
+    expect(err!.message).toContain('2 shots')
+    expect(err!.message).toContain('maxShots is 1')
+
+    // Only the storyboard text step ran: no decomposition, no gate, no render.
+    expect(calls.map((c) => c.patternId)).toEqual(['text-generation'])
+    expect(askUserCalls).toHaveLength(0)
+    expect(concatVideos).not.toHaveBeenCalled()
+  })
+
+  it('asks one confirm stating the exact counts, after every planning step and before the first paid render', async () => {
+    const { ctx, askUserCalls, timeline } = makeCtx({
+      decompositionFor: (visualDesc) =>
+        visualDesc === 'shot A' ? { variation_type: 'large' } : {},
+    })
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    await meta.compose(
+      {
+        input: inputOf({
+          sceneScript: 'two shots',
+          characters: [ALICE],
+          transitionMode: 'between-shots',
+        }),
+      },
+      ctx,
+    )
+
+    // 1 visible character → 3 portraits; 2 shots + 1 last frame → 3 frames;
+    // 2 shots + 1 transition → 3 clips.
+    expect(askUserCalls).toHaveLength(1)
+    const payload = askUserCalls[0]!.payload as { title: string; body: string }
+    expect(askUserCalls[0]!.kind).toBe('confirm')
+    expect(payload.title).toBe('Render 3 portraits, 3 frames, and 3 clips?')
+    expect(payload.body).toContain('Alice')
+    expect(payload.body).toContain('1. [cam 0] shot A (+ last frame)')
+    expect(payload.body).toContain('2. [cam 0] shot B')
+    expect(payload.body).not.toContain('shot B (+ last frame)')
+
+    // Ordering: every text-generation step precedes the gate; every paid
+    // image/video step follows it. Portraits in particular no longer render
+    // before the storyboard exists.
+    const gateAt = timeline.indexOf('ask:confirm')
+    expect(gateAt).toBeGreaterThan(0)
+    for (const [i, entry] of timeline.entries()) {
+      if (entry === 'step:text-generation') expect(i).toBeLessThan(gateAt)
+      if (entry.startsWith('step:') && entry !== 'step:text-generation') {
+        expect(i).toBeGreaterThan(gateAt)
+      }
+    }
+  })
+
+  it('declined gate → no paid render, empty assets, shotCount 0, cost = planning only', async () => {
+    const { ctx, calls, askUserCalls } = makeCtx({ confirmAnswer: false })
+    const concatVideos = concatFake()
+    const meta = createScript2VideoMeta({ concatVideos })
+
+    const out = await meta.compose(
+      { input: inputOf({ sceneScript: 'two shots', characters: [ALICE] }) },
+      ctx,
+    )
+
+    expect(askUserCalls.map((c) => c.kind)).toEqual(['confirm'])
+    expect(renderCalls(calls)).toHaveLength(0)
+    expect(concatVideos).not.toHaveBeenCalled()
+    expect(out.assets).toEqual([])
+    expect(out.shotCount).toBe(0)
+    expect(ScriptToVideoOutputSchema.safeParse(out).success).toBe(true)
+    // The planning calls were still paid for; the declined run reports them.
+    const expected = expectedCost(calls)
+    expect(expected).toBeGreaterThan(0)
+    expect(out.cost).toBeCloseTo(expected)
+  })
+
+  it('confirmBeforeRender: false skips the gate for a headless caller and renders', async () => {
+    const { ctx, calls, askUserCalls } = makeCtx()
+    const meta = createScript2VideoMeta({ concatVideos: concatFake() })
+    const out = await meta.compose(
+      {
+        input: inputOf({
+          sceneScript: 'two shots',
+          characters: [ALICE],
+          confirmBeforeRender: false,
+        }),
+      },
+      ctx,
+    )
+    expect(askUserCalls).toHaveLength(0)
+    expect(out.shotCount).toBe(2)
+    expect(renderCalls(calls).length).toBeGreaterThan(0)
+  })
+
+  it('schema defaults: maxShots 12, transitionMode "none", confirmBeforeRender true; maxShots is bounded', () => {
+    const parsed = inputOf({ sceneScript: 'x' })
+    expect(parsed.maxShots).toBe(12)
+    expect(parsed.transitionMode).toBe('none')
+    expect(parsed.confirmBeforeRender).toBe(true)
+    expect(ScriptToVideoInputSchema.safeParse({ sceneScript: 'x', maxShots: 0 }).success).toBe(false)
+    expect(ScriptToVideoInputSchema.safeParse({ sceneScript: 'x', maxShots: 25 }).success).toBe(false)
+    expect(ScriptToVideoInputSchema.safeParse({ sceneScript: 'x', maxShots: 24 }).success).toBe(true)
   })
 })
