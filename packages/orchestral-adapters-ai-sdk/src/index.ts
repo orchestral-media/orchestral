@@ -6,6 +6,7 @@
 
 export type { AdapterOptions } from './envelope'
 export { fromImageModel, type ImageModelInstance } from './image'
+export { fromLanguageModel, type LanguageModelInstance } from './language'
 export { fromSpeechModel, type SpeechModelInstance } from './speech'
 export {
   fromTranscriptionModel,
@@ -13,3 +14,8 @@ export {
   type TranscriptionAdapterOptions,
   type TranscriptionModelInstance,
 } from './transcription'
+export {
+  fromVisionModel,
+  type ImageSource,
+  type VisionAdapterOptions,
+} from './vision'

@@ -6,6 +6,7 @@
 
 import type { DispatchContext } from '@orchestral/core';
 import { ImageModel } from 'ai';
+import { LanguageModel } from 'ai';
 import type { ModelCapability } from '@orchestral/core';
 import type { ModelTag } from '@orchestral/core';
 import type { ResolvedAssetRef } from '@orchestral/core';
@@ -27,13 +28,28 @@ export type AudioSource = Uint8Array | ArrayBuffer | URL;
 export function fromImageModel(model: ImageModelInstance, options?: AdapterOptions): ModelCapability;
 
 // @public
+export function fromLanguageModel(model: LanguageModelInstance, options?: AdapterOptions): ModelCapability;
+
+// @public
 export function fromSpeechModel(model: SpeechModelInstance, options?: AdapterOptions): ModelCapability;
 
 // @public
 export function fromTranscriptionModel(model: TranscriptionModelInstance, options: TranscriptionAdapterOptions): ModelCapability;
 
 // @public
+export function fromVisionModel(model: LanguageModelInstance, options: VisionAdapterOptions): ModelCapability;
+
+// @public
 export type ImageModelInstance = Exclude<ImageModel, string>;
+
+// @public
+export type ImageSource = Uint8Array | ArrayBuffer | URL | {
+    readonly data: Uint8Array | ArrayBuffer | string | URL;
+    readonly mediaType: string;
+};
+
+// @public
+export type LanguageModelInstance = Exclude<LanguageModel, string>;
 
 // @public
 export type SpeechModelInstance = Exclude<SpeechModel, string>;
@@ -45,6 +61,11 @@ export interface TranscriptionAdapterOptions extends AdapterOptions {
 
 // @public
 export type TranscriptionModelInstance = Exclude<TranscriptionModel, string>;
+
+// @public
+export interface VisionAdapterOptions extends AdapterOptions {
+    loadImage: (ref: ResolvedAssetRef, ctx: DispatchContext) => Promise<ImageSource> | ImageSource;
+}
 
 // (No @packageDocumentation comment for this package)
 
