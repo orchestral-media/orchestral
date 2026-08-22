@@ -12,6 +12,17 @@ this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`AdapterOptions.mintAssetId`** — `(artifact, index, ctx) => string`,
+  called by `fromImageModel` and `fromSpeechModel` once per produced file, in
+  output order; the string returned is that `assets[]` element's `assetId`.
+  The producing-side counterpart of `loadAudio` / `loadImage`: a host that
+  stores the bytes mints the id it stores them under, and the output carries
+  it at the moment it is produced rather than after the runtime has handed it
+  on. The id is checked against `assetIdField()`'s bound (non-empty, at most
+  128 characters); an invalid one fails the call with `MINT_ASSET_ID_INVALID`
+  (attached as `Error.code`) before any artifact event fires. Optional — the
+  default is the placeholder the adapters always emitted (`aisdk-image-<i>`,
+  `aisdk-audio-0`).
 - **`fromLanguageModel(model, options?)`** — `generateText` as
   `text-generation`, the capability every first-party meta dispatches and the
   one the package did not serve. Reads `prompt`, `system`, the sampling fields
@@ -31,6 +42,15 @@ this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without one), validate the reply against that schema through zod's
   `fromJSONSchema`, and return the object in `text` as JSON — the shape the
   first-party metas parse.
+
+### Changed
+
+- **Produced artifacts carry `meta.assetId`.** Every artifact `fromImageModel`
+  and `fromSpeechModel` return on `DispatchResult.artifacts` and fire on
+  `events.onArtifact` (the runtime's `job:artifact` event) is stamped with the
+  `assetId` of its output element — minted or placeholder — so a host that
+  collects bytes from the event and one that reads the output look up the
+  same key. Additive: the speech artifact's `meta.format` stays.
 
 ## [0.1.0] - 2026-08-21 — Initial public release
 

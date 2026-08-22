@@ -3,7 +3,11 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { MockSpeechModelV3 } from 'ai/test'
-import { MODEL_SPEC_VERSION, type DispatchContext } from '@orchestral/core'
+import {
+  MODEL_SPEC_VERSION,
+  type Artifact,
+  type DispatchContext,
+} from '@orchestral/core'
 import { TextToSpeechOutputSchema } from '@orchestral/patterns'
 
 import { fromSpeechModel } from '../speech'
@@ -63,6 +67,7 @@ describe('fromSpeechModel', () => {
     expect(parsed.audioDurationMs).toBeUndefined()
     expect(parsed.assets).toHaveLength(1)
     expect(parsed.assets[0]!.modality).toBe('audio')
+    expect(parsed.assets[0]!.assetId).toBe('aisdk-audio-0')
     // `url` is deliberately unset: the bounded output is never the channel
     // for the bytes.
     expect(parsed.assets[0]!.url).toBeUndefined()
@@ -70,8 +75,63 @@ describe('fromSpeechModel', () => {
     expect(artifacts).toHaveLength(1)
     expect(artifacts![0]!.kind).toBe('audio')
     expect(artifacts![0]!.uri).toMatch(/^data:audio\/[\w.+-]+;base64,/)
-    expect(artifacts![0]!.meta).toEqual({ format: expect.any(String) })
+    // The SDK's format, plus the id the output element carries.
+    expect(artifacts![0]!.meta).toEqual({
+      format: expect.any(String),
+      assetId: 'aisdk-audio-0',
+    })
     expect(onArtifact).toHaveBeenCalledTimes(1)
+  })
+
+  it('mints the assetId through mintAssetId — (artifact, 0, ctx) — and stamps it on the artifact before the event fires', async () => {
+    const mintAssetId = vi.fn<
+      (artifact: Artifact, index: number, ctx: DispatchContext) => string
+    >(() => 'clip-7')
+    const onArtifact = vi.fn<(artifact: Artifact) => void>()
+    const context = ctx()
+
+    const { output, artifacts } = await fromSpeechModel(mockSpeechModel(), {
+      mintAssetId,
+    }).call({ text: 'hello' }, context, { onArtifact })
+
+    expect(mintAssetId).toHaveBeenCalledTimes(1)
+    const [artifact, index, passedCtx] = mintAssetId.mock.calls[0]!
+    expect(index).toBe(0)
+    expect(passedCtx).toBe(context)
+    // The hook sees the bare artifact — the SDK's format on meta, no id yet.
+    expect(artifact.kind).toBe('audio')
+    expect(artifact.uri).toMatch(/^data:audio\/[\w.+-]+;base64,/)
+    expect(artifact.meta).toEqual({ format: expect.any(String) })
+
+    const parsed = TextToSpeechOutputSchema.parse(output)
+    expect(parsed.assets[0]!.assetId).toBe('clip-7')
+    // Stamped alongside the format, not in place of it, and the event carries
+    // the same artifact the result does.
+    expect(artifacts![0]!.meta).toEqual({ format: expect.any(String), assetId: 'clip-7' })
+    expect(onArtifact).toHaveBeenCalledTimes(1)
+    expect(onArtifact.mock.calls[0]![0]).toBe(artifacts![0])
+    expect(mintAssetId.mock.invocationCallOrder[0]).toBeLessThan(
+      onArtifact.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('fails with MINT_ASSET_ID_INVALID on an empty or over-long id, firing no artifact event', async () => {
+    const onArtifact = vi.fn<(artifact: Artifact) => void>()
+    const attempt = (id: string) =>
+      fromSpeechModel(mockSpeechModel(), { mintAssetId: () => id }).call(
+        { text: 'hello' },
+        ctx(),
+        { onArtifact },
+      )
+
+    await expect(attempt('')).rejects.toMatchObject({
+      code: 'MINT_ASSET_ID_INVALID',
+      message: expect.stringContaining('text-to-speech call: mintAssetId returned an empty string'),
+    })
+    await expect(attempt('x'.repeat(200))).rejects.toMatchObject({
+      code: 'MINT_ASSET_ID_INVALID',
+    })
+    expect(onArtifact).not.toHaveBeenCalled()
   })
 
   it('passes the shared speech fields, merged providerOptions and the abort signal to the SDK', async () => {

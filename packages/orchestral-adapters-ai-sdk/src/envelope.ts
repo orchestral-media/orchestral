@@ -1,19 +1,21 @@
 // The half of every adapter that is the same across image / speech /
 // transcription / language / vision: who the model is, the record fields the
-// router reads, the dispatch envelope the output carries, and the input /
-// providerOptions readers. Each `from*` function is then only the
-// capability-specific translation between the orchestral dispatch contract
-// and one AI SDK call.
+// router reads, the dispatch envelope the output carries, the input /
+// providerOptions readers, and the id each produced file goes out under. Each
+// `from*` function is then only the capability-specific translation between
+// the orchestral dispatch contract and one AI SDK call.
 
 import type { generateImage } from 'ai'
 import type {
+  Artifact,
+  CallEvents,
   Capability,
   DispatchContext,
   Modality,
   ModelCapability,
   ModelTag,
 } from '@orchestral/core'
-import { MODEL_SPEC_VERSION } from '@orchestral/core'
+import { assetIdField, MODEL_SPEC_VERSION } from '@orchestral/core'
 
 /**
  * Options shared by every adapter. All optional: the defaults read identity
@@ -36,6 +38,33 @@ export interface AdapterOptions {
   tags?: readonly ModelTag[]
   /** Routing tier, read when a caller passes `ResolveContext.tier`. */
   tier?: 'fast' | 'balanced' | 'premium'
+  /**
+   * Mint the `assetId` each produced file is returned under. `fromImageModel`
+   * and `fromSpeechModel` call it once per produced artifact, in output
+   * order, with the artifact (the bytes as a `data:` URI, plus `mime`), its
+   * index in the output's `assets[]`, and the dispatch context; the string
+   * returned is that element's `assetId`.
+   *
+   * This is where a host that stores the bytes mints the id it stores them
+   * under, so the output carries the id the host will look up — the same
+   * posture as `loadAudio` / `loadImage`, on the producing side. An
+   * orchestral `assetId` is whatever the host's store says it is;
+   * `@orchestral/core` defines no assetId → bytes write any more than it
+   * defines the read, and the adapter never sees the store. Minting the id
+   * here, at the moment the output is produced, is what lets the next step
+   * in a meta resolve it: an id rewritten after the fact is one the runtime
+   * has already handed on.
+   *
+   * The minted id is stamped on the artifact's `meta.assetId` before
+   * `events.onArtifact` fires, so the `job:artifact` event and the output
+   * element agree. Must be a non-empty string of at most 128 characters
+   * (`assetIdField()`'s bound); anything else fails the call with
+   * `MINT_ASSET_ID_INVALID` before any artifact event fires.
+   *
+   * Default: a positional placeholder (`aisdk-image-<i>`, `aisdk-audio-0`)
+   * that names nothing in any store.
+   */
+  mintAssetId?: (artifact: Artifact, index: number, ctx: DispatchContext) => string
 }
 
 /** The fields every AI SDK model object carries, whatever its spec version. */
@@ -100,6 +129,69 @@ export function dispatchEnvelope(identity: ModelIdentity, startedAt: number) {
     model: `${identity.provider}:${identity.modelId}`,
     provider: identity.provider,
   }
+}
+
+// ── Produced assets ───────────────────────────────────────────────────────
+
+/**
+ * One produced file: the artifact as it goes out (its `meta.assetId` already
+ * stamped), and the id its `assets[]` element carries.
+ */
+export interface MintedArtifact {
+  readonly assetId: string
+  readonly artifact: Artifact
+}
+
+// `assetIdField()`'s bound, plus non-empty: an empty id names nothing.
+const ASSET_ID = assetIdField().min(1)
+
+/**
+ * Give every produced artifact the `assetId` its `assets[]` element will
+ * carry, and fire `events.onArtifact` for each. The id is
+ * `options.mintAssetId`'s answer when the host gave one, else `placeholder`.
+ *
+ * The order is fixed here rather than in each adapter: every id is minted and
+ * checked first, then stamped on its artifact's `meta.assetId`, and only then
+ * do the artifact events fire. So the event a host sees carries the id the
+ * output will carry, and an invalid id fails the call before any event has
+ * announced a file the output will never name.
+ */
+export function mintAssetIds(
+  produced: readonly Artifact[],
+  ctx: DispatchContext,
+  events: CallEvents | undefined,
+  options: AdapterOptions,
+  capability: Capability,
+  placeholder: (index: number) => string,
+): readonly MintedArtifact[] {
+  const minted = produced.map((artifact, index): MintedArtifact => {
+    const assetId = options.mintAssetId
+      ? options.mintAssetId(artifact, index, ctx)
+      : placeholder(index)
+    if (!ASSET_ID.safeParse(assetId).success) {
+      throw Object.assign(
+        new Error(
+          `MINT_ASSET_ID_INVALID: ${capability} call: mintAssetId returned ${describeId(assetId)} for artifact ${index}; an assetId is a non-empty string of at most 128 characters`,
+        ),
+        { code: 'MINT_ASSET_ID_INVALID' },
+      )
+    }
+    return {
+      assetId,
+      artifact: { ...artifact, meta: { ...artifact.meta, assetId } },
+    }
+  })
+  for (const { artifact } of minted) events?.onArtifact?.(artifact)
+  return minted
+}
+
+// The hook is typed to return a string; a JS host that forgot a `return` is
+// the case the runtime check exists for, so the message says what arrived.
+function describeId(id: unknown): string {
+  if (id === undefined || id === null) return String(id)
+  if (typeof id !== 'string') return `a ${typeof id}`
+  if (id.length === 0) return 'an empty string'
+  return `a ${id.length}-character string`
 }
 
 // ── Input readers ─────────────────────────────────────────────────────────

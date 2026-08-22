@@ -176,16 +176,18 @@ and completes in image-to-image's shape. It also runs as part of the repo's
 - **`JobStore` and `CapabilityRouter`** are the zero-dependency defaults
   (`InMemoryJobStore`, `createDefaultCapabilityRouter`).
 - **`ModelCapability.call`** — two envelopes in
-  [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts): a hand-written bridge over
-  `generateImage` for text-to-image (honouring the `size` / `n` params a meta
-  fills directly, and recording what it produced into the host store), and
-  `fromVisionModel` from `@orchestral/adapters-ai-sdk` over a vision model for
-  image-to-text. The core packages ship neither; the example installs `ai@^7`
-  and `@ai-sdk/openai` itself.
+  [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts), both from
+  `@orchestral/adapters-ai-sdk`: `fromImageModel` for text-to-image, its
+  `mintAssetId` hook recording each produced image into the host store and
+  putting the store's id on the output, and `fromVisionModel` for
+  image-to-text, its `loadImage` hook answering from the same store. The core
+  packages ship neither SDK; the example installs `ai@^7` and `@ai-sdk/openai`
+  itself.
 - **Asset bytes** — [`src/asset-store.ts`](./src/asset-store.ts). Orchestral
   passes media between steps as assetIds and never reads or writes bytes; the
-  vision adapter's `loadImage` hook turns `ctx.assets` ids into bytes through
-  this store, and the image bridge records what it produced into it.
+  two adapter hooks are where ids and bytes meet — `mintAssetId` stores what
+  text-to-image produced and mints its id, `loadImage` turns a `ctx.assets`
+  id back into bytes — and both are answered from this store.
 - **`AskUserHandler`** — `askOnStdin` in `main.ts`. The runtime hands it an
   `AskUserRequest`; `kind` names the interaction and the payload / answer
   shapes per kind are the schemas in core's `ask-user.ts`

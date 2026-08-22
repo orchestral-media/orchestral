@@ -41,8 +41,15 @@ const models = [
     // Only the host knows how an assetId becomes bytes — see below.
     loadImage: async (ref) => store.readBytes(ref.assetId),
   }),
-  fromImageModel(openai.image('gpt-image-1'), { tags: ['fast'] }),
-  fromSpeechModel(openai.speech('tts-1')),
+  fromImageModel(openai.image('gpt-image-1'), {
+    tags: ['fast'],
+    // …and only the host knows what id the bytes are stored under. Mint it
+    // here and the output carries it — see below.
+    mintAssetId: (artifact) => store.record(artifact),
+  }),
+  fromSpeechModel(openai.speech('tts-1'), {
+    mintAssetId: (artifact) => store.record(artifact),
+  }),
 ]
 const router = createDefaultCapabilityRouter({
   getModels: (cap) => models.filter((m) => m.capabilities.includes(cap)),
@@ -93,7 +100,9 @@ Every `call` passes `ctx.signal` to the SDK as `abortSignal`, measures
 `latencyMs` around the SDK call, and returns the output of the matching
 first-party pattern field-for-field — the package's tests assert
 `Schema.parse(output)` succeeds for each. Produced media also travels on
-`DispatchResult.artifacts` and fires `events.onArtifact` once per file.
+`DispatchResult.artifacts` and fires `events.onArtifact` once per file, each
+artifact stamped with its output element's `assetId` on `meta.assetId`; the
+id itself is the host's to mint (`options.mintAssetId`, below).
 
 The `model` parameter is the resolved model **object** (`openai('…')`,
 `openai.image('…')`), not the `'provider/model-id'` string some AI SDK helpers
@@ -183,6 +192,44 @@ field descriptions say: `system` wins and `mode` is ignored; without a
 `system`, a `prompt` replaces the mode-default text; with neither, the mode
 default is the system text and the images go up alone.
 
+### Produced media needs an id
+
+```ts
+import { fromImageModel, fromSpeechModel } from '@orchestral/adapters-ai-sdk'
+
+fromImageModel(openai.image('gpt-image-1'), {
+  // Called once per produced file, in output order, with the artifact (the
+  // bytes as a data: URI, plus mime), its index, and the dispatch context.
+  // Whatever it returns is that element's `assetId`.
+  mintAssetId: (artifact, index, ctx) => store.record(artifact, ctx.rootJobId),
+})
+fromSpeechModel(openai.speech('tts-1'), {
+  mintAssetId: (artifact) => store.record(artifact),
+})
+```
+
+The same posture as `loadAudio` / `loadImage`, on the producing side. An
+orchestral `assetId` is whatever the host's store says it is, and the id on a
+`text-to-image` output is what the next step of a meta resolves and hands to
+`loadImage` — so it has to be the id the host stored the bytes under, at the
+moment the output is produced. Rewriting `assets[].assetId` afterwards is too
+late: the runtime has already handed the output on. `mintAssetId` is where a
+host that stores the bytes mints the id it stores them under; the adapter
+never sees the store.
+
+The minted id is also stamped on the artifact's `meta.assetId` before
+`events.onArtifact` fires, so a host that collects bytes from the
+`job:artifact` event and one that reads `assets[]` off the output look up the
+same key (`artifacts[i]` is `assets[i]` by position as well). The returned id
+must be a non-empty string of at most 128 characters (`assetIdField()`'s
+bound); anything else fails the call with `MINT_ASSET_ID_INVALID` before any
+artifact event fires, rather than emitting an output the schema would reject.
+
+Optional, unlike the two loaders: without it the id is a positional
+placeholder (`aisdk-image-0`, `aisdk-audio-0`) that names nothing in any
+store — enough for a host that only ever reads the artifacts, and what
+`examples/consented-fallback` replaces with its store's own ids.
+
 ## Honest limitations
 
 - **`cost` is always `null`.** The AI SDK does not report what a call cost, and
@@ -237,10 +284,12 @@ default is the system text and the images go up alone.
   so a multi-megabyte blob cannot ride in a value a model or a transcript
   might see, and a real image or audio file is far larger than that. A host
   collects the artifacts — subscribe from `InlineRuntimeInit.onJobCreated`,
-  which fires for every job including the children of a meta or agent —
-  stores the bytes, and rewrites `assets[].url` / `assetId` to its own
-  canonical handles if it wants them on the output. `assetId` is a placeholder
-  (`aisdk-image-0`) until it does.
+  which fires for every job including the children of a meta or agent — and
+  stores the bytes. The `assetId` on the output is the host's to mint through
+  `mintAssetId` (above), at the moment the output is produced; without the
+  hook it is a placeholder (`aisdk-image-0`) that names nothing. `url` is
+  never set either way — a host with public URLs serves them from its store
+  by that id.
 - **One spec version per envelope.** Each envelope declares the adapter-contract
   generation it was built against (`MODEL_SPEC_VERSION`); a runtime that cannot
   execute it refuses the envelope with `MODEL_SPEC_VERSION_UNSUPPORTED` rather

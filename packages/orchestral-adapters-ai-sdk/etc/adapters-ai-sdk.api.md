@@ -4,6 +4,7 @@
 
 ```ts
 
+import type { Artifact } from '@orchestral/core';
 import type { DispatchContext } from '@orchestral/core';
 import { ImageModel } from 'ai';
 import { LanguageModel } from 'ai';
@@ -15,6 +16,7 @@ import { TranscriptionModel } from 'ai';
 
 // @public
 export interface AdapterOptions {
+    mintAssetId?: (artifact: Artifact, index: number, ctx: DispatchContext) => string;
     modelId?: string;
     provider?: string;
     tags?: readonly ModelTag[];
