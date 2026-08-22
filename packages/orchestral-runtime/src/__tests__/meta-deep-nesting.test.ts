@@ -120,7 +120,7 @@ function createChildMeta(): MetaPattern<{ prompt: string }, { a: string; b: stri
 }
 
 // ── Level 1: parent meta — dispatches the child twice with fixed stepIds.
-//    Mirrors the idea2video → script2video × N_scenes storyboard shape.
+//    Mirrors the storyboard → image-best-of-n × N_panels shape.
 function createParentMeta(): MetaPattern<
   Record<string, never>,
   { p0: { a: string; b: string }; p1: { a: string; b: string } }

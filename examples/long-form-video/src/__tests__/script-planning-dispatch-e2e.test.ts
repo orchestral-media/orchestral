@@ -1,14 +1,15 @@
-// meta-dispatch e2e.
+// meta_script-planning — e2e dispatch through the real runtime.
 //
 // Builds a real InlineRuntime over an in-memory JobStore + a fake
 // CapabilityRouter whose text-generation ModelCapability scripts
 // schema-shaped JSON returns, then dispatches `meta_script-planning`
-// end-to-end. Validates:
+// end-to-end. (This test lived in @orchestral/runtime while the meta shipped
+// in @orchestral/patterns; it moved here with the meta.) Validates:
 //   • dispatchMeta → compose() pipeline actually invokes the meta's body
 //   • ctx.step({patternId: 'text-generation', input: {system, prompt,
 //     responseFormat: 'json', jsonSchema}}) reaches the atomic dispatcher
 //   • The meta carries its own inlined prompts (the system slot equals the
-//     prompt constant re-exported from @orchestral/patterns) — nothing is
+//     prompt constant exported from its prompts module) — nothing is
 //     loaded from disk at dispatch time
 //   • Meta returns the documented output shape ({intent, plannedScript})
 //   • Errors in a step propagate up with the stepId in the chain
@@ -23,18 +24,16 @@ import type {
   Modality,
 } from '@orchestral/core'
 import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
-import {
-  createTextGenerationPattern,
-  createScriptPlanningMeta,
-} from '@orchestral/patterns'
+import { createTextGenerationPattern } from '@orchestral/patterns'
+import { InlineRuntime } from '@orchestral/runtime'
+
+import { createScriptPlanningMeta } from '../patterns/script-planning'
 import {
   SCRIPT_INTENT_ROUTING_PROMPT,
   NARRATIVE_SCRIPT_PLANNING_PROMPT,
   MOTION_SCRIPT_PLANNING_PROMPT,
   MONTAGE_SCRIPT_PLANNING_PROMPT,
-} from '@orchestral/patterns/testing'
-
-import { InlineRuntime } from '../inline'
+} from '../patterns/script-planning/prompts'
 
 // ── Scripted ModelCapability for text-generation ──────────────────────────
 //
@@ -143,7 +142,7 @@ beforeEach(() => {
   })
 })
 
-describe('meta_script-planning — e2e dispatch (F1.c G1 acceptance)', () => {
+describe('meta_script-planning — e2e dispatch', () => {
   it('completes the 2-stage compose() and returns {intent, plannedScript}', async () => {
     const job = await runtime.submitJob({
       patternId: 'meta_script-planning',

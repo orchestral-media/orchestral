@@ -17,17 +17,17 @@ describe('@orchestral/agent manifest', () => {
     expect(pkg.keywords).toContain('orchestral-pattern')
   })
 
-  it('registers both agent patterns from the real manifest + module', () => {
+  it('registers the agent pattern from the real manifest + module', () => {
     const manifest = OrchestralManifestSchema.parse(pkg.orchestral)
     const registry = new PatternRegistry()
 
-    // No ops argument: neither agent takes host operations, so the manifest
+    // No ops argument: the agent takes no host operations, so the manifest
     // declares no `requiredOps`.
     const result = registry.addFromManifest(pkg.orchestral, agent)
 
     expect(result.registered).toEqual(manifest.patterns.map((p) => p.id))
-    // Neither agent needs a host op, so nothing is ever skipped for want of one
-    // and the package loads with no `ops` argument at all.
+    // It needs no host op, so nothing is ever skipped for want of one and the
+    // package loads with no `ops` argument at all.
     expect(result.skipped).toEqual([])
     expect(registry.size()).toBe(manifest.patterns.length)
     for (const entry of manifest.patterns) {

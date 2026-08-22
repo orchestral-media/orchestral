@@ -146,10 +146,10 @@ adapter over whichever provider SDK you use.
   It returns `{ registered, skipped }` rather than a bare id list, so a partial
   load is legible.
 
-  `requiredOps` is declared per pattern, not per package: of the 25 patterns in
-  `@orchestral/patterns` only six need the ffmpeg-shaped host operations, and a
-  package-wide list would have made those six enough to render the other
-  nineteen unloadable for a host with no ffmpeg. `options.only` loads a subset
+  `requiredOps` is declared per pattern, not per package: of the 18 patterns in
+  `@orchestral/patterns` only four need the ffmpeg-shaped host operations, and a
+  package-wide list would have made those four enough to render the other
+  fourteen unloadable for a host with no ffmpeg. `options.only` loads a subset
   by id (an undeclared id is an error, not a no-op) and `options.missingOps`
   chooses between refusing the load (`'throw'`, the default — fail-closed,
   because a pattern quietly missing from the registry resurfaces as a routing

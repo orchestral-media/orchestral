@@ -1,6 +1,6 @@
 // stepCache eviction bound — the per-dispatch-tree step cache must not grow
-// without limit. A meta that loops over many scenes (idea2video fanning
-// meta_script2video per scene, each running several ctx.compute steps) can mint
+// without limit. A meta that loops over many items (meta_storyboard fanning
+// meta_image-best-of-n per panel, each running several ctx.compute steps) can mint
 // far more cache entries than a normal run; the cap evicts the oldest on
 // overflow so one pathological run can't grow the map unbounded.
 //

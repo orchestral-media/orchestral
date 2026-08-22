@@ -25,10 +25,8 @@ import { existsSync } from 'node:fs'
 import { createRequire, register } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-// The three published packages and their single published entry (`.`). Each
-// package's publishConfig.exports declares only `.` → ./dist/index.js; the
-// dev-only `./testing` subpath on @orchestral/patterns is intentionally absent
-// from publishConfig and has no dist artifact, so it is not exercised here.
+// The published packages and their single published entry (`.`). Each
+// package's publishConfig.exports declares only `.` → ./dist/index.js.
 const PACKAGES = [
   { name: '@orchestral/core', dir: 'orchestral-core' },
   { name: '@orchestral/discovery', dir: 'orchestral-discovery' },
@@ -116,10 +114,9 @@ check('@orchestral/patterns', 'TextToImageOutputSchema.parse is a function', typ
 check('@orchestral/runtime', 'InlineRuntime is a constructor', typeof runtime.InlineRuntime === 'function')
 check('@orchestral/discovery', 'PatternSearchIndex is a constructor', typeof discovery.PatternSearchIndex === 'function')
 check('@orchestral/discovery', 'handleFindPattern is a function', typeof discovery.handleFindPattern === 'function')
-// The agent package publishes its two Pattern factories and nothing else — no
+// The agent package publishes its one Pattern factory and nothing else — no
 // tool-loop runner (that is host territory, same as ModelCapability.call), so
 // there is no runner export to assert here.
-check('@orchestral/agent', 'createLongFormVideoAgent is a function', typeof agent.createLongFormVideoAgent === 'function')
 check('@orchestral/agent', 'createOrchestratorAgent is a function', typeof agent.createOrchestratorAgent === 'function')
 check('@orchestral/adapters-ai-sdk', 'fromImageModel is a function', typeof adapters.fromImageModel === 'function')
 check('@orchestral/adapters-ai-sdk', 'fromSpeechModel is a function', typeof adapters.fromSpeechModel === 'function')

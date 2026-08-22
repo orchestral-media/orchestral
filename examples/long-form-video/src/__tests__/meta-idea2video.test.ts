@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ExecutionContext, PatternRef, AskUserGeneric } from '@orchestral/core'
 import { buildAskUserFacade } from '@orchestral/core'
-import { createIdea2VideoMeta, IdeaToVideoOutputSchema } from '../meta/idea2video'
+import { createIdea2VideoMeta, IdeaToVideoOutputSchema } from '../patterns/idea2video'
 import { expectProducedAssetsEnvelope } from './helpers/produced-assets'
 import {
   STORY_DEVELOPMENT_PROMPT,
   CHARACTER_EXTRACTION_PROMPT,
-} from '../meta/idea2video/prompts'
+} from '../patterns/idea2video/prompts'
 
 // Routing mock: text-generation routed by the inlined system prompt const; the
 // nested meta_script2video is mocked to return a per-scene video asset.

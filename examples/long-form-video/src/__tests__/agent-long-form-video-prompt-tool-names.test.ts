@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   LONG_FORM_VIDEO_DIRECTOR_PROMPT,
   CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT,
-} from '../long-form-video/prompts'
+} from '../patterns/agent-long-form-video/prompts'
 
 // Host tools are registered under plain names (e.g. `concat_videos` /
 // `complete_task`) — there is no `base.` prefix. These director prompts are

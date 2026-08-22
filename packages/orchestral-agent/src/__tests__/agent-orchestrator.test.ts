@@ -62,9 +62,9 @@ describe('agent_orchestrator', () => {
     expect(prefixLen).toBeGreaterThan(0)
     expect(sysA.slice(0, prefixLen)).toBe(sysB.slice(0, prefixLen))
 
-    // No embedded prompt block — unlike long-form-video, the orchestrator's
-    // whole system prompt is the one constant, and it tells the LLM there is
-    // no further guidance to go and fetch.
+    // No embedded prompt block — the orchestrator's whole system prompt is the
+    // one constant, and it tells the LLM there is no further guidance to go
+    // and fetch.
     expect(sysA).not.toContain('EMBEDDED_SKILL')
     expect(sysA).toContain('there is nothing further for you to go and fetch')
 
@@ -111,20 +111,13 @@ describe('agent_orchestrator', () => {
       'image-to-text',
       'text-generation',
       'meta_image-to-image-via-caption',
-      'meta_idea2video',
       'meta_script2video',
       'meta_image-best-of-n',
-      'meta_reference-image-cascade',
-      'meta_script-planning',
       'meta_storyboard',
       'meta_product-ad-short',
       'meta_product-photo-pack',
       'meta_ugc-testimonial',
       'meta_explainer-short',
-      'meta_lyrics-to-mv',
-      'meta_prose-chunking',
-      'meta_novel-to-events',
-      'meta_event-to-script',
     ])
 
     // No agent_* in the universe — orchestration composes atomics + metas, not
@@ -139,7 +132,6 @@ describe('agent_orchestrator', () => {
     const agent = createOrchestratorAgent()
 
     expect(agent.loop.asyncToolPatternIds).toEqual([
-      'meta_idea2video',
       'meta_script2video',
       'meta_image-best-of-n',
       'meta_storyboard',
@@ -147,7 +139,6 @@ describe('agent_orchestrator', () => {
       'meta_product-photo-pack',
       'meta_ugc-testimonial',
       'meta_explainer-short',
-      'meta_lyrics-to-mv',
     ])
 
     const toolSet = new Set(agent.loop.toolPatternIds)

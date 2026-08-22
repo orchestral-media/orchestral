@@ -17,6 +17,7 @@ export default defineConfig({
       './examples/agent-hello-world/vitest.config.ts',
       './examples/incremental-rerun/vitest.config.ts',
       './examples/consented-fallback/vitest.config.ts',
+      './examples/long-form-video/vitest.config.ts',
     ],
     coverage: {
       provider: 'v8',

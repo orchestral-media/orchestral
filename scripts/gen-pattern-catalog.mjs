@@ -160,21 +160,16 @@ const factoryNames = Object.keys(patterns)
 const registry = new PatternRegistry()
 const rows = []
 
-// register() warns about unbounded outputs fields — a real signal for pattern
-// authors, and pure noise here (26 lines before the first row). Mute it for the
-// registration pass only.
-const warn = console.warn
-console.warn = () => {}
-try {
-  for (const name of factoryNames) {
-    // Every factory's parameter is optional-by-use at construction time: deps
-    // ops are only invoked inside compose(), never while building the Pattern.
-    const pattern = patterns[name]({})
-    registry.register(pattern)
-    rows.push({ name, id: pattern.id })
-  }
-} finally {
-  console.warn = warn
+// register() audits every outputs schema and warns about unbounded fields.
+// The shipped catalog is bounded end to end (a test in @orchestral/patterns
+// pins zero warnings), so nothing is muted here: a line above the table means
+// a pattern regressed, and the generated README should not hide it.
+for (const name of factoryNames) {
+  // Every factory's parameter is optional-by-use at construction time: deps
+  // ops are only invoked inside compose(), never while building the Pattern.
+  const pattern = patterns[name]({})
+  registry.register(pattern)
+  rows.push({ name, id: pattern.id })
 }
 
 // ── column formatters ─────────────────────────────────────────────────────
@@ -264,7 +259,7 @@ const table = [
   `${rows.length} Patterns.`,
   '',
   '- **Input slots** — the `assetNeeds` an author declared; the LLM fills them through `input.references.<slot>`. `[]` marks a multi-asset slot, **req** a required one. A Pattern with no slots takes text input only.',
-  '- **Output** — the same projection `find_pattern` shows the LLM: the outputs schema\'s `modality` literal, and `assets[]` when it returns produced assets. A meta that hands back plain asset-id fields instead of an `assets[]` envelope reads as `—` here.',
+  '- **Output** — the same projection `find_pattern` shows the LLM: the outputs schema\'s `modality` literal, and `assets[]` when it returns produced assets. Every shipped meta that produces media returns it through `assets[]` (with a role `label` per element); a pattern that produces no media reads as `—` here.',
   "- **Host ops required** — the `MetaCommonDeps` operations the factory takes as constructor deps. This package specifies them but does not implement them, so the host must (see [Deliverable metas](#deliverable-metas)).",
   '- **Alternatives** — fallback paths the factory mounts by default; the runtime cascades to them when the primary path is unsatisfiable or fails.',
 ].join('\n')

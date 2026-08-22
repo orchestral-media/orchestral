@@ -379,7 +379,11 @@ megabytes of base64 into the model's context." The sanitizer is the backstop
 unnecessary at the source". Registration warns rather than throws — "a throw
 here would break existing under-specified patterns at registration; the warning
 names the offending field paths instead" — the one deliberate exception to the
-library writing nothing to stderr.
+library writing nothing to stderr. Be precise about what the bound buys: it is
+an authoring lint, not a runtime gate. `InlineRuntime` never parses an atomic
+output against `pattern.outputs`, so a 70 KiB completion still flows through;
+the bound is seen by the registry audit and by a host that parses. The
+model-facing defence at run time is the projection plus the sanitizer.
 **Instead.** `boundedText(n)`, `opaqueToken()`, `assetIdField()`, `urlField()`;
 `auditOutputsSchema` lists what slipped through.
 **Where.** `packages/orchestral-core/src/output-fields.ts:1-9`;

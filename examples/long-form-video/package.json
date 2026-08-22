@@ -1,0 +1,23 @@
+{
+  "name": "long-form-video",
+  "private": true,
+  "type": "module",
+  "description": "Reference host for the long-form novel → video pipeline: five planning metas and a director agent kept as source in this example rather than shipped as API, registered next to the @orchestral/patterns catalog. Tests run on mocks with no key; a real run needs models, a concat_videos host tool, and a budget.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orchestral/core": "workspace:*",
+    "@orchestral/runtime": "workspace:*",
+    "@orchestral/patterns": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  }
+}

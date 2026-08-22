@@ -19,7 +19,7 @@
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
-import { createPatternFn, metaEnvelopeShape, parallel } from '@orchestral/core'
+import { boundedText, createPatternFn, metaEnvelopeShape, parallel } from '@orchestral/core'
 import { imageToText } from '../../atomic/image-to-text'
 import {
   textToImage,
@@ -96,7 +96,9 @@ export const ImageBestOfNOutputSchema = z.object({
     .describe(
       'Every generated candidate in submission order (idx 0..n-1). The one the VLM judge selected is labelled `winner`, every other one `candidate` — all kept so a downstream human-in-the-loop reviewer can override the pick.',
     ),
-  reason: z.string().describe('Judge rationale (verbatim from VLM).'),
+  // 2 KiB: the judge is asked for a rationale, not an essay (README,
+  // "Conventions" lists every bound).
+  reason: boundedText(2_048).describe('Judge rationale (verbatim from VLM).'),
   cost: metaEnvelopeShape.cost.describe(
     'USD cost summed across all N image-gen calls + 1 judge call.',
   ),

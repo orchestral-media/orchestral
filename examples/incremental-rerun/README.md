@@ -43,8 +43,6 @@ pnpm --filter incremental-rerun start
 Ids differ per run (they are UUIDs, shown truncated); the shape does not.
 
 ```
-[patterns] OUTPUTS_UNBOUNDED_FIELDS (text-generation): text
-
 Run 1 — cold
   input {"prompt":"a red bicycle","motion":"slow pan"}  →  meta job e6a7ba18 (done), 1207 ms across steps
   step      pattern           ms     childJobId  assets    
@@ -92,10 +90,10 @@ What breaks it: a different sessionId. The key never crosses a session, so run 1
   new key too.
 ```
 
-The `OUTPUTS_UNBOUNDED_FIELDS` line is the registry's authoring lint firing
-on `text-generation`'s unbounded `text` output; the meta in this example uses
-the bounded vocabulary (`boundedText` / `assetIdField` / `urlField`) and is
-not flagged.
+Registration prints nothing: the registry's `OUTPUTS_UNBOUNDED_FIELDS`
+authoring lint is silent for the shipped atomics and for the meta in this
+example alike, since both use the bounded vocabulary (`boundedText` /
+`assetIdField` / `urlField`) for every string in their outputs schemas.
 
 ### How "cached" is decided
 

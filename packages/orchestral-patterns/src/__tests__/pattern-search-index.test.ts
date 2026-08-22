@@ -374,14 +374,14 @@ describe('PatternSearchIndex', () => {
     })
 
     it('stopwords in tool descriptions do not score query hits', () => {
-      // 'to' appears in idea2video's description but is pure function-word
-      // noise — it must not make idea2video a hit for a query whose only
+      // 'to' appears in brief2video's description but is pure function-word
+      // noise — it must not make brief2video a hit for a query whose only
       // overlap is that stopword. (patternIdParts already strips stopwords;
       // this exercises the description field + the query side.)
       const registry = freshRegistry([
         makeTestPattern({
-          id: 'idea2video',
-          description: 'idea to multi-scene video',
+          id: 'brief2video',
+          description: 'brief to multi-scene video',
           namespace: 'video-gen',
         }),
         makeTestPattern({
@@ -392,7 +392,7 @@ describe('PatternSearchIndex', () => {
       ])
       const index = new PatternSearchIndex(registry)
       const hits = index.search('image to image inpainting mask', {}, 5)
-      expect(hits.find((p) => p.id === 'idea2video')).toBeUndefined()
+      expect(hits.find((p) => p.id === 'brief2video')).toBeUndefined()
     })
 
     it('underscore-separated ids tokenize the same as hyphen-separated', () => {

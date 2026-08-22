@@ -1,7 +1,7 @@
 {
   "name": "@orchestral/agent",
   "version": "0.1.0",
-  "description": "Orchestral agent support — the two first-party AgentPatterns (long-form video director, media orchestrator). Ships no agent loop and no provider SDK: the AgentRunImpl driving the loop is injected by the host. Optional extension; nothing in core/runtime/patterns depends on it.",
+  "description": "Orchestral agent support — the first-party AgentPattern (the media orchestrator). Ships no agent loop and no provider SDK: the AgentRunImpl driving the loop is injected by the host. Optional extension; nothing in core/runtime/patterns depends on it.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
   "homepage": "https://github.com/orchestral-media/orchestral#readme",
@@ -26,11 +26,6 @@
   "orchestral": {
     "patterns": [
       {
-        "id": "agent_long-form-video",
-        "kind": "agent",
-        "export": "createLongFormVideoAgent"
-      },
-      {
         "id": "agent_orchestrator",
         "kind": "agent",
         "export": "createOrchestratorAgent"
@@ -48,8 +43,7 @@
   "files": [
     "dist",
     "NOTICE",
-    "CHANGELOG.md",
-    "CREDITS.md"
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public",

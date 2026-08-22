@@ -30,8 +30,6 @@ import { createRunObserver, type RunTrace } from './observe'
 import { createShortClipMeta } from './pattern'
 
 // 1. Register the three atomics the meta steps through, plus the meta itself.
-//    (The OUTPUTS_UNBOUNDED_FIELDS lines the registry prints are its authoring
-//    lint on the shipped atomics' own outputs schemas, not on this example.)
 const registry = new PatternRegistry()
 registry.add(createTextGenerationPattern())
 registry.add(createTextToImagePattern())

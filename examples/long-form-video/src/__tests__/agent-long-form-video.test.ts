@@ -10,11 +10,11 @@ import {
 import {
   createLongFormVideoAgent,
   AGENT_LONG_FORM_VIDEO_PATTERN_ID,
-} from '../long-form-video'
+} from '../patterns/agent-long-form-video'
 import {
   LONG_FORM_VIDEO_DIRECTOR_PROMPT,
   CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT,
-} from '../long-form-video/prompts'
+} from '../patterns/agent-long-form-video/prompts'
 
 // The director + character-merge prompt bodies are INLINED in the pattern, and
 // the agent's host tools (concat_videos / complete_task) are

@@ -4,7 +4,7 @@
 // differ only in the model the host's CapabilityRouter resolves.
 
 import { z } from 'zod'
-import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'
+import { boundedText, createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'
 
 // ── primary input schema ────────────────────────────────────────────────
 // - format / timestamps / diarize / numSpeakers → providerOptions (each
@@ -63,10 +63,19 @@ export type AutomaticSpeechRecognitionInput = z.infer<
 // ── outputs ───────────────────────────────────────────────────────────────
 
 // outputs.modality literal (text output from audio).
+// Every string field carries an explicit upper bound (the bounded vocabulary in
+// @orchestral/core's output-fields.ts) so the registry's OUTPUTS_UNBOUNDED_FIELDS
+// lint stays silent and no transcript can land as an unbounded blob in a
+// model's context. The bounds are listed in one place — the patterns README,
+// "Conventions" — so they can be retuned together.
 export const AutomaticSpeechRecognitionOutputSchema = z.object({
   modality: z.literal('text'),
-  /** Primary transcribed text — always populated. */
-  text: z.string(),
+  /**
+   * Primary transcribed text — always populated. 256 KiB: roughly three hours
+   * of continuous speech at ~150 words a minute, the longest single file the
+   * hosted ASR APIs accept.
+   */
+  text: boundedText(262_144),
   /**
    * Segment-level timestamps when `timestamps !== 'none'`. Times are in
    * SECONDS (float), never milliseconds — adapters normalise provider units
@@ -78,7 +87,8 @@ export const AutomaticSpeechRecognitionOutputSchema = z.object({
       z.object({
         startSecond: z.number(),
         endSecond: z.number(),
-        text: z.string(),
+        // 4 KiB: a segment is a sentence or a subtitle cue, not a paragraph.
+        text: boundedText(4_096),
       }),
     )
     .optional(),
@@ -88,15 +98,16 @@ export const AutomaticSpeechRecognitionOutputSchema = z.object({
       z.object({
         startSecond: z.number(),
         endSecond: z.number(),
-        text: z.string(),
+        // 256: one token of speech, with room for an agglutinative language.
+        text: boundedText(256),
       }),
     )
     .optional(),
   ...dispatchEnvelopeShape,
   /** Length of the source audio in milliseconds (not API latency). */
   audioDurationMs: z.number().int().min(0).optional(),
-  /** Detected (or echoed) BCP-47 language tag. */
-  language: z.string().optional(),
+  /** Detected (or echoed) BCP-47 language tag — RFC 5646 caps a tag at 35 octets. */
+  language: boundedText(64).optional(),
 })
 
 export type AutomaticSpeechRecognitionOutput = z.infer<

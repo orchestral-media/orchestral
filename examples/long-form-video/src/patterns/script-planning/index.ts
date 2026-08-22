@@ -12,8 +12,7 @@
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
 import { metaEnvelopeShape } from '@orchestral/core'
-import { resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
-import { textGeneration } from '../../atomic/text-generation'
+import { resolvePrompts, sumCosts, textGeneration, toJsonSchemaCached } from '@orchestral/patterns'
 import {
   SCRIPT_INTENT_ROUTING_PROMPT,
   NARRATIVE_SCRIPT_PLANNING_PROMPT,

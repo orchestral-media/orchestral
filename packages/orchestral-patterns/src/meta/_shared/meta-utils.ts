@@ -120,8 +120,8 @@ export function labelAsset<M extends ProducedAssetModality>(
 
 /**
  * The assetId carrying `label` in a step output's `assets[]` — how one meta
- * reads another's deliverable (idea2video reads script2video's `final-video`,
- * storyboard reads best-of-n's `winner`). Throws a labeled error when no
+ * reads another's deliverable (storyboard reads best-of-n's `winner`; a host
+ * reads every deliverable meta's `final-video`). Throws a labeled error when no
  * element carries it; `errLabel` is the error prefix, as for firstAsset.
  */
 export function assetIdByLabel(

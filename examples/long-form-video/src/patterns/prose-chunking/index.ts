@@ -28,8 +28,7 @@
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
 import { createPatternFn, metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { resolvePrompts, sumCosts } from '../_shared/meta-utils'
+import { resolvePrompts, sumCosts, textGeneration } from '@orchestral/patterns'
 import {
   NARRATIVE_COMPRESSION_PROMPT,
   NARRATIVE_AGGREGATION_PROMPT,

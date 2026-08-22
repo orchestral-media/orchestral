@@ -14,9 +14,17 @@ It ships two tiers, all building on `@orchestral/core`:
   `image-to-text`, `text-to-video`, `image-to-video`, `video-to-video`,
   `text-to-speech`, `text-to-audio`, `automatic-speech-recognition`,
   `text-generation`, and more.
-- **Meta pipelines** — multi-step compositions with inlined prompts:
-  storyboarding, script planning, idea-to-video, novel-to-events, best-of-N image
-  selection, and others.
+- **Meta pipelines** — multi-step compositions with inlined prompts: best-of-N
+  image selection, storyboarding, script-to-video, four short-form deliverables
+  (product ad, UGC testimonial, explainer short, product photo pack), and the
+  caption → re-render image-edit fallback.
+
+That is the whole catalog — eight metas, on purpose. The long-form
+novel → video pipeline (script planning, prose chunking, novel-to-events,
+event-to-script, idea-to-video, and the director agent that drove them) is
+not API: it is kept runnable, with its tests, as
+[`examples/long-form-video`](https://github.com/orchestral-media/orchestral/tree/main/examples/long-form-video),
+a host that registers those six from its own source next to this catalog.
 
 Agent-kind patterns are **not** here: they live in the optional
 [`@orchestral/agent`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-agent)
@@ -58,26 +66,19 @@ Every pattern this package exports, generated from the built package by
 | `text-to-speech` | atomic | Synthesize speech audio from text using a provider voice. | `voiceClone`:audio | audio, assets[] | — | — |
 | `text-to-video` | atomic | Generate a short video clip from a text prompt. | `reference`:image[]<br>`endFrame`:image | video, assets[] | — | — |
 | `video-to-video` | atomic | Transform an existing video: reframe its aspect ratio, upscale its resolution, restyle its look from… | `source`:video **req**<br>`reference`:image[] | video, assets[] | — | — |
-| `meta_event-to-script` | meta | Adapt a single plot event into polished per-scene screenplays with cross-scene character continuity. | — | — | — | — |
 | `meta_explainer-short` | meta | Generate a short explainer video from a topic: write a typed scene breakdown, let the user review… | — | assets[] | `concatVideos`<br>`stillToVideo` | — |
-| `meta_idea2video` | meta | Generate a multi-scene video from a short idea. | — | assets[] | `concatVideos` | — |
 | `meta_image-best-of-n` | meta | Render multiple image candidates and pick the best one via VLM quality judging. | — | assets[] | — | — |
 | `meta_image-to-image-via-caption` | meta | Edit an image without a native image-to-image model by chaining caption → text-to-image. | `source`:image[] **req** | image, assets[] | — | — |
-| `meta_lyrics-to-mv` | meta | Generate a music video by planning keyframes, confirming, then generating music + animated clips. | — | assets[] | `concatVideos`<br>`addBackgroundAudio` | — |
-| `meta_novel-to-events` | meta | Decompose a novel (or any long-form prose) into a causal chain of plot events. | — | — | — | — |
 | `meta_product-ad-short` | meta | Generate a short product ad clip via a pick-then-animate flow. | — | assets[] | `addBackgroundAudio`<br>`recordSessionAsset` | — |
 | `meta_product-photo-pack` | meta | Generate a product photo pack (multiple e-commerce shots) from a product brief. | — | assets[] | — | — |
-| `meta_prose-chunking` | meta | Compress and stitch a long prose passage (novel chapter, multi-chapter span, or any extended… | — | — | — | — |
-| `meta_reference-image-cascade` | meta | Choose which of several candidate images best match a target frame description, and produce a prompt… | — | — | — | — |
-| `meta_script-planning` | meta | Turn a one-line story idea into a full planned script. | — | — | — | — |
 | `meta_script2video` | meta | Generate a video from a scene script. | — | assets[] | `concatVideos` | — |
 | `meta_storyboard` | meta | Generate a multi-panel storyboard from a scene and character reference sheets, keeping each… | — | assets[] | — | — |
 | `meta_ugc-testimonial` | meta | Generate a UGC product testimonial video from a product description and optional persona. | — | assets[] | `concatVideos`<br>`addBackgroundAudio`<br>`addSubtitles`<br>`createSubtitleAsset` | — |
 
-25 Patterns.
+18 Patterns.
 
 - **Input slots** — the `assetNeeds` an author declared; the LLM fills them through `input.references.<slot>`. `[]` marks a multi-asset slot, **req** a required one. A Pattern with no slots takes text input only.
-- **Output** — the same projection `find_pattern` shows the LLM: the outputs schema's `modality` literal, and `assets[]` when it returns produced assets. A meta that hands back plain asset-id fields instead of an `assets[]` envelope reads as `—` here.
+- **Output** — the same projection `find_pattern` shows the LLM: the outputs schema's `modality` literal, and `assets[]` when it returns produced assets. Every shipped meta that produces media returns it through `assets[]` (with a role `label` per element); a pattern that produces no media reads as `—` here.
 - **Host ops required** — the `MetaCommonDeps` operations the factory takes as constructor deps. This package specifies them but does not implement them, so the host must (see [Deliverable metas](#deliverable-metas)).
 - **Alternatives** — fallback paths the factory mounts by default; the runtime cascades to them when the primary path is unsatisfiable or fails.
 <!-- catalog:end -->
@@ -106,22 +107,20 @@ from `@orchestral/core`.
 **Prompts** are module constants colocated with each meta (`prompts.ts`). The
 raw constants stay internal; what a consumer gets is the frozen
 `*_DEFAULT_PROMPTS` object each meta exports from the main entry point
-(`STORYBOARD_DEFAULT_PROMPTS`, `LYRICS_TO_MV_DEFAULT_PROMPTS`, …), keyed by
+(`STORYBOARD_DEFAULT_PROMPTS`, `UGC_TESTIMONIAL_DEFAULT_PROMPTS`, …), keyed by
 the same names the factory's `prompts` override map takes — so you can retune
 one step and spread the rest instead of forking the package. The
 `*_DEFAULT_PROMPTS` objects are marked `@alpha`: under 0.x their keys and
 wording may change with the metas they drive, so treat a prompt override map as
-something to re-check on each minor. The `./testing` subpath additionally
-re-exports the script-planning prompt constants for byte-equality tests; it is
-repo-only, not part of the published package.
+something to re-check on each minor.
 
 ### Deliverable metas
 
 A *deliverable meta* is a multi-step, cost-gated meta that produces a
 finished user-facing artifact (a video, an image set, an audio track). Copy
-from the five exemplars: `src/meta/product-ad-short/`,
+from the four exemplars: `src/meta/product-ad-short/`,
 `src/meta/product-photo-pack/`, `src/meta/ugc-testimonial/`,
-`src/meta/explainer-short/`, `src/meta/lyrics-to-mv/`.
+`src/meta/explainer-short/`.
 
 Every helper they import from `../_shared/meta-utils` (`firstAsset`,
 `firstAssetId`, `labelAsset`, `labelledAssetShape`, `assetIdByLabel`,
@@ -129,6 +128,8 @@ Every helper they import from `../_shared/meta-utils` (`firstAsset`,
 `toJsonSchemaCached`, and the `MetaCommonDeps` / `LabelledAsset` types) is
 re-exported from the package root, so a copied exemplar compiles once you
 rewrite that one relative import to `@orchestral/patterns`.
+`examples/long-form-video` is that procedure applied to five metas and an
+agent that used to live in this repo's packages.
 
 Be aware of what these metas assume of you: `MetaCommonDeps` declares six
 media operations — `concatVideos`, `stillToVideo`, `addBackgroundAudio`,
@@ -161,11 +162,45 @@ Conventions they all follow:
    types. No `any` in tests — `Record<string, unknown>` + `as unknown as T`.
 7. Every paid multi-gen sits behind a `ctx.askUser` checkpoint (cost gate),
    or is bounded and confirmed up front.
+8. Every string in an outputs schema carries an explicit bound from
+   `@orchestral/core`'s vocabulary — `boundedText(n)`, `assetIdField()`,
+   `urlField()`, `opaqueToken()` — never a bare `z.string()`. The registry
+   audits every outputs schema at registration and warns
+   `OUTPUTS_UNBOUNDED_FIELDS` for what slipped through; the shipped catalog
+   registers with zero warnings, and `registry-outputs-bounded.test.ts` pins
+   that. Leave input schemas alone — the bound is about what reaches a
+   model's context, and inputs do not. The bounds in use, in one place so they
+   can be retuned together:
+
+   | Output field | Bound | Sized for |
+   | --- | --- | --- |
+   | `text-generation` → `text` | 64 KiB | ~16k output tokens, a single completion's ceiling |
+   | `image-to-text` → `text` | 16 KiB | a caption, a judge answer, an extract-style sheet |
+   | `automatic-speech-recognition` → `text` | 256 KiB | ~3 h of speech |
+   | `automatic-speech-recognition` → `segments[].text` | 4 KiB | one sentence / subtitle cue |
+   | `automatic-speech-recognition` → `words[].text` | 256 | one spoken token |
+   | `automatic-speech-recognition` → `language` | 64 | a BCP-47 tag (≤ 35 octets) |
+   | `meta_image-best-of-n` → `reason` | 2 KiB | the judge's rationale |
+   | `meta_storyboard` → `panels[].visualDesc` | 4 KiB | one shot's composition |
+   | `meta_storyboard` → `panels[].audioDesc` | 2 KiB | a cue or a few lines of dialogue |
+   | `meta_storyboard` → `panels[].characterNames[]` | 128 each | a character name |
+   | `meta_explainer-short` → `scenes[].narration` | 2 KiB | one scene's voiced narration |
+   | `meta_image-to-image-via-caption` → `requestedSize` | 32 | a `WIDTHxHEIGHT` pair |
+   | every `assets[].label` | 64 | a role label (`labelledAssetShape`) |
+   | every `assets[].assetId` / `url` | 128 / 2 KiB | core's `producedAssetShape` |
+   | every `model` / `provider` | 256 / 128 | core's `dispatchEnvelopeShape` |
+
+   What the audit cannot bound is array length, so the arrays say on their
+   `.describe()` what sizes them: `segments[]` / `words[]` by the audio's
+   length; `panels[]` by the shots the design pass emits (see *Known
+   limitations* in the CHANGELOG); `characterNames[]` by the input registry,
+   since an unknown name fails closed; `assets[]` by the generations a dispatch
+   makes (`n ≤ 8` for best-of-n).
 
 Picking the `ctx.askUser` method:
 
 - `confirm` — plain yes/no cost gate before paid work
-  (`src/meta/lyrics-to-mv/index.ts`).
+  (`src/meta/product-photo-pack/index.ts`).
 - `choose` — single pick from a short, fixed text-label list, no images
   (`src/meta/product-ad-short/index.ts`, the no-session fallback).
 - `form` — multi-field review/edit before generation

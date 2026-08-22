@@ -114,10 +114,10 @@ status=done outcome=declined degraded=false
   nothing was dispatched
 ```
 
-Registration also prints one `[patterns] OUTPUTS_UNBOUNDED_FIELDS` advisory
-to **stderr** — the registry's authoring lint, firing on `image-to-text`'s
-unbounded `text` output. It is not part of the narrative; the example's own
-meta declares a bounded output and adds none.
+Registration prints nothing to **stderr**: the registry's
+`OUTPUTS_UNBOUNDED_FIELDS` authoring lint is silent for the shipped atomics,
+whose outputs use the bounded vocabulary, and the example's own meta declares
+a bounded output too.
 
 ## What each step is reading
 

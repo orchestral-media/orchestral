@@ -18,22 +18,19 @@ Prompt constants derived from ViMax:
 
 | File | Constants |
 | --- | --- |
-| `src/meta/script-planning/prompts.ts` | `SCRIPT_INTENT_ROUTING_PROMPT`, `NARRATIVE_SCRIPT_PLANNING_PROMPT`, `MOTION_SCRIPT_PLANNING_PROMPT`, `MONTAGE_SCRIPT_PLANNING_PROMPT` |
-| `src/meta/idea2video/prompts.ts` | `STORY_DEVELOPMENT_PROMPT`, `CHARACTER_EXTRACTION_PROMPT`, `SCRIPT_WRITING_PROMPT` |
-| `src/meta/script2video/prompts.ts` | `CHARACTER_EXTRACTION_PROMPT`, `PORTRAIT_FRONT_PROMPT`, `PORTRAIT_SIDE_PROMPT`, `PORTRAIT_BACK_PROMPT`, `SHOT_VISUAL_DECOMPOSITION_PROMPT`, `CAMERA_TREE_CONSTRUCTION_PROMPT`, `CINEMATIC_SHOT_FRAMING_PROMPT`, `I2V_SHOT_SINGLE_PROMPT`, `I2V_SHOT_TRANSITION_PROMPT` |
+| `src/meta/script2video/prompts.ts` | `CHARACTER_EXTRACTION_PROMPT`, `PORTRAIT_FRONT_PROMPT`, `PORTRAIT_SIDE_PROMPT`, `PORTRAIT_BACK_PROMPT`, `SHOT_VISUAL_DECOMPOSITION_PROMPT`, `CAMERA_TREE_CONSTRUCTION_PROMPT`, `I2V_SHOT_TRANSITION_PROMPT` — `CINEMATIC_SHOT_FRAMING_PROMPT` and `I2V_SHOT_SINGLE_PROMPT` were rewritten as direct render prompts and no longer carry upstream text |
 | `src/meta/_shared/storyboard-design-prompt.ts` | `STORYBOARD_DESIGN_PROMPT` (used by `meta_storyboard` and `meta_script2video`) |
-| `src/meta/reference-image-cascade/prompts.ts` | `REFERENCE_IMAGE_PREFILTER_PROMPT`, `REFERENCE_IMAGE_MULTIMODAL_SELECT_PROMPT` |
 | `src/meta/image-best-of-n/prompts.ts` | `BEST_OF_N_IMAGE_JUDGE_PROMPT` |
-| `src/meta/prose-chunking/prompts.ts` | `NARRATIVE_COMPRESSION_PROMPT`, `NARRATIVE_AGGREGATION_PROMPT` |
-| `src/meta/novel-to-events/prompts.ts` | `NEXT_EVENT_EXTRACTION_PROMPT` |
-| `src/meta/event-to-script/prompts.ts` | `NEXT_SCENE_EXTRACTION_PROMPT`, `CHARACTER_MERGE_SCENE_TO_EVENT_PROMPT`, `SCRIPT_ENHANCEMENT_PROMPT` |
 
 Not derived from ViMax: the short-form marketing prompts (`explainer-short`,
-`lyrics-to-mv`, `product-ad-short`, `product-photo-pack`, `ugc-testimonial`).
+`product-ad-short`, `product-photo-pack`, `ugc-testimonial`).
 
-The agent prompts live in `@orchestral/agent`, which carries its own
-`CREDITS.md` for the one ViMax-derived constant among them
-(`CHARACTER_MERGE_EVENT_TO_NOVEL_PROMPT`).
+The rest of the ViMax-derived prompts — the long-form novel → video pipeline
+(script planning, idea-to-video, prose chunking, novel-to-events,
+event-to-script, and the director's character-merge prompt) — left this
+package and `@orchestral/agent` for `examples/long-form-video`, which carries
+its own `CREDITS.md` for them. Nothing in `@orchestral/agent` derives from
+ViMax any more.
 
 ### License
 

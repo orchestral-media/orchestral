@@ -12,11 +12,11 @@ function makeKindLookup(kinds: Record<string, Pattern['kind']>) {
 describe('countAgentAncestors', () => {
   it('counts agent ancestors only, ignoring meta/atomic', () => {
     const reg = makeKindLookup({
-      agent_orchestrator: 'agent', meta_idea2video: 'meta',
-      meta_script2video: 'meta', 'text-to-image': 'atomic',
+      agent_orchestrator: 'agent', meta_storyboard: 'meta',
+      'meta_image-best-of-n': 'meta', 'text-to-image': 'atomic',
     })
     const visited = new Set<PatternId>([
-      'agent_orchestrator', 'meta_idea2video', 'meta_script2video', 'text-to-image',
+      'agent_orchestrator', 'meta_storyboard', 'meta_image-best-of-n', 'text-to-image',
     ] as PatternId[])
     expect(countAgentAncestors(visited, reg)).toBe(1)
   })

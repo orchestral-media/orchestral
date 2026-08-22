@@ -9,10 +9,12 @@ import type {
 import {
   createStoryboardMeta,
   StoryboardInputSchema,
+  StoryboardOutputSchema,
   type StoryboardInput,
 } from '../meta/storyboard'
 import { STORYBOARD_DESIGN_PROMPT } from '../meta/_shared/storyboard-design-prompt'
 import { createImageBestOfNMeta } from '../meta/image-best-of-n'
+import { byLabel, expectProducedAssetsEnvelope } from './helpers/produced-assets'
 
 interface RecordedStep {
   patternId: string
@@ -334,16 +336,18 @@ describe('meta_storyboard', () => {
     expect(p1.prompt).toContain('Reference image 2 = 张院君')
     expect(p1.prompt).toContain('Reference image 3 = 仙姬')
 
-    // Output: structured panels (carrying the rich shot data) + flat
-    // produced-asset list (host renderer reads output.assets[].assetId).
+    // Output: structured panels (carrying the rich shot data, no asset ids)
+    // + the flat produced-asset list, each element labelled by its panel —
+    // the envelope every media-producing meta returns.
     expect(out.panels.map((p) => p.shotIndex)).toEqual([0, 1])
     expect(out.panels[1]!.characterNames).toEqual(['张院君', '仙姬'])
     expect(out.panels[1]!.camIdx).toBe(1)
     expect(out.panels[1]!.visualDesc).toContain('Medium two-shot')
     expect(out.assets).toEqual([
-      { assetId: 'asset-i2i-0', modality: 'image' },
-      { assetId: 'asset-i2i-1', modality: 'image' },
+      { assetId: 'asset-i2i-0', modality: 'image', label: 'panel-0' },
+      { assetId: 'asset-i2i-1', modality: 'image', label: 'panel-1' },
     ])
+    expectProducedAssetsEnvelope(StoryboardOutputSchema, out)
 
     // Aggregated cost = design text-generation (0.03) + each i2i panel (0.15 ×2).
     expect(out.cost).toBeCloseTo(0.03 + 0.15 + 0.15)
@@ -457,9 +461,13 @@ describe('meta_storyboard', () => {
     // No bare image-to-image dispatch on the bestOfN path.
     expect(recorded.some((r) => r.patternId === 'image-to-image')).toBe(false)
 
-    // Winner asset id flows into the panel + the flat asset list.
-    expect(out.panels[0]!.assetIds).toEqual(['asset-bestof-0'])
-    expect(out.assets).toEqual([{ assetId: 'asset-bestof-0', modality: 'image' }])
+    // The winner is re-labelled for its panel; the losing candidate is not
+    // forwarded, and no panel field carries an id.
+    expect(out.assets).toEqual([
+      { assetId: 'asset-bestof-0', modality: 'image', label: 'panel-0' },
+    ])
+    expect(byLabel(out, 'panel-0')?.assetId).toBe('asset-bestof-0')
+    expectProducedAssetsEnvelope(StoryboardOutputSchema, out)
 
     // Aggregated cost = design text-generation (0.03) + the single best-of-n
     // panel's cost (0.5); the bare i2i cost is NOT counted on this path.
@@ -508,7 +516,8 @@ describe('meta_storyboard', () => {
     // Each panel resolves to its OWN winning candidate (candidate-0 of its own
     // namespace), and the two winners are distinct produced assets.
     expect(out.panels.map((p) => p.shotIndex)).toEqual([0, 1])
-    const winners = out.panels.flatMap((p) => p.assetIds)
+    expect(out.assets.map((a) => a.label)).toEqual(['panel-0', 'panel-1'])
+    const winners = out.assets.map((a) => a.assetId)
     expect(winners).toHaveLength(2)
     expect(new Set(winners).size).toBe(2)
   })
@@ -680,7 +689,9 @@ describe('meta_storyboard', () => {
       'decompose-xml',
     ])
     expect(out.panels[0]!.characterNames).toEqual(['张院君'])
-    expect(out.assets).toEqual([{ assetId: 'asset-i2i-0', modality: 'image' }])
+    expect(out.assets).toEqual([
+      { assetId: 'asset-i2i-0', modality: 'image', label: 'panel-0' },
+    ])
 
     // Cost aggregates the FALLBACK (XML) gen's cost (0.03) — the json attempt
     // threw and produced no output — plus the single i2i panel (0.15).

@@ -94,17 +94,6 @@ export const AutomaticSpeechRecognitionPrimaryInputSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @alpha (undocumented)
-export type CharacterInEvent = z.infer<typeof CharacterInEventSchema>;
-
-// @alpha (undocumented)
-export const CharacterInEventSchema: z.ZodObject<{
-    index: z.ZodNumber;
-    identifier_in_event: z.ZodString;
-    static_features: z.ZodString;
-    active_scenes: z.ZodRecord<z.ZodString, z.ZodString>;
-}, z.core.$strip>;
-
-// @alpha (undocumented)
 export type CharacterInScene = z.infer<typeof CharacterInSceneSchema>;
 
 // @alpha (undocumented)
@@ -120,13 +109,7 @@ export const CharacterInSceneSchema: z.ZodObject<{
 export function createAutomaticSpeechRecognitionPattern(init?: AutomaticSpeechRecognitionPatternInit): AtomicPattern<AutomaticSpeechRecognitionInput, AutomaticSpeechRecognitionOutput>;
 
 // @alpha (undocumented)
-export function createEventToScriptMeta(init?: EventToScriptMetaInit): MetaPattern<EventToScriptInput, EventToScriptOutput>;
-
-// @alpha (undocumented)
 export function createExplainerShortMeta(deps: ExplainerShortMetaDeps): MetaPattern<ExplainerShortInput, ExplainerShortOutput>;
-
-// @alpha (undocumented)
-export function createIdea2VideoMeta(deps: IdeaToVideoMetaDeps): MetaPattern<IdeaToVideoInput, IdeaToVideoOutput>;
 
 // @alpha (undocumented)
 export function createImageBestOfNMeta(init?: ImageBestOfNMetaInit): MetaPattern<ImageBestOfNInput, ImageBestOfNOutput>;
@@ -144,28 +127,13 @@ export function createImageToTextPattern(init?: ImageToTextPatternInit): AtomicP
 export function createImageToVideoPattern(init?: ImageToVideoPatternInit): AtomicPattern<ImageToVideoInput, ImageToVideoOutput>;
 
 // @alpha (undocumented)
-export function createLyricsToMvMeta(deps: LyricsToMvMetaDeps): MetaPattern<LyricsToMvInput, LyricsToMvOutput>;
-
-// @alpha (undocumented)
-export function createNovelToEventsMeta(init?: NovelToEventsMetaInit): MetaPattern<NovelToEventsInput, NovelToEventsOutput>;
-
-// @alpha (undocumented)
 export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPattern<ProductAdShortInput, ProductAdShortOutput>;
 
 // @alpha (undocumented)
 export function createProductPhotoPackMeta(init?: ProductPhotoPackMetaInit): MetaPattern<ProductPhotoPackInput, ProductPhotoPackOutput>;
 
 // @alpha (undocumented)
-export function createProseChunkingMeta(init?: ProseChunkingMetaInit): MetaPattern<ProseChunkingInput, ProseChunkingOutput>;
-
-// @alpha (undocumented)
-export function createReferenceImageCascadeMeta(init?: ReferenceImageCascadeMetaInit): MetaPattern<ReferenceImageCascadeInput, ReferenceImageCascadeOutput>;
-
-// @alpha (undocumented)
 export function createScript2VideoMeta(deps: ScriptToVideoMetaDeps): MetaPattern<ScriptToVideoInput, ScriptToVideoOutput>;
-
-// @alpha (undocumented)
-export function createScriptPlanningMeta(init?: ScriptPlanningMetaInit): MetaPattern<ScriptPlanningInput, ScriptPlanningOutput>;
 
 // @alpha (undocumented)
 export function createStoryboardMeta(init?: StoryboardMetaInit): MetaPattern<StoryboardInput, StoryboardOutput>;
@@ -192,86 +160,6 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
 
 // @public (undocumented)
 export function createVideoToVideoPattern(init?: VideoToVideoPatternInit): AtomicPattern<VideoToVideoInput, VideoToVideoOutput>;
-
-// @alpha (undocumented)
-type Event_2 = z.infer<typeof EventResponseSchema>;
-export { Event_2 as Event }
-
-// @alpha
-export const EVENT_TO_SCRIPT_DEFAULT_PROMPTS: Readonly<{
-    nextSceneExtraction: "# Event Scenes Extraction\n\nYou are an expert scriptwriter specializing in adapting literary works into structured screenplay scenes. Your task is to analyze event descriptions from novels and transform them into compelling screenplay scenes (a complete ordered batch for the event), leveraging relevant context while ignoring extraneous information.\n\n**TASK**\nGenerate **all** scenes for one event in a single response, ordered by storyboard time. The total number of scenes must not exceed 5. Each scene must include:\n- Environment: slugline and detailed description\n- Characters: List of characters appearing in the scene, with their static features (e.g., facial features, body shape), dynamic features (e.g., clothing, accessories), and visibility status\n- Script: Character actions and dialogues in standard screenplay format\n\n**INPUT**\n- Event Description: A clear, concise summary of the event to adapt. The event description is enclosed within `<EVENT_DESCRIPTION_START>` and `<EVENT_DESCRIPTION_END>` tags.\n- Context Fragments: Multiple excerpts retrieved from the novel via RAG. These may contain irrelevant passages. Ignore any content not directly related to the event. The sequence of context fragments is enclosed within `<CONTEXT_FRAGMENTS_START>` and `<CONTEXT_FRAGMENTS_END>` tags. Each fragment in the sequence is enclosed within its own `<FRAGMENT_N_START>` and `<FRAGMENT_N_END>` tags, with N being the fragment number.\n\n**OUTPUT**\nReturn a JSON object containing all scenes for this event in a single batch,\nordered by storyboard time, with this shape:\n\n```jsonc\n{\n  \"scenes\": [\n    {\n      \"idx\": 0,\n      \"environment\": { /* slugline + descriptive prose */ },\n      \"characters\": [\n        {\n          \"idx\": 0,\n          \"identifierInScene\": \"...\",\n          \"staticFeatures\": \"...\",\n          \"dynamicFeatures\": \"...\",\n          \"isVisible\": true\n        }\n      ],\n      \"script\": \"...\"  // standard screenplay format\n    },\n    {\n      \"idx\": 1,\n      \"environment\": { /* ... */ },\n      \"characters\": [ /* ... */ ],\n      \"script\": \"...\"\n    }\n    // ... up to 5 scenes total for one event\n  ]\n}\n```\n\nThe `scenes` array is the only top-level field. Each item is one scene in the\nshape defined above, with `idx` starting at 0 and incrementing by 1.\n\n**GUIDELINES**\n1. Extract scenes based on the provided context fragments. Strive to preserve the original meaning and dialogue without making arbitrary alterations. When adapting, ensure that every line of dialogue has a corresponding or derivative basis in the original text.\n2. Focus on Relevance: Use only context fragments that directly align with the event description. Disregard any unrelated paragraphs.\n3. Dialogues and Actions: Convert descriptive prose into actionable lines and dialogues. Invent minimal necessary dialogue if implied but not explicit in the context.\n4. Conciseness: Keep descriptions brief and visual. Avoid prose-like explanations.\n5. Format Consistency: Ensure industry-standard screenplay structure.\n6. Implicit Inference: If context fragments lack exact details, infer logically from the event description or broader narrative context.\n7. No Extraneous Content: Do not include scenes, characters, or dialogues unrelated to the core event.\n8. The character must be an individual, not a group of individuals (such as a crowd of onlookers or a rescue team).\n9. Generate **all** scenes for this event in a single response, ordered by storyboard time. When the location or time changes within the event, create a new scene. **Maximum 5 scenes per event** — do not exceed this cap regardless of event complexity.\n10. The language of outputs in values should be same as the input.";
-    characterMergeSceneToEvent: "# Character Merge — Scene → Event\n\nYou are an expert script analysis and character fusion specialist. Your role is to intelligently analyze multiple script scenes, identify characters that represent the same entity across different scenes, and merge them into a unified character list with consistent identifiers.\n\n**TASK**\nProcess the input scenes, each containing a script and characters with their names and features. Identify and merge characters that are logically the same across scenes, even if they have different names or slight variations in description. Output a consolidated list of characters for the entire event. Each character in the list must have a unique identifier, along with the scene numbers where they appear and the name used in each scene. You also need to aggregate the static features of the same characters together.\n\n**INPUT**\nA sequence of scenes. Each scene is enclosed within `<SCENE_N_START>` and `<SCENE_N_END>` tags, where N is the scene number (starting from 0).\nEach scene includes a screenplay script and a sequence of character names.\nThe screenplay script is enclosed within `<SCRIPT_START>` and `<SCRIPT_END>` tags.\nThe sequence of character is enclosed within `<CHARACTERS_START>` and `<CHARACTERS_END>` tags. Each character in the list is enclosed within `<CHARACTER_M_START>` and `<CHARACTER_M_END>` tags, where M is the character number (starting from 0).\n\nBelow is an example of one scene:\n\n```\n<SCENE_0_START>\n\n<SCRIPT_START>\nJohn enters the room and sees Mary.\nJohn: Hi Mary, how are you?\nMary: I'm good, John. Thanks for asking!\n<SCRIPT_END>\n\n<CHARACTERS_START>\n\n<CHARACTER_0_START>\nJohn [visible]\nstatic features: John is a tall man with short black hair and brown eyes.\ndynamic features: Wearing a blue shirt and black pants.\n<CHARACTER_0_END>\n\n<CHARACTER_1_START>\nMary [visible]\nstatic features: Mary is a young woman with long brown hair and green eyes.\ndynamic features: Wearing a floral dress and a denim jacket.\n<CHARACTER_1_END>\n\n<CHARACTERS_END>\n\n<SCENE_0_END>\n```\n\n**OUTPUT**\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"characters\": [\n    {\n      \"index\": 0,\n      \"identifier_in_event\": \"John\",\n      \"static_features\": \"...\",\n      \"active_scenes\": { \"0\": \"John\", \"1\": \"the tall man\" }  // scene_idx → identifier_in_scene\n    }\n  ]\n}\n```\n\n**GUIDELINES**\n1. Character Fusion: Analyze contextual clues (e.g., dialogue style, role in plot, relationships, descriptions) to determine if characters from different scenes are the same person, even if names vary.\n2. Unique Identifier: Assign a consistent, unique ID (e.g., primary/canonical name) to each merged character. Use the most frequent or contextually appropriate name as the identifier, if possible.\n3. Scene Mapping: For each character, list all scenes they appear in and the exact name used in each scene.\n4. Completeness: Ensure all characters from all scenes are included in the final list. No duplicate, omitted, or extraneous characters.\n5. If a character undergoes significant changes across different scenes, it is necessary to split them into separate roles. For example, if Character A is a child in Scene 0 but an adult in Scene 1, they should be divided into two distinct characters (meaning two different actors are required to portray them).\n6. The language of outputs in values should be same as the input text.";
-    scriptEnhancement: "# Script Enhancement\n\n[Role]\nYou are a senior screenplay polishing and continuity expert.\n\n[Task]\nEnhance a planned narrative script by adding specific, concrete sensory details, tightening continuity, clarifying scene transitions, and keeping terminology consistent (character names, locations, objects). Improve dialogue naturalness without changing the original intent or plot. Maintain cinematic descriptiveness suitable for storyboards, not camera directions.\n\n[Input]\nYou will receive a planned script within `<PLANNED_SCRIPT_START>` and `<PLANNED_SCRIPT_END>`.\n\n[Output]\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"enhanced_script\": \"<refined script with clearer continuity, stronger concrete detail, and improved dialogue while preserving the original story and scene order>\"\n}\n```\n\n[Guidelines]\n1. Preserve the story, structure, and scene order; do not add or remove scenes.\n2. Strengthen visual specificity (lighting, textures, sounds, weather, time-of-day) using grounded detail.\n3. Ensure character names, ages, relationships, and locations stay consistent across scenes.\n5. Dialogue should be concise, in quotes, character-specific, and purposeful.\n6. Avoid camera jargon (e.g., cut to, close-up) and voiceover formatting.\n7. No metaphors.\n8. Repetition for Precision\nRe-state important objects/actors often (vehicle name, seat position, or character role) to remove ambiguity. Accuracy takes precedence over rhythm — redundancy is acceptable.\n9. Character Features for Dialogue\nFor each character in the conversation, repeat the core voice description (e.g., male, early 50s, measured mid-Atlantic accent) using the same prompt each time.\n10. Preserve the original narration symbols if exists (eg. Narration: \"Everything is looking good\").\n\nExample Input:\n```\nIn the two-seater F-18 rear seat SLING: \"Everything is looking good. All systems are green, Kai. We're ready for takeoff.\"\nIn the two-seater F-18 front seat Kai Renner: \"Understood, Sling. Let's get this show on the road.\"\nIn the two‑seater F‑18 rear seat SLING: \"Roger that. Strap in tight, boss. It's gonna be a smooth ride.\"\nIn the two‑seater F‑18 front seat KAI RENNER: \"Smooth is good. Let's keep it that way.\"\n```\n\nExample Output:\n```\nIn the two-seater F-18 rear seat SLING (male, late 20s, Texan accent softened by military precision, confident and energetic.): \"Everything is looking good. All systems are green, Kai. We're ready for takeoff.\"\nIn the two-seater F-18 front seat Kai Renner (male, early 50s, measured mid-Atlantic accent): \"Understood, Sling. Let's get this show on the road.\"\nIn the two‑seater F‑18 rear seat SLING (male, late 20s, Texan accent softened by military precision, confident and energetic.): \"Roger that. Strap in tight, boss. It's gonna be a smooth ride.\"\nIn the two‑seater F‑18 front seat KAI RENNER (male, early 50s, measured mid-Atlantic accent): \"Smooth is good. Let's keep it that way.\"\n```\n\n10. Roles & Positions Description\nAlways specify who is where and what they're doing.\nExample Input: \"In the cockpit front seat of the two‑seat F‑18, the pilot checks his controls.\"\nExample Output: \"In the cockpit front seat of the two‑seat F‑18, Kai Renner checks his controls.\"\nAvoid shorthand (\"the pilot\") unless you've already identified them in that exact position.\n\nWarnings\nNo camera directions. No metaphors. Do not change the plot.";
-}>;
-
-// @public (undocumented)
-export const EVENT_TO_SCRIPT_PATTERN_ID = "meta_event-to-script";
-
-// @public (undocumented)
-export const EventResponseSchema: z.ZodObject<{
-    index: z.ZodNumber;
-    description: z.ZodString;
-    timeframe: z.ZodString;
-    characters: z.ZodString;
-    cause: z.ZodString;
-    process: z.ZodString;
-    outcome: z.ZodString;
-    is_last: z.ZodBoolean;
-}, z.core.$strip>;
-
-// @public (undocumented)
-export type EventToScriptInput = z.infer<typeof EventToScriptInputSchema>;
-
-// @public (undocumented)
-export const EventToScriptInputSchema: z.ZodObject<{
-    event: z.ZodObject<{
-        index: z.ZodNumber;
-        description: z.ZodString;
-        timeframe: z.ZodString;
-        characters: z.ZodString;
-        cause: z.ZodString;
-        process: z.ZodString;
-        outcome: z.ZodString;
-    }, z.core.$strip>;
-    contextFragments: z.ZodOptional<z.ZodReadonly<z.ZodArray<z.ZodString>>>;
-    skipPolish: z.ZodOptional<z.ZodDefault<z.ZodBoolean>>;
-}, z.core.$strip>;
-
-// @alpha
-export type EventToScriptMetaInit = {
-    prompts?: EventToScriptPromptOverrides;
-};
-
-// @public (undocumented)
-export type EventToScriptOutput = z.infer<typeof EventToScriptOutputSchema>;
-
-// @public (undocumented)
-export const EventToScriptOutputSchema: z.ZodObject<{
-    eventScenes: z.ZodReadonly<z.ZodArray<z.ZodObject<{
-        idx: z.ZodNumber;
-        environment: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        characters: z.ZodArray<z.ZodObject<{
-            idx: z.ZodNumber;
-            identifierInScene: z.ZodString;
-            staticFeatures: z.ZodString;
-            dynamicFeatures: z.ZodString;
-            isVisible: z.ZodBoolean;
-        }, z.core.$strip>>;
-        script: z.ZodString;
-        polishedScript: z.ZodString;
-    }, z.core.$strip>>>;
-    eventCharRegistry: z.ZodReadonly<z.ZodArray<z.ZodObject<{
-        index: z.ZodNumber;
-        identifier_in_event: z.ZodString;
-        static_features: z.ZodString;
-        active_scenes: z.ZodRecord<z.ZodString, z.ZodString>;
-    }, z.core.$strip>>>;
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-}, z.core.$strip>;
-
-// @alpha
-export type EventToScriptPromptOverrides = Partial<Record<keyof typeof EVENT_TO_SCRIPT_DEFAULT_PROMPTS, string>>;
 
 // @alpha
 export const EXPLAINER_SHORT_DEFAULT_PROMPTS: Readonly<{
@@ -350,51 +238,6 @@ export function firstAssetId(out: {
         assetId: string;
     }>;
 }, label: string): string;
-
-// @alpha
-export const IDEA2VIDEO_DEFAULT_PROMPTS: Readonly<{
-    storyDevelopment: "# Story Development\n\n[Role]\nYou are a seasoned creative story generation expert. You possess the following core skills:\n- Idea Expansion and Conceptualization: The ability to expand a vague idea, a one-line inspiration, or a concept into a fleshed-out, logically coherent story world.\n- Story Structure Design: Mastery of classic narrative models like the three-act structure, the hero's journey, etc., enabling you to construct engaging story arcs with a beginning, middle, and end, tailored to the story's genre.\n- Character Development: Expertise in creating three-dimensional characters with motivations, flaws, and growth arcs, and designing complex relationships between them.\n- Scene Depiction and Pacing: The skill to vividly depict various settings and precisely control the narrative rhythm, allocating detail appropriately based on the required number of scenes.\n- Audience Adaptation: The ability to adjust the language style, thematic depth, and content suitability based on the target audience (e.g., children, teenagers, adults).\n- Screenplay-Oriented Thinking: When the story is intended for short film or movie adaptation, you can naturally incorporate visual elements (e.g., scene atmosphere, key actions, dialogue) into the narrative, making the story more cinematic and filmable.\n\n[Task]\nYour core task is to generate a complete, engaging story that conforms to the specified requirements, based on the user's provided \"Idea\" and \"Requirements.\"\n\n[Input]\nThe user will provide an idea within `<IDEA>` and `</IDEA>` tags and a user requirement within `<USER_REQUIREMENT>` and `</USER_REQUIREMENT>` tags.\n- Idea: This is the core seed of the story. It could be a sentence, a concept, a setting, or a scene. For example,\n    - \"A programmer discovers his shadow has a consciousness of its own.\",\n    - \"What if memories could be deleted and backed up like files?\",\n    - \"A locked-room murder mystery occurring on a space station.\"\n- User Requirement (Optional): Optional constraints or guidelines the user may specify. For example,\n    - Target Audience: e.g., Children (7-12), Young Adults, Adults, All Ages.\n    - Story Type/Genre: e.g., Sci-Fi, Fantasy, Mystery, Romance, Comedy, Tragedy, Realism, Short Film, Movie Script Concept.\n    - Length: e.g., 5 key scenes, a tight story suitable for a 10-minute short film.\n    - Other: e.g., Needs a twist ending, Theme about love and sacrifice, Include a piece of compelling dialogue.\n\n[Output]\nYou must output a well-structured and clearly formatted story document as follows:\n- Story Title: An engaging and relevant story name.\n- Target Audience & Genre: Start by explicitly restating: \"This story is targeted at [User-Specified Audience], in the [User-Specified Genre] genre.\"\n- Story Outline/Summary: Provide a one-paragraph (100-200 words) summary of the entire story, covering the core plot, central conflict, and outcome.\nMain Characters Introduction: Briefly introduce the core characters, including their names, key traits, and motivations.\n- Full Story Narrative:\n    - If the number of scenes is unspecified, narrate the story naturally in paragraphs following the \"Introduction - Development - Climax - Conclusion\" structure.\n    - If a specific number of scenes (e.g., N scenes) is specified, clearly divide the story into N scenes, giving each a subheading (e.g., Scene One: Code at Midnight). The description for each scene should be relatively balanced, including atmosphere, character actions, and dialogue, all working together to advance the plot.\n- The narrative should be vivid and detailed, matching the specified genre and target audience.\n- The output should begin directly with the story, without any extra words.\n\n[Guidelines]\n- The language of output should be same as the input.\n- Idea-Centric: Keep the user's core idea as the foundation; do not deviate from its essence. If the user's idea is vague, you can use creativity to make reasonable expansions.\n- Logical Consistency: Ensure that event progression and character actions within the story have logical motives and internal consistency, avoiding abrupt or contradictory plots.\n- Show, Don't Tell: Reveal characters' personalities and emotions through their actions, dialogues, and details, rather than stating them flatly. For example, use \"He clenched his fist, nails digging deep into his palm\" instead of \"He was very angry.\"\n- Originality & Compliance: Generate original content based on the user's idea, avoiding direct plagiarism of well-known existing works. The generated content must be positive, healthy, and comply with general content safety policies.";
-    characterExtraction: "# Character Extraction\n\n[Role]\nYou are a top-tier movie script analysis expert.\n\n[Task]\nYour task is to analyze the provided script and extract all relevant character information.\n\n[Input]\nYou will receive a script enclosed within `<SCRIPT>` and `</SCRIPT>`.\n\nBelow is a simple example of the input:\n\n```\n<SCRIPT>\nA young woman sits alone at a table, staring out the window. She takes a sip of her coffee and sighs. The liquid is no longer warm, just a bitter reminder of the time that has passed. Outside, the world moves in a blur of hurried footsteps and distant car horns, but inside the quiet café, time feels thick and heavy.\nHer finger traces the rim of the ceramic mug, following the imperfect circle over and over. The decision she had to make was supposed to be simple—a mere checkbox on the form of her life. Yes or No. Stay or Go. Yet, it had rooted itself in her chest, a tangled knot of fear and longing.\n</SCRIPT>\n```\n\n[Output]\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"characters\": [\n    {\n      \"idx\": 0,                            // int, 0-based, stable within the scene\n      \"identifierInScene\": \"the barista\",  // canonical name; pronoun/role/trait if unnamed\n      \"staticFeatures\": \"...\",             // physical appearance, physique\n      \"dynamicFeatures\": \"...\",            // attire, accessories, key items\n      \"isVisible\": true                    // false for off-screen voices etc.\n    }\n  ]\n}\n```\n\n[Guidelines]\n- Ensure that the language of all output values (not include keys) matches that used in the script.\n- Group all names referring to the same entity under one character. Select the most appropriate name as the character's identifier. If the story names a real public figure, keep that name rather than replacing it with a generic label.\n- If the character's name is not mentioned, you can use reasonable pronouns to refer to them, including using their occupation or notable physical traits. For example, \"the young woman\" or \"the barista\".\n- For background characters in the script, you do not need to consider them as individual characters.\n- If a character's traits are not described or only partially outlined in the script, you need to design plausible features based on the context to make their characteristics more complete and detailed, ensuring they are vivid and evocative.\n- In static features, you need to describe the character's physical appearance, physique, and other relatively unchanging features. In dynamic features, you need to describe the character's attire, accessories, key items they carry, and other easily changeable features.\n- Don't include any information about the character's personality, role, or relationships with others in either static or dynamic features.\n- When designing character features, within reasonable limits, different character appearances should be made more distinct from each other.\n- The description of characters should be detailed, avoiding the use of abstract terms. Instead, employ descriptions that can be visualized—such as specific clothing colors and concrete physical traits (e.g., large eyes, a high nose bridge).";
-    scriptWriting: "# Script Writing\n\n[Role]\nYou are a professional AI script adaptation assistant skilled in adapting stories into scripts. You possess the following skills:\n- Story Analysis Skills: Ability to deeply understand the story content, identify key plot points, character arcs, and themes.\n- Scene Segmentation Skills: Ability to break down the story into logical scene units based on continuity of time and location.\n- Script Writing Skills: Familiarity with script formats (e.g., for short films or movies), capable of crafting vivid dialogue, action descriptions, and stage directions.\n- Adaptive Adjustment Skills: Ability to adjust the script's style, language, and content based on user requirements (e.g., target audience, story genre, number of scenes).\n- Creative Enhancement Skills: Ability to appropriately add dramatic elements to enhance the script's appeal while remaining faithful to the original story.\n\n[Task]\nYour task is to adapt the user's input story, along with optional requirements, into a script divided by scenes. The output should be a list of scripts, each representing a complete script for one scene. Each scene must be a continuous dramatic action unit occurring at the same time and location.\n\n[Input]\nYou will receive a story within `<STORY>` and `</STORY>` tags and a user requirement within `<USER_REQUIREMENT>` and `</USER_REQUIREMENT>` tags.\n- Story: A complete or partial narrative text, which may contain one or more scenes. The story will provide plot, characters, dialogues, and background descriptions.\n- User Requirement (Optional): A user requirement, which may be empty. The user requirement may include:\n    - Target audience (e.g., children, teenagers, adults).\n    - Script genre (e.g., micro-film, moive, short drama).\n    - Desired number of scenes (e.g., \"divide into 3 scenes\").\n    - Other specific instructions (e.g., emphasize dialogue or action).\n\n[Output]\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"script\": [\n    \"<scene 1 script in standard screenplay format>\",\n    \"<scene 2 script>\",\n    \"...\"\n  ]\n}\n```\n\n[Guidelines]\n- The language of output in values should be same as the input story.\n- Scene Division Principles: Each scene must be based on the same time and location. Start a new scene when the time or location changes. If the user specifies the number of scenes, try to match the requirement. Otherwise, divide scenes naturally based on the story, ensuring each scene has independent dramatic conflict or progression.\n- Script Formatting Standards: Use standard script formatting: Scene headings in full caps or bold, character names centered or capitalized, dialogue indented, and action descriptions in parentheses.\n- Coherence and Fluidity: Ensure natural transitions between scenes and overall story flow. Avoid abrupt plot jumps.\n- Visual Enhancement Principles: All descriptions must be \"filmable\". Use concrete actions instead of abstract emotions (e.g., \"He turns away to avoid eye contact\" instead of \"He feels ashamed\"). Decribe rich environmental details include lighting, props, weather, etc., to enhance the atmosphere. Visualize character performances such as express internal states through facial expressions, gestures, and movements (e.g., \"She bites her lip, her hands trembling\" to imply nervousness).\n- Consistency: Ensure dialogue and actions align with the original story's intent, without deviating from the core plot.";
-}>;
-
-// @public (undocumented)
-export const IDEA2VIDEO_PATTERN_ID = "meta_idea2video";
-
-// @public (undocumented)
-export type IdeaToVideoInput = z.infer<typeof IdeaToVideoInputSchema>;
-
-// @public (undocumented)
-export const IdeaToVideoInputSchema: z.ZodObject<{
-    idea: z.ZodString;
-    style: z.ZodOptional<z.ZodString>;
-    userRequirement: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
-
-// @alpha
-export type IdeaToVideoMetaDeps = Pick<MetaCommonDeps, 'concatVideos'> & {
-    prompts?: IdeaToVideoPromptOverrides;
-};
-
-// @public (undocumented)
-export type IdeaToVideoOutput = z.infer<typeof IdeaToVideoOutputSchema>;
-
-// @public (undocumented)
-export const IdeaToVideoOutputSchema: z.ZodObject<{
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-    assets: z.ZodArray<z.ZodObject<{
-        label: z.ZodString;
-        assetId: z.ZodString;
-        modality: z.ZodLiteral<"video">;
-        url: z.ZodOptional<z.ZodString>;
-        cost: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strip>>;
-    sceneCount: z.ZodNumber;
-}, z.core.$strip>;
-
-// @alpha
-export type IdeaToVideoPromptOverrides = Partial<Record<keyof typeof IDEA2VIDEO_DEFAULT_PROMPTS, string>>;
 
 // @alpha
 export const IMAGE_BEST_OF_N_DEFAULT_PROMPTS: Readonly<{
@@ -704,55 +547,6 @@ export function labelledAssetShape<M extends ProducedAssetModality>(modality: M)
     readonly cost: z.ZodOptional<z.ZodNumber>;
 };
 
-// @alpha
-export const LYRICS_TO_MV_DEFAULT_PROMPTS: Readonly<{
-    mvKeyframes: "You plan the key visual moments of a short music video.\nGiven a theme and optional style, output JSON {\"keyframes\": [{\"prompt\": string}]} — one prompt per key visual moment, in sequence.\nRules: keep a CONSISTENT visual world across all keyframes (same palette / setting / subject treatment — restate the shared style anchor in each prompt); describe concrete imagery a camera would capture; NO quality boosters (8k/masterpiece); NO artist names. 1-3 sentences each.";
-}>;
-
-// @public (undocumented)
-export const LYRICS_TO_MV_PATTERN_ID = "meta_lyrics-to-mv";
-
-// @public (undocumented)
-export type LyricsToMvInput = z.infer<typeof LyricsToMvInputSchema>;
-
-// @public (undocumented)
-export const LyricsToMvInputSchema: z.ZodObject<{
-    theme: z.ZodString;
-    style: z.ZodOptional<z.ZodString>;
-    keyframes: z.ZodDefault<z.ZodNumber>;
-    musicDurationSeconds: z.ZodDefault<z.ZodNumber>;
-}, z.core.$strip>;
-
-// @alpha (undocumented)
-export type LyricsToMvMetaDeps = Pick<MetaCommonDeps, 'concatVideos' | 'addBackgroundAudio'> & {
-    prompts?: LyricsToMvPromptOverrides;
-};
-
-// @public (undocumented)
-export type LyricsToMvOutput = z.infer<typeof LyricsToMvOutputSchema>;
-
-// @public (undocumented)
-export const LyricsToMvOutputSchema: z.ZodObject<{
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-    assets: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
-        label: z.ZodString;
-        assetId: z.ZodString;
-        modality: z.ZodLiteral<"audio">;
-        url: z.ZodOptional<z.ZodString>;
-        cost: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strip>, z.ZodObject<{
-        label: z.ZodString;
-        assetId: z.ZodString;
-        modality: z.ZodLiteral<"video">;
-        url: z.ZodOptional<z.ZodString>;
-        cost: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strip>]>>;
-}, z.core.$strip>;
-
-// @alpha
-export type LyricsToMvPromptOverrides = Partial<Record<keyof typeof LYRICS_TO_MV_DEFAULT_PROMPTS, string>>;
-
 // @public
 export interface MetaCommonDeps {
     addBackgroundAudio: (videoAssetId: string, audioAssetId: string, opts?: {
@@ -779,51 +573,6 @@ export interface MetaCommonDeps {
     }>;
 }
 
-// @alpha
-export const NOVEL_TO_EVENTS_DEFAULT_PROMPTS: Readonly<{
-    nextEventExtraction: "# Next Event Extraction\n\nYou are a highly skilled Literary Analyst AI. Your expertise is in narrative structure, plot deconstruction, and thematic analysis. You meticulously read and interpret prose to break down a story into its fundamental sequential events.\n\n**TASK**\nExtract the next event from the provided novel, following the sequence of the story and building upon the partially extracted events.\n\n**INPUT**\n1. The full text of the novel, which is enclosed within `<NOVEL_TEXT_START>` and `<NOVEL_TEXT_END>` tags\n2. A sequence of already-extracted events (in order), which is enclosed within `<EXTRACTED_EVENTS_START>` and `<EXTRACTED_EVENTS_END>` tags. The sequence may be empty. Each event contains multiple processes and constitutes a complete causal chain.\n\nBelow is an example input:\n\n```\n<NOVEL_TEXT_START>\nThe night was as dark as ink when the piercing alarm of the city museum suddenly shattered the silence. A thief, moving with phantom-like agility, had just pried open the display case and snatched the blue gem known as the \"Heart of the Ocean\" when the blaring alarm echoed through the hall.\n... (more novel text) ...\n<NOVEL_TEXT_END>\n\n<EXTRACTED_EVENTS_START>\n<Event 0>\nDescription: A thief who stole a gem from a museum was caught after a rooftop chase with guards, and the gem was recovered.\nProcess Chain:\n- A thief steals a gem from a museum, triggering the alarm. Guards notice and begin the chase.\n- The thief rushes out the museum's back door and dashes through narrow alleys, with guards closely pursuing and calling for backup.\n- ... (more processes) ...\n\n<Event 1>\nDescription: ... (more description) ...\nProcess Chain:\n- ... (more processes) ...\n\n<EXTRACTED_EVENTS_END>\n```\n\n**OUTPUT**\nReturn a JSON object describing the single next event, with this shape:\n\n```jsonc\n{\n  \"index\": 2,                  // 0-based; must equal len(extracted_events)\n  \"description\": \"...\",        // one-sentence summary\n  \"timeframe\": \"...\",          // when the event occurs\n  \"characters\": \"...\",         // who is involved\n  \"cause\": \"...\",              // why it happens\n  \"process\": \"...\",            // step-by-step progression incl. sub-scenes\n  \"outcome\": \"...\",            // consequences\n  \"is_last\": false             // true iff this is the final event in the novel\n}\n```\n\n**GUIDELINES**\n1. Focus on events that are critical to the plot, character development, or thematic depth.\n2. Ensure the event is logically distinct from previous and subsequent events.\n3. If the event spans multiple scenes, unify them under a single dramatic goal. For example, a chase sequence might begin in a city market, continue through back alleys, and conclude on a rooftop—all comprising a single event because they collectively achieve the dramatic purpose of \"the protagonist evading capture.\"\n4. Maintain objectivity: describe events based on the text without interpretation or judgment.\n5. For the process field, provide a detailed, step-by-step account of the event's progression, including key actions, decisions, and turning points. Each step should be clear and concise, illustrating how the event unfolds over time.\n   Below is an example:\n   Timeframe: The following morning, after acquiring the information about the Temple.\n   Characters: Elara (protagonist) and Kaelen (her rival treasure hunter).\n   Cause: Both seek the same artifact and are determined to reach it first.\n   Process: The event begins with Elara hastily purchasing supplies in the port town (scene 1), where she spots Kaelen already hiring a crew, raising the stakes. It continues as she races to secure her own ship and captain, negotiating fiercely under time pressure (scene 2). The event culminates in a direct confrontation on the docks (scene 3), where Kaelen attempts to sabotage her vessel, leading to a brief but intense sword fight between the two rivals.\n   Outcome: Elara successfully defends her ship and sets sail, but the conflict solidifies a bitter personal rivalry with Kaelen, ensuring their race to the temple will be fraught with direct opposition and danger.\n6. Every detail in your event description must be directly supported by the input novel. Do not add, assume, or invent any information.\n7. The language of outputs in values should be same as the input text.";
-}>;
-
-// @public (undocumented)
-export const NOVEL_TO_EVENTS_PATTERN_ID = "meta_novel-to-events";
-
-// @public (undocumented)
-export type NovelToEventsInput = z.infer<typeof NovelToEventsInputSchema>;
-
-// @public (undocumented)
-export const NovelToEventsInputSchema: z.ZodObject<{
-    prose: z.ZodString;
-    maxEvents: z.ZodOptional<z.ZodDefault<z.ZodNumber>>;
-    compressBeyond: z.ZodOptional<z.ZodDefault<z.ZodNumber>>;
-}, z.core.$strip>;
-
-// @alpha
-export type NovelToEventsMetaInit = {
-    prompts?: NovelToEventsPromptOverrides;
-};
-
-// @public (undocumented)
-export type NovelToEventsOutput = z.infer<typeof NovelToEventsOutputSchema>;
-
-// @public (undocumented)
-export const NovelToEventsOutputSchema: z.ZodObject<{
-    events: z.ZodReadonly<z.ZodArray<z.ZodObject<{
-        index: z.ZodNumber;
-        description: z.ZodString;
-        timeframe: z.ZodString;
-        characters: z.ZodString;
-        cause: z.ZodString;
-        process: z.ZodString;
-        outcome: z.ZodString;
-        is_last: z.ZodBoolean;
-    }, z.core.$strip>>>;
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-}, z.core.$strip>;
-
-// @alpha
-export type NovelToEventsPromptOverrides = Partial<Record<keyof typeof NOVEL_TO_EVENTS_DEFAULT_PROMPTS, string>>;
-
 // @public (undocumented)
 export const PanelSchema: z.ZodObject<{
     shotIndex: z.ZodNumber;
@@ -831,29 +580,10 @@ export const PanelSchema: z.ZodObject<{
     audioDesc: z.ZodString;
     camIdx: z.ZodNumber;
     characterNames: z.ZodArray<z.ZodString>;
-    assetIds: z.ZodArray<z.ZodString>;
 }, z.core.$strip>;
 
 // @public
 export function parseJsonWithSchema<T>(text: string, schema: z.ZodType<T>, label: string): T;
-
-// @alpha (undocumented)
-export type PolishedScene = z.infer<typeof PolishedSceneSchema>;
-
-// @public (undocumented)
-export const PolishedSceneSchema: z.ZodObject<{
-    idx: z.ZodNumber;
-    environment: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    characters: z.ZodArray<z.ZodObject<{
-        idx: z.ZodNumber;
-        identifierInScene: z.ZodString;
-        staticFeatures: z.ZodString;
-        dynamicFeatures: z.ZodString;
-        isVisible: z.ZodBoolean;
-    }, z.core.$strip>>;
-    script: z.ZodString;
-    polishedScript: z.ZodString;
-}, z.core.$strip>;
 
 // @alpha
 export const PRODUCT_AD_SHORT_DEFAULT_PROMPTS: Readonly<{
@@ -946,115 +676,8 @@ export const ProductPhotoPackOutputSchema: z.ZodObject<{
 // @alpha
 export type ProductPhotoPackPromptOverrides = Partial<Record<keyof typeof PRODUCT_PHOTO_PACK_DEFAULT_PROMPTS, string>>;
 
-// @alpha
-export const PROSE_CHUNKING_DEFAULT_PROMPTS: Readonly<{
-    narrativeCompression: "# Narrative Compression\n\nYou are an expert text compression assistant specialized in literary content. Your goal is to condense novels or story excerpts while preserving core narrative elements, key details, character development, and plot coherence.\n\n**TASK**\nCompress the provided input text to reduce its length significantly, eliminating redundancies, overly descriptive passages, and minor details—but without losing essential story arcs, dialogue, or emotional impact. Aim for clarity and readability in the compressed output.\n\n**INPUT**\nA segment of a novel (possibly truncated due to context length constraints). It is enclosed within `<NOVEL_CHUNK_START>` and `<NOVEL_CHUNK_END>` tags.\n\n**OUTPUT**\nA compressed version of the input text, retaining the core narrative, critical events, and character interactions. Return the compressed prose as plain text — no JSON wrapper, no preamble, no commentary.\n\n**GUIDELINES**\n1. Fidelity to the Plot: Absolutely preserve all major plot points, twists, revelations, and the sequence of key events. Do not omit crucial story elements.\n2. Character Consistency: Maintain character actions, decisions, and development. Important dialogue that reveals plot or character can be condensed or paraphrased but its meaning must be kept intact.\n3. Streamline Description: Reduce lengthy descriptions of settings, characters, or objects to their most essential and evocative elements. Capture the mood and critical details without the elaborate prose.\n4. Condense Internal Monologue: Paraphrase characters' extended internal thoughts and reflections, focusing on the key realizations or decisions they lead to.\n5. Simplify Language: Use more direct and concise language. Combine sentences, eliminate redundant adverbs and adjectives, and avoid repetitive phrasing.\n6. Cohesion and Flow: Ensure the compressed text is smooth, readable, and maintains a logical narrative flow. It should not feel like a fragmented list of events.\n7. Discard any non-narrative text (e.g., \"Please follow my account!\", \"Background setting:...\", personal opinions).\n8. Produce a seamless paragraph (or paragraphs if necessary) without markers (e.g., \"Chapter 1\") or section breaks.\n9. The language of output should be consistent with the original text.";
-    narrativeAggregation: "# Narrative Aggregation\n\nYou are a professional text processing assistant specializing in the aggregation and refinement of segmented text chunks. Your expertise lies in seamlessly merging sequential text fragments while intelligently handling overlapping or duplicated content expressed in different ways.\n\n**TASK**\nAggregate the provided text chunks into a coherent and continuous short story. Carefully identify and resolve overlaps where the end of one chunk and the beginning of the next chunk contain semantically similar content but with different expressions. Remove redundant repetitions while preserving the original meaning, style, and flow of the text. Ensure all non-overlapping content remains unchanged and intact.\n\n**INPUT**\nA sequence of text chunks (ordered from first to last), where each chunk may have an overlapping segment with the next chunk. The overlapping segments might vary in wording but convey similar meaning. Each chunk is enclosed within `<CHUNK_N_START>` and `<CHUNK_N_END>` tags, where N is the chunk index starting from 0.\n\n**OUTPUT**\nA single, consolidated text of the short story without unnatural repetitions or disruptions. The output should maintain the original narrative structure, tone, and details, with smooth transitions between originally adjacent chunks. Return the merged prose as plain text — no JSON wrapper, no preamble, no commentary.\n\n**GUIDELINES**\n1. Analyze the input chunks sequentially. For each adjacent pair (e.g., Chunk N and Chunk N+1), compare the end of Chunk N and the beginning of Chunk N+1 to detect overlapping content.\n2. If the overlapping segments are semantically equivalent but phrased differently, merge them by retaining the most natural or contextually appropriate version (prioritize the version from the later chunk if both are equally valid, but avoid introducing inconsistency).\n3. If the overlapping segments are not perfectly equivalent (e.g., one contains additional details), integrate the meaningful information without duplication, ensuring no loss of content.\n4. Preserve all non-overlapping text exactly as it appears in the original chunks. Do not modify, paraphrase, or omit any unique content.\n5. Ensure the merged text is fluent and coherent, without abrupt jumps or redundant phrases.\n6. If no overlap is detected between two chunks, concatenate them directly without changes.\n7. Do not invent new content or alter the original narrative beyond handling the overlaps.\n8. The language of output should be consistent with the original text.";
-}>;
-
-// @public (undocumented)
-export const PROSE_CHUNKING_PATTERN_ID = "meta_prose-chunking";
-
-// @public (undocumented)
-export type ProseChunkingInput = z.infer<typeof ProseChunkingInputSchema>;
-
-// @public (undocumented)
-export const ProseChunkingInputSchema: z.ZodObject<{
-    prose: z.ZodString;
-    chunkTokenBudget: z.ZodOptional<z.ZodDefault<z.ZodNumber>>;
-    targetCompressionRatio: z.ZodOptional<z.ZodNumber>;
-}, z.core.$strip>;
-
-// @public
-export const proseChunkingMeta: PatternFn<    {
-prose: string;
-chunkTokenBudget?: number | undefined;
-targetCompressionRatio?: number | undefined;
-}, {
-compressedChunks: readonly string[];
-aggregatedNarrative: string;
-cost: number | null;
-latencyMs: number;
-}>;
-
-// @alpha
-export type ProseChunkingMetaInit = {
-    prompts?: ProseChunkingPromptOverrides;
-};
-
-// @public (undocumented)
-export type ProseChunkingOutput = z.infer<typeof ProseChunkingOutputSchema>;
-
-// @public (undocumented)
-export const ProseChunkingOutputSchema: z.ZodObject<{
-    compressedChunks: z.ZodReadonly<z.ZodArray<z.ZodString>>;
-    aggregatedNarrative: z.ZodString;
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-}, z.core.$strip>;
-
-// @alpha
-export type ProseChunkingPromptOverrides = Partial<Record<keyof typeof PROSE_CHUNKING_DEFAULT_PROMPTS, string>>;
-
-// @alpha
-export const REFERENCE_IMAGE_CASCADE_DEFAULT_PROMPTS: Readonly<{
-    referenceImagePrefilter: "# Reference Image Prefilter (Text-Only Stage)\n\n[Role]\nYou are a professional visual creation assistant skilled in multimodal image analysis and reasoning.\n\n[Task]\nYour core task is to intelligently select the most suitable reference images from a provided set of reference image descriptions (including multiple character reference images and existing scene images from prior frames) based on the user's text description (describing the target frame), ensuring that the subsequently generated image meets the following key consistencies:\n- Character Consistency: The appearance (e.g. gender, ethnicity, age, facial features, hairstyle, body shape), clothing, expression, posture, etc., of the generated character should highly match the reference image descriptions.\n- Environmental Consistency: The scene of the generated image (e.g., background, lighting, atmosphere, layout) should remain coherent with the existing image descriptions from prior frames.\n- Style Consistency: The visual style of the generated image (e.g., realistic, cartoon, film-like, color tone) should harmonize with the reference image descriptions.\n\n[Input]\nYou will receive a text description of the target frame, along with a sequence of reference image descriptions.\n- The text description of the target frame is enclosed within `<FRAME_DESC>` and `</FRAME_DESC>`.\n- The sequence of reference image descriptions is enclosed within `<SEQ_DESC>` and `</SEQ_DESC>`. Each description is prefixed with its index, starting from 0.\n\nBelow is an example of the input format:\n\n```\n<FRAME_DESC>\n[Camera 1] Shot from Alice's over-the-shoulder perspective. Alice is on the side closer to the camera, with only her shoulder appearing in the lower left corner of the frame. Bob is on the side farther from the camera, positioned slightly right of center in the frame. Bob's expression shifts from surprise to delight as he recognizes Alice.\n</FRAME_DESC>\n\n<SEQ_DESC>\nImage 0: A front-view portrait of Alice.\nImage 1: A front-view portrait of Bob.\nImage 2: [Camera 0] Medium shot of the supermarket aisle. Alice and Bob are shown in profile facing the right side of the frame. Bob is on the right side of the frame, and Alice is on the left side. Alice, looking down and pushing a shopping cart, follows closely behind Bob and accidentally bumps into his heel.\nImage 3: [Camera 1] Shot from Alice's over-the-shoulder perspective. Alice is on the side closer to the camera, with only her shoulder appearing in the lower left corner of the frame. Bob is on the side farther from the camera, positioned slightly right of center in the frame. Bob quickly turns around, and his expression shifts from neutral to surprised.\nImage 4: [Camera 2] Shot from Bob's over-the-shoulder perspective. Bob is on the side closer to the camera, with only his shoulder appearing in the lower right corner of the frame. Alice is on the side farther from the camera, positioned slightly left of center in the frame. Alice looks down, then up as she prepares to apologize. Upon realizing it's someone familiar, her expression shifts to one of surprise.\n</SEQ_DESC>\n```\n\n[Output]\nYou need to select up to 8 of the most relevant reference images based on the user's description and put the corresponding indices in the `ref_image_indices` field of the output. At the same time, you should generate a text prompt that describes the image to be created, specifying which elements in the generated image should reference which image description (and which elements within it).\n\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"ref_image_indices\": [1, 3],            // 0-based indices into the input SEQ_DESC\n  \"text_prompt\": \"Create an image based on the following guidance: \\nMake modifications based on Image 1: Bob's body turns to face the camera, while all other elements remain unchanged. Bob's appearance should refer to Image 0.\"\n}\n```\n\nThe `text_prompt` field references reference images by **position in `ref_image_indices`**, not by their original `SEQ_DESC` index. Use `Image 0`, `Image 1`, … format; do not use any other word.\n\n[Guidelines]\n- Ensure that the language of all output values (not include keys) matches that used in the frame description.\n- The reference image descriptions may depict the same character from different angles, in different outfits, or in different scenes. Identify the description closest to the version described by the user.\n- Prioritize image descriptions with similar compositions, i.e., shots taken by the same camera.\n- The images from prior frames are arranged in chronological order. Give higher priority to more recent images (those closer to the end of the sequence).\n- Choose reference image descriptions that are as concise as possible and avoid including duplicate information. For example, if Image 3 depicts the facial features of Bob from the front, and Image 1 also depicts Bob's facial features from the front-view portrait, then Image 1 is redundant and should not be selected.\n- When a new character appears in the frame description, prioritize selecting their portrait image description (if available) to ensure accurate depiction of their appearance. Pay attention to whether the character is facing the camera from the front, side, or back. Choose the most suitable view as the reference image for the character.\n- For character portraits, you can only select at most one image from multiple views (front, side, back). Choose the most appropriate one based on the frame description. For example, when depicting a character from the side, choose the side view of the character.\n- Select at most **8** optimal reference image descriptions.";
-    referenceImageMultimodalSelect: "# Reference Image Multimodal Select\n\n[Role]\nYou are a professional visual creation assistant skilled in multimodal image analysis and reasoning.\n\n[Task]\nYour core task is to intelligently select the most suitable reference images from a provided reference image library (including multiple character reference images and existing scene images from prior frames) based on the user's text description (describing the target frame), ensuring that the subsequently generated image meets the following key consistencies:\n- Character Consistency: The appearance (e.g. gender, ethnicity, age, facial features, hairstyle, body shape), clothing, expression, posture, etc., of the generated character should highly match the reference images.\n- Environmental Consistency: The scene of the generated image (e.g., background, lighting, atmosphere, layout) should remain coherent with the existing images from prior frames.\n- Style Consistency: The visual style of the generated image (e.g., realistic, cartoon, film-like, color tone) should harmonize with the reference images and existing images.\n\n[Input]\nYou will receive a text description of the target frame, along with a sequence of reference images.\n- The text description of the target frame is enclosed within `<FRAME_DESC>` and `</FRAME_DESC>`.\n- The sequence of reference images is enclosed within `<SEQ_IMAGES>` and `</SEQ_IMAGES>`. Each reference image is provided with a text description. The reference images are indexed starting from 0.\n\nBelow is an example of the input format:\n\n```\n<FRAME_DESC>\n[Camera 1] Shot from Alice's over-the-shoulder perspective. <Alice> is on the side closer to the camera, with only her shoulder appearing in the lower left corner of the frame. <Bob> is on the side farther from the camera, positioned slightly right of center in the frame. <Bob>'s expression shifts from surprise to delight as he recognizes <Alice>.\n</FRAME_DESC>\n\n<SEQ_IMAGES>\nImage 0: A front-view portrait of Alice.\n[Image 0 here]\nImage 1: A front-view portrait of Bob.\n[Image 1 here]\nImage 2: [Camera 0] Medium shot of the supermarket aisle. Alice and Bob are shown in profile facing the right side of the frame. Bob is on the right side of the frame, and Alice is on the left side. Alice, looking down and pushing a shopping cart, follows closely behind Bob and accidentally bumps into his heel.\n[Image 2 here]\nImage 3: [Camera 1] Shot from Alice's over-the-shoulder perspective. Alice is on the side closer to the camera, with only her shoulder appearing in the lower left corner of the frame. Bob is on the side farther from the camera, positioned slightly right of center in the frame. Bob is back to the camera.\n[Image 3 here]\nImage 4: [Camera 2] Shot from Bob's over-the-shoulder perspective. Bob is on the side closer to the camera, with only his shoulder appearing in the lower right corner of the frame. Alice is on the side farther from the camera, positioned slightly left of center in the frame. Alice looks down, then up as she prepares to apologize. Upon realizing it's someone familiar, her expression shifts to one of surprise.\n</SEQ_IMAGES>\n```\n\n[Output]\nYou need to select the most relevant reference images based on the user's description and put the corresponding indices in the `ref_image_indices` field of the output. At the same time, you should generate a text prompt that describes the image to be created, specifying which elements in the generated image should reference which image (and which elements within it).\n\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"ref_image_indices\": [1, 3],\n  \"text_prompt\": \"Create an image following the given description: \\nThe man is standing in the landscape. The man should reference Image 0. The landscape should reference Image 1.\"\n}\n```\n\nThe `text_prompt` field references reference images by **position in `ref_image_indices`**, not by their original `SEQ_IMAGES` index. Use `Image 0`, `Image 1`, … format; do not use any other word.\n\n[Guidelines]\n- Ensure that the language of all output values (not include keys) matches that used in the frame description.\n- The reference image descriptions may depict the same character from different angles, in different outfits, or in different scenes. Identify the description closest to the version described by the user.\n- Prioritize image descriptions with similar compositions, i.e., shots taken by the same camera.\n- The images from prior frames are arranged in chronological order. Give higher priority to more recent images (those closer to the end of the sequence).\n- Choose reference image descriptions that are as concise as possible and avoid including duplicate information. For example, if Image 3 depicts the facial features of Bob from the front, and Image 1 also depicts Bob's facial features from the front-view portrait, then Image 1 is redundant and should not be selected.\n- For character portraits, you can only select at most one image from multiple views (front, side, back). Choose the most appropriate one based on the frame description. For example, when depicting a character from the side, choose the side view of the character.\n- Select at most **8** optimal reference image descriptions.\n- The text guiding image editing should be as concise as possible.";
-}>;
-
-// @public (undocumented)
-export const REFERENCE_IMAGE_CASCADE_PATTERN_ID = "meta_reference-image-cascade";
-
-// @public (undocumented)
-export type ReferenceImageCascadeInput = z.infer<typeof ReferenceImageCascadeInputSchema>;
-
-// @public (undocumented)
-export const ReferenceImageCascadeInputSchema: z.ZodObject<{
-    frameDescription: z.ZodString;
-    candidates: z.ZodArray<z.ZodObject<{
-        ref: z.ZodString;
-        text: z.ZodString;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-
-// @alpha
-export type ReferenceImageCascadeMetaInit = {
-    prompts?: ReferenceImageCascadePromptOverrides;
-};
-
-// @public (undocumented)
-export type ReferenceImageCascadeOutput = z.infer<typeof ReferenceImageCascadeOutputSchema>;
-
-// @public (undocumented)
-export const ReferenceImageCascadeOutputSchema: z.ZodObject<{
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-    selectedRefs: z.ZodArray<z.ZodString>;
-    textPrompt: z.ZodString;
-}, z.core.$strip>;
-
-// @alpha
-export type ReferenceImageCascadePromptOverrides = Partial<Record<keyof typeof REFERENCE_IMAGE_CASCADE_DEFAULT_PROMPTS, string>>;
-
 // @public
 export function resolvePrompts<T extends Record<string, string>>(defaults: T, overrides?: Partial<T>): T;
-
-// @alpha (undocumented)
-export type Scene = z.infer<typeof SceneSchema>;
-
-// @public (undocumented)
-export const SceneSchema: z.ZodObject<{
-    idx: z.ZodNumber;
-    environment: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    characters: z.ZodArray<z.ZodObject<{
-        idx: z.ZodNumber;
-        identifierInScene: z.ZodString;
-        staticFeatures: z.ZodString;
-        dynamicFeatures: z.ZodString;
-        isVisible: z.ZodBoolean;
-    }, z.core.$strip>>;
-    script: z.ZodString;
-}, z.core.$strip>;
 
 // @alpha
 export const SCRIPT2VIDEO_DEFAULT_PROMPTS: Readonly<{
@@ -1100,48 +723,6 @@ cost?: number | undefined;
 }[];
 shotCount: number;
 }>;
-
-// @alpha
-export const SCRIPT_PLANNING_DEFAULT_PROMPTS: Readonly<{
-    scriptIntentRouting: "# Script Intent Routing\n\nYou are an intent router for script planning. Classify the user's basic idea into one of following intents:\n\n- `narrative`: The idea centers on character, plot, themes, dialogue, or broad storytelling beats.\n- `motion`: The idea centers on action, speed, vehicles, combat, choreography, sports, or any kinetic sequence where precise, technical motion description is primary.\n- `montage`: The idea centers on a series of shots that convey an emotional arc through imagery, pacing, and juxtaposition.\n\nRespond using the required JSON format only.\n\n**INPUT**\nA basic story idea enclosed within `<BASIC_IDEA_START>` and `<BASIC_IDEA_END>`.\n\n**OUTPUT**\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"intent\": \"narrative\",          // \"narrative\" | \"motion\" | \"montage\"\n  \"rationale\": \"Brief reason for the classification (optional).\"\n}\n```\n\n**FALLBACK**\nOn parse failure or invalid intent, `meta_script-planning` defaults to\n`narrative`.";
-    narrativeScriptPlanning: "# Narrative Script Planning\n\nYou are a world-class creative writing and screenplay development expert with extensive experience in story structure, character development, and narrative pacing.\n\n**Task**\nYour task is to transform a basic story idea into a comprehensive, engaging script with rich narrative detail, compelling character arcs, and cinematic storytelling elements.\n\n**Input**\nYou will receive a basic story idea or concept enclosed within `<BASIC_IDEA_START>` and `<BASIC_IDEA_END>`.\n\nBelow is a simple example of the input:\n\n```\n<BASIC_IDEA_START>\nA person discovers they can time travel but every time they change something, they lose a memory.\n<BASIC_IDEA_END>\n```\n\n**Output**\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"planned_script\": \"<full planned script with rich narrative detail, character development, dialogue, and cinematic descriptions>\"\n}\n```\n\n**Guidelines**\nNo metaphors allowed!!! (eg. A gust of wind rustled through it, a ghostly touch.; an F1 car that looks less like a vehicle and more like a fighter jet stripped of its wings)\n\n1. **Story Structure**: Develop a clear three-act structure with proper setup, confrontation, and resolution. Include compelling plot points, rising action, climax, develop the content according to the plot timeline, maintain a clear main plotline, and maintain coherent narrative connections. Keep the plot moving forward. Avoid summarizing events and characters, and use dialogue between key characters appropriately.\n\n2. **Character Development**: Create well-rounded characters with clear motivations, flaws, and character arcs. Ensure protagonists have relatable goals and face meaningful obstacles.\n\n3. **Visual Storytelling**: Write with cinematic language that emphasizes visual elements, actions, and atmospheric details rather than exposition-heavy dialogue.\n\n4. **Emotional Depth**: Incorporate emotional beats, internal conflicts, and character relationships that resonate with audiences.\n\n5. **Pacing and Tension**: Build suspense and maintain engagement through proper scene transitions, conflict escalation, and strategic revelation of information.\n\n6. **Genre Consistency**: Maintain appropriate tone, style, and conventions for the story's genre while adding unique creative elements.\n\n7. **Dialogue Quality**: When you writing some dialogue, you should use the `:\" \"` symbols (eg. Peter says: \"Everything is looking good. All systems are green, Kai. We're ready for takeoff.\"). Do not use voiceover format. Create natural, character-specific dialogue that advances plot and reveals personality without being overly expository.\n\n8. **Thematic Elements**: Weave in meaningful themes and subtext that give the story depth and universal appeal.\n\n9. **Conflict and Stakes**: Establish clear external and internal conflicts with high stakes that matter to both characters and audience.\n\n10. **Satisfying Resolution**: Ensure all major plot threads are resolved and character arcs reach meaningful conclusions.\n\n11. Each dialogue should not too short or too long, (eg.\"Everything is looking good. All systems are green, Kai. We're ready for takeoff.\")\n\n**Warnings**\n\nDon't write any camera movement in the script (eg. cut to), you should write the script by using storyboard description, not camera view.\nNo metaphors allowed!!! (eg. A gust of wind rustled through it, a ghostly touch.; an F1 car that looks less like a vehicle and more like a fighter jet stripped of its wings)\n\n**Examples of narrative scripts**\n\nFog sits low over the harbor, the water flat and gray.\nOn the pier, there's a work lamp, a folding crate table (four paper lanterns hung from the post above it, turning in the wind), a loading truck, and a canvas repair tent. Next to the tent is a hand-crank depth sounder. A woman (Mira Solvang, 36, plainspoken) works the sounder's crank, while a little girl (Tove, 5, Mira's daughter) reads the dial under her mother's guidance.\nMira Solvang (somewhat eagerly) Watch it, watch it, watch it... There, that's the trench... the deepest water in the whole bay.\nTurning the sounder's dial and holding the cable steady, the trench edge sharpens on the readout. Tove: Mom, the bottom has stairs.\nMira Solvang: Those aren't stairs, those are ledges the current cut into the mud. Tove: Why...?\nMira Solvang: (resting a hand on the girl's head, pointing to the rope coiled on the crate) The current is one long rope of cold water, wound in from the open sea. Tove: What is cold water?\nAn old woman (Greta Halden, 61, Mira's aunt and Tove's great-aunt) walked out of the tent and stood silently beside Mira and her daughter.\nMira Solvang: Cold water... Cold water is what carries Mom's survey boat. The work lamp buzzed, and Greta Halden turned to look at Mira. Tove: Why? Mira Solvang smiled and straightened the girl's collar.\nMira Solvang (O.S.): On the morning you can count every pier post through the fog, that's the morning my boat comes in.\n\n**Scriptwriting Guidelines End**";
-    motionScriptPlanning: "# Motion Script Planning\n\nYou are a top-tier action and motion-sequence script designer with deep visual expertise in conveying speed, force, choreography, and technical precision. Your specialty is writing kinetic, technically accurate scripts that immerse the audience in movement.\n\n**Task**\nTransform a basic idea into a motion-driven script that emphasizes precise action description, clear spatial orientation, and unambiguous, technically accurate details.\n\n**Input**\nYou will receive a basic idea enclosed within `<BASIC_IDEA_START>` and `<BASIC_IDEA_END>`.\n\n**Output**\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"planned_script\": \"<motion-driven script with sequenced action beats, technical specificity, and minimal dialogue>\"\n}\n```\n\n**Global Rules**\nNo metaphors allowed. Less conversation.\n\n**Motion Style Guidelines**\n1. Technical Explicitness: Prefer precise nouns and qualifiers over poetic language. Name specific vehicle types, equipment, environment features, and body mechanics. If vehicles are implied, specify make/class if reasonable. If combat, specify stance, guard, strike type, target, and contact result.\n2. Kinetic Clarity: Make trajectories, vectors, speed/acceleration sensations, and force outcomes explicit. Describe distances and orientations when helpful (e.g., left/right, fore/aft).\n3. Spatial Cohesion: Maintain a consistent mental map of positions. Keep continuity of who/what is where. When positions change, describe how and by what path.\n4. Sequenced Action Beats: Write step-by-step beats that can be storyboarded. Each beat should be actionable and unambiguous.\n5. Dialogue Minimalism: Use dialogue sparingly and only when it coordinates action, status, or timing. Use `:\"dialogue\"` quotes for spoken lines.\n6. Keep the script length similar to the following examples.\n7. If the user does not specify, only one character can appear at most.\n8. Less character's actions close-ups, more exterior shots.\n9. Don't describe the character's physical state (e.g. jowls and the loose skin around its neck to press back).\n\n**Examples of motion & speed immersion fighter scripts** (should be accurate, technical, and explicit, Technical Explicitness: Consistently repeats \"two seats F‑18\" in each stage direction. Prioritizes precision in identifying the aircraft type and location (front seat / rear seat). Reads almost like a technical report or aviation manual, ensuring no ambiguity.)\nThe immense gray flight deck of a nuclear aircraft carrier cuts through a deep blue ocean. The horizon is a clean, sharp line. Steam billows from the catapult tracks, partially obscuring the chaos of deck crews in brightly colored jerseys. The air is thick with the smell of salt and jet fuel, and the constant roar of engines creates a wall of sound.\n\nAn F-18, is positioned on the steam-powered catapult. Its twin engines blast waves of heat that distort the air behind it. The plane strains against the holdback bar, a machine built for speed, forced into a moment of absolute stillness.\n\nEpic cinematic style with dramatic wide shots, dynamic camera movements, rich color grading, and theatrical lighting reminiscent of major Hollywood productions. Camera gradually moves forward to pilot Kai Renner (50s, sharp eyes and unwavering focus) sits in the cockpit of a F-18. His gloved hands move over the controls, flipping switches and checking gauges.\n\nIn the F-18 cockpit Kai Renner: \"Understood, Sling. Let's get this show on the road.\"\n\nIn the F-18 cockpit Kai Renner's left hand push on the F-18 throttle, his right grips the control stick.\n\nA side view. The Shooter drops to one knee, pointing down the deck. The world seems to hold its breath. The engine whine escalates to a deafening roar that vibrates through the entire carrier. The F-18's twin vertical stabilizers shudder with contained power.\n\nFirst-person POV from inside the cockpit of F18. With a violent jolt, the catapult fires. The F-18 lunges forward, accelerating from zero to over 160 miles per hour in just two seconds. The deck becomes a blur of motion. Creating a strong sense of speed and perspective depth with dynamic motion blur.\n\nA side camera view. Then, with a surge of raw power from the afterburners igniting. The F-18 climbs, asserting its dominance over gravity. The landing gear retracts into the fuselage with a solid thud. Creating a strong sense of speed and perspective depth with dynamic motion blur.\n\nKai Renner levels the F-18 wings, the sun glinting off his visor as he scans the empty sky ahead.\n\nThe F-18, a sleek instrument of combat, roars to life as it pushes, slicing through the air with an elegant grace. The jet's fuselage glistens under the sunlight, its sharp lines and aerodynamic curves reflecting hues of deep blue and silver. As it accelerates, the engines emit a powerful, throaty growl, reverberating like thunder across the open sky. Creating a strong sense of speed and perspective depth with dynamic motion blur.\n\n**Examples of motion & speed immersion F1 racing scripts**\nEpic cinematic style with dramatic wide shots, dynamic camera movements, rich color grading, and theatrical lighting reminiscent of major Hollywood productions. In the black and gold Formula One cockpit, Camera gradually moves forward to F1 driver Kai Renner (playing the driver, a man in his 40s, with a steely gaze and utter concentration) buckling his harness, his helmet visor which reflects the fluttering checkered flags and a blur of cheering spectators in the stands. He drives a sleek black and gold F1 car.\n\nThe starting lights on the track go out, and First-person POV from inside the cockpit of a black and gold F1 car which starts and speeding through the Arena. You grip the wheel — full throttle. The engine roars, gear shifts snap. The blur of the cheering spectators in the stands flashes on your left. creating a strong sense of speed and perspective depth with dynamic motion blur. are engaged in a frenetic, no-holds-barred race. The camera tracks closely behind, capturing the car's wings slicing through the air, sparks flying from the undercarriage on tight corners, and the world blurring into streaks of color—vibrant track barriers, green infields, and distant mountains under harsh sunlight.\n\nThe camera closely tracks the side with dynamic chasing shots., hugging the ground to capture Kai Renner's sleek black and gold F1 car slicing through the air, its APX tail wing flexing under the wind, sparks erupting from the chassis like fireworks as it powers through tight turns and begins overtaking rivals—dodging a pursuing Formula One car , nearly clipping in a heart-pounding near-miss. Cutting to another close-up on Kai Renner, his gloved hands gripping the F1 steering wheel tightly, while the background track barriers streak by in accelerated motion. Creating a strong sense of speed and perspective depth with dynamic motion blur.\n\nAn aerial view for a wide chase perspective, showing Kai Renner's APX Formula One car boldly overtaking another rival in a daring maneuver, debris scattering across the asphalt as it pulls ahead, the pulsating to a crescendo amidst the intensified roar of engines, whistling wind, and the stronger surge of acceleration that makes the entire frame vibrate with raw power. Creating a strong sense of speed and perspective depth with dynamic motion blur. are engaged in a frenetic, no-holds-barred race.\n\nA front-mounted chase shot follows, emphasizing the APX tail wing's metallic sheen as the black and gold F1 car banks into a hairpin turn, other Formula One rivals closing in from both sides in a tense three-way battle, the movement acceleration pushing the limits as Kai Renner's black and gold F1 car breaks free, leaving F1 competitors in a cloud of dust.\n\nThe camera jolts into a raw handheld shot as Kai Renner's APX black and gold F1 car rockets down a blistering straightaway, creating a strong sense of speed and perspective depth with dynamic motion blur, are engaged in a frenetic, no-holds-barred race. Rivals' red-white Formula one car closing in tight on both flanks. One competitor edges too close—carbon fiber grinding against carbon fiber. Sparks erupt in a spray of gold as Kai Renner wrenches the wheel, but the rival's red-white Formula one car fishtails, spinning out of control before slamming violently into the barrier. The collision detonates in a shower of splintered red F1 bodywork and shredded tires, fragments cartwheeling across the asphalt in balletic slow motion.\n\nWide aerial shots capture the chaos as smoke and dust mushroom upward, the track swallowed in a haze of flame-orange light. Then—an explosive cut back to full speed—Kai Renner's sleek black and gold F1 APX car bursts through the choking smoke cloud, unbroken, streaking down the straight. Creating a strong sense of speed and perspective depth with dynamic motion blur. are engaged in a frenetic, no-holds-barred race.\n\nAnother extreme close-up zooms in on F1 driver Kai Renner's visor, the lens focus pronouncing the reflection of the track rushing by, capturing the intensity of his focus amid the chaos. creating a strong sense of speed and perspective depth with dynamic motion blur.\n\nThe sequence escalates with a low-angle chase shot from behind, creating a strong sense of speed and perspective depth with dynamic motion blur. Showcasing the APX tail wing slicing the air like a blade as the Formula One car accelerates through a straight, overtaking yet another rival, The car hurtles toward the finish line, its APX tail wing cutting the air like a blade, crossing the checkered flag at breakneck speed. debris flying and engines howling in protest, the stronger movement acceleration making the frame pulse with energy.\n\n**Warnings**\n- Do not use metaphors.";
-    montageScriptPlanning: "# Montage Script Planning\n\nYou are a top-tier montage script designer with deep expertise in compressing time, juxtaposing images, and shaping emotional arcs through shot selection and rhythm. Your specialty is writing emotionally precise montage scripts that convey internal states via shot-driven beats, pacing, and visual contrasts.\n\n**Task**\nTransform a basic idea into an emotion-driven montage script that emphasizes internal experience through visual sequencing, clear emotional expression per shot/beat, and unambiguous psychological details.\n\n**Input**\nYou will receive a basic idea enclosed within `<BASIC_IDEA_START>` and `<BASIC_IDEA_END>`.\n\n**Output**\nReturn a JSON object with this shape:\n\n```jsonc\n{\n  \"planned_script\": \"<montage-form script with short paragraphs, sparse dialogue, and a clear emotional arc>\"\n}\n```\n\n**Global Rules**\nNo metaphors allowed.\nKeep dialogue minimal.\nUse pure paragraph.\nConvey meaning primarily through shot progression, rhythm, and visual juxtaposition.\n\n**Montage Style Guidelines**\n- Use plain sentence/paragraph.\n- For each scene, you should write multiple shots to enhance montage effect.\n- Total no less than 500 words, each paragraph no more than 50 words.\n- Escalation or Resolution: Build an emotional arc across beats. Show explicit changes in emotional state and the cause for each change.\n- Sound Design Minimalism: Use sparse, precise notes for sound/music that influence emotion (tempo rise, percussive cuts, breath presence). Avoid lyrical description.\n- Dialogue Minimalism: Include dialogue only if it marks a clear emotional shift. Use `:\"dialogue\"` quotes.\n- Visual Clarity Over Action: Limit complex external action. Focus on expressive visuals, reactions, and transitions that communicate internal states.\n- No extraneous physical traits. Only describe details that influence or reveal emotion.\n\n**Warnings**\nDo not use metaphors.\nAvoid poetic language; prefer precise, observable details.\n\n**Examples of scripts**\n\nMorning light across a small practice room. A girl (Lisa) around seven lifts a violin from its case. Bow slips on the first note.\n\nShe (Lisa) winces, then tries again. Shoulders ease. Relief. Quiet room, a single chair creak.\n\nShe (Lisa) rests her cheek on the chinrest. The string hum stabilizes.\n\nA small smile shows on Lisa.\n\nFront hall. School shoes near a folded music stand.\n\nShe (Lisa) struggles with the latch. The stand clicks open. Light metal tap on tile.\n\nAfternoon window. She (Lisa) traces notes with a finger. Her mother taps a rhythm on the table.\n\nShe (Lisa) frowns, then raises her elbow. Concentration holds. The bow settles. Shared stillness. Page flip, steady breath.\n\nBathroom. She (Lisa) wipes rosin dust off the instrument, coughing once.\n\nBedroom floor. Sheet music spread. She (Lisa) circles three notes with a red pencil.\n\nShe (Lisa) plays them alone, slow, then again faster. Frustration dips, control returns. Pencil tap stops.\n\nKitchen doorway. A metronome ticks beside a bowl of fruit. She (Lisa) dials it down two clicks. Shoulders drop. She follows the pulse, bow hand steadier with each measure.\n\nLiving room. A TV murmurs. She (Lisa) crosses, lowers the volume, returns to her stand. Boundary set without words. The room holds for practice.\n\nFront steps. Case open to the sun. A neighbor waves. She (Lisa) shields the strings with her palm, smiles, and closes the lid. Protection learned.\n\nMusic store aisle. Shoulder rests in a row. She (Lisa) tries one that squeaks, then another that fits. Jaw unclenches. She nods, decision made.\n\nRain on the window. She (Lisa) misses a shift three times. Eyes shine, but she resets her feet, counts to four, and lands the note on the fourth try. Relief, not triumph. Bow lifts, still.\n\nMirror practice. Thin tape marks on the fingerboard. She (Lisa) glances once, places a finger true, then plays without looking. Confidence grows around the guide.\n\nSchool hallway before recital. Cold hands under a dryer. She (Lisa) shakes out wrists. Fear thins to focus. She walks toward the stage door, steps even.\n\nCurtain edge. Small tremor at the frog. She (Lisa) loosens grip, breathes, and steps into light.\n\nTwo clean phrases. One fuzzy entrance. She (Lisa) holds tempo, corrects on the next measure. Recovery without apology.\n\nExit corridor. Water bottle cap clicks. She (Lisa) writes in a pocket notebook: \"Entrance softer, elbow high.\" Emotion measured by action.\n\nSaturday morning. An online tutorial freezes mid-vibrato. She (Lisa) mimics the motion without sound. Adds bow. Wobble uneven. She smiles anyway. Incremental progress accepted.\n\nPark bench. Practice mute on the bridge. Joggers pass without looking. She (Lisa) finishes a scale, closes her eyes a moment, then starts the etude. Privacy inside noise.\n\nBedroom desk. A planner open. She (Lisa) blocks out \"scales + shifts\" for fifteen minutes daily. A small star beside Sunday. Plan replaces hope.\n\nEvening soreness. A red mark under her jaw. She (Lisa) folds a soft cloth over the rest, tries again. Mark fades. Comfort adjusted, practice continues.\n\nString snap. Sharp, quick. She (Lisa) flinches, then opens a spare packet, threads, winds, tunes slow. Disruption handled. Bow returns to the string.\n\nPhone buzz. A friend's invitation lights the screen. She (Lisa) looks once, turns it face down, and plays the piece end to end. Reward after task.\n\nAudition day. Waiting chairs in a line. She (Lisa) air-bows the first phrase, eyes closed. Shoulders stay low. Name called. She stands smoothly.\n\nSmall studio. Two judges, still faces. She (Lisa) tunes, begins. First note centered, breath even. A slip in the middle; tempo holds. The last note rings.\n\nStreet outside. She (Lisa) exhales into cool air, checks her watch, and walks home. No jump, no slump. Next step implied.\n\nKitchen table. Acceptance email on a tablet. She (Lisa) reads twice, then taps the metronome app and sets a new tempo goal. Celebration nested inside routine.\n\nSummer afternoon. Open window, distant mower. She (Lisa) practices vibrato on long notes, then stops to listen to the decay. Ear sharpens.\n\nLibrary corner. She (Lisa) copies fingerings in neat pencil on a fresh sheet. The messy draft slides into recycling. Order replaces clutter.\n\nCommunity center stage. A quartet rehearsal. She (Lisa) watches the leader's breath, lifts with it, and enters together. Listening added to playing.\n\nNight lamp. She (Lisa) loosens the bow, wipes the strings, touches the chinrest with two fingers, then closes the case. Habit completes the day. Quiet returns.";
-}>;
-
-// @public (undocumented)
-export const SCRIPT_PLANNING_PATTERN_ID = "meta_script-planning";
-
-// @public (undocumented)
-export type ScriptPlanningInput = z.infer<typeof ScriptPlanningInputSchema>;
-
-// @public (undocumented)
-export const ScriptPlanningInputSchema: z.ZodObject<{
-    idea: z.ZodString;
-}, z.core.$strip>;
-
-// @alpha
-export type ScriptPlanningMetaInit = {
-    prompts?: ScriptPlanningPromptOverrides;
-};
-
-// @public (undocumented)
-export type ScriptPlanningOutput = z.infer<typeof ScriptPlanningOutputSchema>;
-
-// @public (undocumented)
-export const ScriptPlanningOutputSchema: z.ZodObject<{
-    intent: z.ZodEnum<{
-        narrative: "narrative";
-        motion: "motion";
-        montage: "montage";
-    }>;
-    plannedScript: z.ZodString;
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-}, z.core.$strip>;
-
-// @alpha
-export type ScriptPlanningPromptOverrides = Partial<Record<keyof typeof SCRIPT_PLANNING_DEFAULT_PROMPTS, string>>;
 
 // @public (undocumented)
 export type ScriptToVideoInput = z.infer<typeof ScriptToVideoInputSchema>;
@@ -1243,11 +824,13 @@ export const StoryboardOutputSchema: z.ZodObject<{
         audioDesc: z.ZodString;
         camIdx: z.ZodNumber;
         characterNames: z.ZodArray<z.ZodString>;
-        assetIds: z.ZodArray<z.ZodString>;
     }, z.core.$strip>>;
     assets: z.ZodArray<z.ZodObject<{
+        label: z.ZodString;
         assetId: z.ZodString;
         modality: z.ZodLiteral<"image">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
 }, z.core.$strip>;
 

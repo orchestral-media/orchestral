@@ -14,18 +14,19 @@
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { script2videoMeta, CharacterInSceneSchema } from '../script2video'
 import {
   assetIdByLabel,
+  CharacterInSceneSchema,
   labelAsset,
   labelledAssetShape,
   parseJsonWithSchema,
   resolvePrompts,
+  script2videoMeta,
   sumCosts,
+  textGeneration,
   toJsonSchemaCached,
   type MetaCommonDeps,
-} from '../_shared/meta-utils'
+} from '@orchestral/patterns'
 import {
   STORY_DEVELOPMENT_PROMPT,
   CHARACTER_EXTRACTION_PROMPT,
@@ -188,6 +189,12 @@ export function createIdea2VideoMeta(
             characters,
             style: input.style,
             userRequirement: input.userRequirement,
+            // script2video now confirms its render counts before the first
+            // paid call. This meta already put the whole plan to the user in
+            // the `form` ask above, so one consent covers every scene — N
+            // more prompts, one per nested dispatch, would be the same
+            // question asked N times.
+            confirmBeforeRender: false,
           }),
         ),
       )

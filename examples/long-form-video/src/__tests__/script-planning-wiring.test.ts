@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createScriptPlanningMeta } from '../meta/script-planning'
+import { createScriptPlanningMeta } from '../patterns/script-planning'
 import {
   SCRIPT_INTENT_ROUTING_PROMPT,
   NARRATIVE_SCRIPT_PLANNING_PROMPT,
-} from '../meta/script-planning/prompts'
+} from '../patterns/script-planning/prompts'
 
 describe('script-planning wiring', () => {
   it('wires router prompt into step 1 and branch prompt into step 2', async () => {

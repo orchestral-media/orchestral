@@ -27,10 +27,14 @@
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
-import { resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { CharacterInSceneSchema } from '../script2video'
+import {
+  CharacterInSceneSchema,
+  resolvePrompts,
+  sumCosts,
+  textGeneration,
+  toJsonSchemaCached,
+} from '@orchestral/patterns'
 import {
   NEXT_SCENE_EXTRACTION_PROMPT,
   CHARACTER_MERGE_SCENE_TO_EVENT_PROMPT,
@@ -39,7 +43,7 @@ import {
 
 // Re-export so consumers can rely on a single canonical shape across
 // meta_event-to-script ⇄ meta_script2video.
-export type { CharacterInScene } from '../script2video'
+export type { CharacterInScene } from '@orchestral/patterns'
 
 // ── Scene schema (matches the next-scene-extraction output contract).
 // environment is left as a free record because the skill only loosely
