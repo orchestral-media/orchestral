@@ -58,6 +58,15 @@ example.
   things with no job to report on (a host callback that threw, a transcript
   append that failed) go to `InlineRuntimeInit.logger`, a `DiagnosticsLogger`
   that defaults to the console and that `silentDiagnosticsLogger` turns off.
+- **Every output is held to its schema.** At the dispatch exit, an atomic or
+  meta output that `pattern.outputs` rejects fails the job with
+  `OUTPUT_SCHEMA_MISMATCH`; `error.details` names the pattern and the zod
+  issues and carries `rawOutput`, since the call was already paid for. A
+  conforming output is returned as the adapter produced it — unknown keys and
+  all — never zod's parsed copy. `InlineRuntimeInit.outputValidation: 'off'`
+  skips the check, for a migration window over adapters the host does not
+  control; there is no warn mode, because a mismatch belongs to a job and the
+  runtime does not log what it can fail.
 
 ## Retry and fallback are two budgets
 

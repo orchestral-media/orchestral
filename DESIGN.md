@@ -379,15 +379,23 @@ megabytes of base64 into the model's context." The sanitizer is the backstop
 unnecessary at the source". Registration warns rather than throws — "a throw
 here would break existing under-specified patterns at registration; the warning
 names the offending field paths instead" — the one deliberate exception to the
-library writing nothing to stderr. Be precise about what the bound buys: it is
-an authoring lint, not a runtime gate. `InlineRuntime` never parses an atomic
-output against `pattern.outputs`, so a 70 KiB completion still flows through;
-the bound is seen by the registry audit and by a host that parses. The
-model-facing defence at run time is the projection plus the sanitizer.
+library writing nothing to stderr. Be precise about which seam does what: the
+registry audits the *schema* at registration (is every string field bounded?),
+and `InlineRuntime` holds every atomic and meta *output* to that schema at the
+dispatch exit (does this output conform?) — one the schema rejects fails the job
+with `OUTPUT_SCHEMA_MISMATCH`, carrying the zod issues and the raw output, so a
+70 KiB completion stops at the adapter that produced it instead of reaching the
+next step or `job.output`. The gate sits outside the retry and fallback loops
+(a mismatch is a contract violation, not a provider failure) and returns the
+adapter's object rather than zod's reshaped copy. The agent path validates
+through its finish tool. `InlineRuntimeInit.outputValidation: 'off'` is the
+opt-out, for a migration window over adapters a host does not control. The
+model-facing defence at run time remains the projection plus the sanitizer.
 **Instead.** `boundedText(n)`, `opaqueToken()`, `assetIdField()`, `urlField()`;
 `auditOutputsSchema` lists what slipped through.
-**Where.** `packages/orchestral-core/src/output-fields.ts:1-9`;
+**Where.** `packages/orchestral-core/src/output-fields.ts:1-11`;
 `packages/orchestral-core/src/registry.ts:173-197`;
+`packages/orchestral-runtime/src/inline.ts:1360-1408` (`OUTPUT_SCHEMA_MISMATCH`);
 `packages/orchestral-core/src/sanitize.ts:21-30`;
 `packages/orchestral-core/src/__tests__/output-fields.test.ts:22`.
 

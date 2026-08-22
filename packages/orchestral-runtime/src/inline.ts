@@ -17,6 +17,9 @@
 //    `ResolveContext.excludeModel`, so the next `resolve` walks to the next
 //    candidate. Retrying the SAME model first is separate and opt-in
 //    (`InlineRuntimeInit.transientRetry`) — the two budgets never mix.
+//  • Every atomic and meta output is checked against `pattern.outputs` at the
+//    dispatch exit and fails the job with OUTPUT_SCHEMA_MISMATCH when it does
+//    not conform; `InlineRuntimeInit.outputValidation: 'off'` is the opt-out.
 //  • Nothing here writes to the host console — what belongs to a job is a
 //    JobEvent; what has no job to ride on (a host callback that threw) goes
 //    to `InlineRuntimeInit.logger`.
@@ -174,6 +177,12 @@ const DEFAULT_ALTERNATIVES_MODE = 'off' as const
  * overrides it per dispatch.
  */
 const DEFAULT_FALLBACK_DEPTH = 3
+
+/**
+ * Outputs are checked against their Pattern's schema unless the host opts
+ * out. See `InlineRuntimeInit.outputValidation` for the reasoning.
+ */
+const DEFAULT_OUTPUT_VALIDATION = 'strict' as const
 
 /**
  * Default cap on agent/meta nesting depth.
@@ -355,6 +364,37 @@ export interface InlineRuntimeInit {
    */
   maxAgentDepth?: number
   /**
+   * Whether an atomic or meta output is checked against `pattern.outputs`
+   * before the dispatch returns it. Defaults to `'strict'`.
+   *
+   * `'strict'` — `pattern.outputs.safeParse(output)` runs at the dispatch exit
+   * of every atomic and meta dispatch (the agent path validates through its
+   * finish tool already). An output the schema rejects fails the job with an
+   * `OUTPUT_SCHEMA_MISMATCH` JobError whose `details` carries the pattern id
+   * and kind, the zod issues (path + message), and `rawOutput` — the call was
+   * paid for, so a host can still salvage what came back. A conforming output
+   * is returned exactly as the adapter produced it, never zod's parsed copy.
+   *
+   * `'off'` — no check; whatever the adapter or compose returned flows through.
+   *
+   * Strict by default because the schema is the contract everything
+   * downstream reads against: a parent meta's `ctx.step` result, the
+   * model-facing projection, a host reading `job.output`. An adapter that
+   * returns `{ text }` for a pattern whose schema promises `assets[]`, or a
+   * meta that forgets `cost`, should fail at the seam that can name the
+   * pattern and the field, not three steps later as an `undefined` access
+   * with no record of which dispatch produced it. `'off'` is for a migration
+   * window — adapters the host does not control and is bringing into
+   * conformance one at a time — and a host on that path can still run the
+   * check itself from `afterDispatch` middleware, which sees every output.
+   *
+   * There is no `'warn'`. A mismatch belongs to a job, and what belongs to a
+   * job is a JobEvent, not a log line (see `logger`); a mode that logged and
+   * let the output through would be `'off'` with a line attached, read by
+   * nobody the output is about to break.
+   */
+  outputValidation?: 'strict' | 'off'
+  /**
    * Ordered list of cross-cutting middleware (moderation, cache, cost
    * tracking, logging, metrics). Hooks run around the dispatch core:
    *   beforeDispatch (registration order)
@@ -444,6 +484,7 @@ export class InlineRuntime implements Runtime {
   private readonly alternativesMode: 'auto' | 'off'
   private readonly maxAlternativeDepth: number
   private readonly fallbackDepth: number
+  private readonly outputValidation: 'strict' | 'off'
   private readonly transientRetry?: TransientRetryConfig
   private readonly maxAgentDepth: number
   private readonly middleware: readonly DispatchMiddleware[]
@@ -480,6 +521,7 @@ export class InlineRuntime implements Runtime {
     this.maxAlternativeDepth =
       init.maxAlternativeDepth ?? DEFAULT_MAX_ALTERNATIVE_DEPTH
     this.fallbackDepth = init.fallbackDepth ?? DEFAULT_FALLBACK_DEPTH
+    this.outputValidation = init.outputValidation ?? DEFAULT_OUTPUT_VALIDATION
     this.transientRetry = init.transientRetry
     this.maxAgentDepth = init.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH
     this.middleware = init.middleware ?? []
@@ -1178,6 +1220,7 @@ export class InlineRuntime implements Runtime {
       let attempt = 0
       for (;;) {
         attempt++
+        let output: TOut
         try {
           // Primary path only. Pass the DispatchContext — the adapter reads
           // ctx.assets (resolved assetIds) + ctx.signal; the LLM never saw raw
@@ -1189,10 +1232,10 @@ export class InlineRuntime implements Runtime {
             dispatchCtx,
             events,
           )
-          if (result && typeof result === 'object' && 'output' in result) {
-            return (result as DispatchResult<TOut>).output
-          }
-          return result as unknown as TOut
+          output =
+            result && typeof result === 'object' && 'output' in result
+              ? (result as DispatchResult<TOut>).output
+              : (result as unknown as TOut)
         } catch (e) {
           lastErr = e
           // Stamp the failed model onto the error before the loop moves on —
@@ -1226,7 +1269,17 @@ export class InlineRuntime implements Runtime {
           // signal fires, so a cancel mid-backoff surfaces immediately instead
           // of after the delay has been slept out.
           await abortableSleep(delayMs, signal)
+          continue
         }
+        // The output gate sits OUTSIDE the try above, beside the spec-version
+        // assert and for the same reason: a mismatch is an adapter-contract
+        // violation, not a provider failure. Inside the try it would be put to
+        // `isTransient`, which has no business classifying it, and the model
+        // would land in excludeModel with the walk paying a second provider
+        // for a second output — when the first is already here, already paid
+        // for, and riding on the error as `details.rawOutput`.
+        this.assertOutputConforms(pattern, output)
+        return output
       }
       // Giving up on this model goes out on the job stream — once per hop,
       // never per attempt — because only the final attempt's error survives
@@ -1266,7 +1319,7 @@ export class InlineRuntime implements Runtime {
             code: 'DISPATCH_EXECUTE_FAILED',
           })
     }
-    return runAlternative<TIn, TOut>(
+    const mapped = await runAlternative<TIn, TOut>(
       {
         registry: this.registry,
         router: this.router,
@@ -1276,6 +1329,11 @@ export class InlineRuntime implements Runtime {
           this.dispatch(jid, pat, sp, sig, vis, d, mss, pctx),
       },
       jobId, alt, spec, signal, visited, depth + 1, parentCtx)
+    // The redirect's own dispatch checked the target's output against the
+    // target's schema; `mapOutput` then reshaped it into THIS pattern's, and
+    // that reshaped object is what the caller reads against this schema.
+    this.assertOutputConforms(pattern, mapped)
+    return mapped
   }
 
   /**
@@ -1297,6 +1355,56 @@ export class InlineRuntime implements Runtime {
         code: 'PERMISSION_DENIED',
       })
     }
+  }
+
+  /**
+   * The output gate: the one place an atomic or meta output meets the schema
+   * its Pattern declared. Before it, the bound on every output field was an
+   * authoring lint the registry audits at registration and nothing at run
+   * time held an adapter to — a 70 KiB completion, a `{ text }` where the
+   * schema promises `assets[]`, a meta that forgot `cost`, all flowed into the
+   * next step and into `job.output` as if valid.
+   *
+   * Asserts and returns nothing on purpose: the caller hands back the object
+   * it already holds. `z.object` strips unknown keys and fills defaults, so
+   * `safeParse(...).data` is a reshaped copy, and returning it would be a
+   * second transformation of the adapter's output that nobody asked for and
+   * nothing announces — an extra key a host put there for its own bookkeeping
+   * would vanish between the adapter and `job.output`. The question asked
+   * here is "does this conform", never "what would it look like if it did".
+   *
+   * The agent kind is not checked here: its output is composed from a finish
+   * payload the finish tool already validated (or an `outputExtractor` result
+   * already parsed), so a second pass would only re-run the same schema.
+   */
+  private assertOutputConforms(pattern: Pattern, output: unknown): void {
+    if (this.outputValidation === 'off') return
+    const schema = pattern.outputs
+    // `outputs` is required on the atomic and meta narrows; only an agent may
+    // omit it. A spec that reached the runtime through a cast can still lack
+    // one, and a missing schema is the registry's complaint, not this gate's.
+    if (!schema || typeof schema.safeParse !== 'function') return
+    const parsed = schema.safeParse(output)
+    if (parsed.success) return
+    const issues = parsed.error.issues.map((issue) => ({
+      path: issue.path.map((seg) => (typeof seg === 'symbol' ? seg.toString() : seg)),
+      message: issue.message,
+    }))
+    const named = issues
+      .slice(0, 3)
+      .map((i) => `${i.path.length ? i.path.join('.') : '(root)'}: ${i.message}`)
+      .join('; ')
+    const more = issues.length > 3 ? `; and ${issues.length - 3} more` : ''
+    throw Object.assign(
+      new Error(
+        `OUTPUT_SCHEMA_MISMATCH: ${pattern.id} (${pattern.kind}) returned an output ` +
+          `its schema rejects — ${named}${more}`,
+      ),
+      {
+        code: 'OUTPUT_SCHEMA_MISMATCH',
+        details: { patternId: pattern.id, kind: pattern.kind, issues, rawOutput: output },
+      },
+    )
   }
 
   private async dispatchMeta<TIn, TOut>(
@@ -1431,6 +1539,7 @@ export class InlineRuntime implements Runtime {
       { input: spec.input },
       ctx,
     )
+    this.assertOutputConforms(pattern, output)
     return output as TOut
   }
 

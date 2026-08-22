@@ -23,7 +23,14 @@ export function normaliseError(err: unknown, defaultCode?: string): JobError {
     const httpStatus = (err as { httpStatus?: number }).httpStatus
     const failedModel = (err as { failedModel?: string }).failedModel
     const diagnostic = (err as { diagnostic?: unknown }).diagnostic
+    // A throw that already carries a structured `details` object — the output
+    // gate's `{ patternId, kind, issues, rawOutput }` — contributes it whole,
+    // so a new coded throw does not need a new lifted key here to reach
+    // `JobError.details`. The three named facts layer on top: a stamped
+    // `failedModel` is never hidden by a `details` that happens to lack one.
+    const stamped = (err as { details?: unknown }).details
     const details = {
+      ...(typeof stamped === 'object' && stamped !== null ? stamped : {}),
       ...(typeof httpStatus === 'number' ? { httpStatus } : {}),
       ...(typeof failedModel === 'string' ? { failedModel } : {}),
       ...(typeof diagnostic === 'object' && diagnostic !== null ? { diagnostic } : {}),

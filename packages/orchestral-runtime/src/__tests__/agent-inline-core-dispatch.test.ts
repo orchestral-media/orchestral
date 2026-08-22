@@ -174,10 +174,13 @@ describe('agent depth gate counts agent ancestors only', () => {
         args: { input: unknown },
         ctx: ExecutionContext,
       ) {
-        return ctx.step({
+        // Return what the schema above promises, not the child's output: the
+        // runtime holds a meta to its declared `outputs` at the dispatch exit.
+        await ctx.step({
           patternId: childPatternId,
           input: { prompt: (args.input as { prompt?: string }).prompt ?? 'x' },
         })
+        return { done: true }
       },
     } as unknown as MetaPattern
   }

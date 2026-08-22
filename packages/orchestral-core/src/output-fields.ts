@@ -6,7 +6,9 @@
 // unbounded blob is unrepresentable — a Pattern cannot accidentally push
 // megabytes of base64 into the model's context. Authors pick the bound that
 // names their intent; auditOutputsSchema flags any bare z.string() that
-// slipped through.
+// slipped through at registration, and the runtime holds every atomic and
+// meta output to its schema at the dispatch exit (OUTPUT_SCHEMA_MISMATCH), so
+// the bound is enforced on what an adapter returns, not only declared.
 
 import { z, type ZodType } from 'zod'
 
