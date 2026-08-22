@@ -123,6 +123,7 @@ describe('runtime error-code convention', () => {
     // the files, the regex rots — would pass the assertion below forever.
     expect(findings.length).toBeGreaterThan(15)
     expect(findings.map((f) => f.code)).toContain('AGENT_DEPTH_EXCEEDED')
+    expect(findings.map((f) => f.code)).toContain('OUTPUT_SCHEMA_MISMATCH')
   })
 
   it('every code-prefixed throw carries a matching Error.code', () => {

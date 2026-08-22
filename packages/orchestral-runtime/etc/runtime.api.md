@@ -176,6 +176,7 @@ export interface InlineRuntimeInit {
     maxAlternativeDepth?: number;
     middleware?: readonly DispatchMiddleware[];
     onJobCreated?: (jobId: string, spec: JobSpec) => void;
+    outputValidation?: 'strict' | 'off';
     // (undocumented)
     registry: PatternRegistry;
     // (undocumented)

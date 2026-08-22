@@ -127,6 +127,33 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
   for a dispatch failure that carries no code of its own is
   `DISPATCH_EXECUTE_FAILED`.
 
+- **Every output is held to its schema at the dispatch exit
+  (`InlineRuntimeInit.outputValidation`).** An atomic or meta output is checked
+  with `pattern.outputs.safeParse` before the dispatch returns it; one the
+  schema rejects fails the job with `OUTPUT_SCHEMA_MISMATCH`, whose `details`
+  carries the pattern id and kind, the zod issues (path and message), and
+  `rawOutput` — the call was paid for, so a host can still salvage what came
+  back. A conforming output is returned as the adapter produced it, unknown
+  keys included, never zod's parsed copy: `z.object` strips and defaults, and
+  a second reshaping nobody announced would be its own bug. The check sits
+  outside the retry and fallback loops, beside the spec-version assert, because
+  a mismatch is an adapter-contract violation and not a provider failure — it
+  is never put to `isTransient`, and the model is not walked past for a second
+  paid output. Under a meta, a sub-step's mismatch surfaces as the
+  `META_STEP_FAILED` the meta already reports, with the child's row carrying
+  the mismatch itself. The agent path was validating already, through its
+  finish tool, and is unchanged.
+
+  Strict by default because the schema is the contract everything downstream
+  reads against — a parent meta's step result, the model-facing projection, a
+  host reading `job.output` — and an adapter that violates it should fail at
+  the seam that can name the pattern and the field, not three steps later as an
+  `undefined` access. `'off'` skips the check for a migration window over
+  adapters the host does not control; there is no warn mode, since a mismatch
+  belongs to a job and the runtime does not log what it can fail. Until this
+  the bound on every output field was an authoring lint the registry audits at
+  registration, and nothing at run time held an adapter to it.
+
 - **Sub-step visibility (`job:step`).** Meta dispatch reports each sub-step on
   the parent job's stream as it lands, with the step's produced media attached
   — a pipeline is observable while it runs instead of only when it finishes.
