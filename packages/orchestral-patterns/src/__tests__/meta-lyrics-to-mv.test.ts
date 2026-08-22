@@ -5,7 +5,8 @@ import { buildAskUserFacade } from '@orchestral/core'
 import type { TextToImageOutput } from '../atomic/text-to-image'
 import type { ImageToVideoOutput } from '../atomic/image-to-video'
 import type { TextToAudioOutput } from '../atomic/text-to-audio'
-import { createLyricsToMvMeta, type LyricsToMvMetaDeps } from '../meta/lyrics-to-mv'
+import { createLyricsToMvMeta, LyricsToMvOutputSchema, type LyricsToMvMetaDeps } from '../meta/lyrics-to-mv'
+import { byLabel, expectProducedAssetsEnvelope } from './helpers/produced-assets'
 
 // ── fake deps ─────────────────────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ describe('meta_lyrics-to-mv', () => {
     expect(audio?.input.prompt).toBe('Music for: lonely highway, neon noir')
   })
 
-  it('confirm=false → ZERO text-to-audio / text-to-image / image-to-video calls; returns { clipAssetIds: [] } with no musicAssetId or videoAssetId', async () => {
+  it('confirm=false → ZERO text-to-audio / text-to-image / image-to-video calls; returns { assets: [] }', async () => {
     const deps = makeDeps()
     const { ctx, calls } = makeCtx({
       keyframePrompts: [{ prompt: 'frame 1' }, { prompt: 'frame 2' }, { prompt: 'frame 3' }],
@@ -139,9 +140,7 @@ describe('meta_lyrics-to-mv', () => {
     expect(calls.filter((c) => c.patternId === 'text-to-audio')).toHaveLength(0)
     expect(calls.filter((c) => c.patternId === 'text-to-image')).toHaveLength(0)
     expect(calls.filter((c) => c.patternId === 'image-to-video')).toHaveLength(0)
-    expect(out.clipAssetIds).toEqual([])
-    expect(out.musicAssetId).toBeUndefined()
-    expect(out.videoAssetId).toBeUndefined()
+    expect(out.assets).toEqual([])
     expect(deps.concatVideos).not.toHaveBeenCalled()
     expect(deps.addBackgroundAudio).not.toHaveBeenCalled()
     // Decline path only bills the planning text-generation (0.02); nothing paid ran.
@@ -149,7 +148,7 @@ describe('meta_lyrics-to-mv', () => {
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('confirm=true → exactly ONE text-to-audio call; musicAssetId returned; N clips; each image-to-video gets its keyframe still as startFrame', async () => {
+  it('confirm=true → exactly ONE text-to-audio call; music asset labelled; N clips in keyframe order; each image-to-video gets its keyframe still as startFrame', async () => {
     const threeFrames = [
       { prompt: 'golden field at dawn, warm haze, wide angle' },
       { prompt: 'golden field at noon, stark shadows, wide angle' },
@@ -166,10 +165,14 @@ describe('meta_lyrics-to-mv', () => {
 
     // Exactly one music generation
     expect(calls.filter((c) => c.patternId === 'text-to-audio')).toHaveLength(1)
-    expect(out.musicAssetId).toBe('music-1')
+    expect(byLabel(out, 'music')).toMatchObject({ assetId: 'music-1', modality: 'audio' })
 
-    // Exactly 3 clips
-    expect(out.clipAssetIds).toHaveLength(3)
+    // Exactly 3 clips, labelled in keyframe order
+    expect(out.assets.filter((a) => a.label.startsWith('clip-')).map((a) => a.label)).toEqual([
+      'clip-0',
+      'clip-1',
+      'clip-2',
+    ])
 
     // Each image-to-video receives the still from the paired text-to-image as startFrame
     const i2vCalls = calls.filter((c) => c.patternId === 'image-to-video')
@@ -190,7 +193,7 @@ describe('meta_lyrics-to-mv', () => {
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('confirm=true → concat(clips) then addBackgroundAudio(stitched, music, {mode:replace}); videoAssetId set', async () => {
+  it('confirm=true → concat(clips) then addBackgroundAudio(stitched, music, {mode:replace}); final-video labelled', async () => {
     const deps = makeDeps()
     const { ctx } = makeCtx({
       keyframePrompts: [{ prompt: 'frame 1' }, { prompt: 'frame 2' }],
@@ -201,9 +204,13 @@ describe('meta_lyrics-to-mv', () => {
       ctx,
     )
 
-    expect(deps.concatVideos).toHaveBeenCalledWith(out.clipAssetIds)
+    const clipIds = out.assets.filter((a) => a.label.startsWith('clip-')).map((a) => a.assetId)
+    expect(clipIds).toHaveLength(2)
+    expect(deps.concatVideos).toHaveBeenCalledWith(clipIds)
     expect(deps.addBackgroundAudio).toHaveBeenCalledWith('stitched-1', 'music-1', { mode: 'replace' })
-    expect(out.videoAssetId).toBe('muxed-1')
+    expect(byLabel(out, 'final-video')).toMatchObject({ assetId: 'muxed-1', modality: 'video' })
+    // Role order: music bed, clips in keyframe order, then the stitched MV.
+    expect(out.assets.map((a) => a.label)).toEqual(['music', 'clip-0', 'clip-1', 'final-video'])
   })
 
   it('malformed JSON from text-generation rejects with /did not return valid JSON/', async () => {
@@ -296,5 +303,17 @@ describe('meta_lyrics-to-mv', () => {
         ctx,
       ),
     ).rejects.toThrow('produced no asset')
+  })
+
+  it('returns the produced-assets envelope: every element labelled, no raw-id field anywhere', async () => {
+    const { ctx } = makeCtx({
+      keyframePrompts: [{ prompt: 'frame 1' }, { prompt: 'frame 2' }],
+      confirmAnswer: true,
+    })
+    const out = await createLyricsToMvMeta(makeDeps()).compose(
+      { input: { theme: 'golden fields', keyframes: 2, musicDurationSeconds: 20 } },
+      ctx,
+    )
+    expectProducedAssetsEnvelope(LyricsToMvOutputSchema, out)
   })
 })

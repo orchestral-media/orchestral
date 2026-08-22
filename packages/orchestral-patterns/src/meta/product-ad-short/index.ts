@@ -5,7 +5,18 @@ import { textGeneration } from '../../atomic/text-generation'
 import { textToImage } from '../../atomic/text-to-image'
 import { imageToVideo } from '../../atomic/image-to-video'
 import { textToAudio } from '../../atomic/text-to-audio'
-import { firstAssetId, parseJsonWithSchema, resolvePrompts, styleTag, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
+import {
+  firstAsset,
+  firstAssetId,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  styleTag,
+  sumCosts,
+  toJsonSchemaCached,
+  type MetaCommonDeps,
+} from '../_shared/meta-utils'
 import { HERO_PROMPTS_SYSTEM } from './prompts'
 
 export const PRODUCT_AD_SHORT_PATTERN_ID = 'meta_product-ad-short'
@@ -19,9 +30,21 @@ export const ProductAdShortInputSchema = z.object({
 })
 export type ProductAdShortInput = z.infer<typeof ProductAdShortInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way. Two
+// modalities come out of this meta, so the element is a union of the
+// per-modality shapes (serialises as `anyOf`, which the outputs audit walks).
+const ProductAdShortAssetSchema = z.union([
+  z.object(labelledAssetShape('video')),
+  z.object(labelledAssetShape('audio')),
+])
+
 export const ProductAdShortOutputSchema = z.object({
-  videoAssetId: z.string().describe('Asset id of the final ad video (muxed with music if requested, otherwise the raw clip).'),
-  musicAssetId: z.string().optional().describe('Asset id of the music bed, if requested.'),
+  assets: z
+    .array(ProductAdShortAssetSchema)
+    .describe(
+      'Every produced asset, by label: `final-video` (the ad clip — muxed with the music bed when withMusic is set, otherwise the raw animated clip) and, when withMusic is set, `music` (the audio bed).',
+    ),
   ...metaEnvelopeShape,
 })
 export type ProductAdShortOutput = z.infer<typeof ProductAdShortOutputSchema>
@@ -138,16 +161,24 @@ export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPatt
           })
         : Promise.resolve(undefined)
       const [animate, music] = await Promise.all([animateP, musicP])
-      const adClipAssetId = firstAssetId(animate, 'product-ad-short: image-to-video')
-      const musicAssetId = music ? firstAssetId(music, 'product-ad-short: text-to-audio') : undefined
+      const adClip = firstAsset(animate, 'product-ad-short: image-to-video')
+      const musicAsset = music
+        ? labelAsset(firstAsset(music, 'product-ad-short: text-to-audio'), 'audio', 'music')
+        : undefined
 
-      // If music was requested, mux it into the ad clip; otherwise the clip is the final video.
-      const videoAssetId = musicAssetId
-        ? (await ctx.compute('mux-music', () => deps.addBackgroundAudio(adClipAssetId, musicAssetId, { mode: 'replace' }))).assetId
-        : adClipAssetId
+      // If music was requested, mux it into the ad clip; otherwise the clip
+      // itself is the final video (and keeps its url / cost on the element).
+      const finalVideo = musicAsset
+        ? labelAsset(
+            await ctx.compute('mux-music', () =>
+              deps.addBackgroundAudio(adClip.assetId, musicAsset.assetId, { mode: 'replace' }),
+            ),
+            'video',
+            'final-video',
+          )
+        : labelAsset(adClip, 'video', 'final-video')
       return {
-        videoAssetId,
-        ...(musicAssetId ? { musicAssetId } : {}),
+        assets: musicAsset ? [finalVideo, musicAsset] : [finalVideo],
         cost: sumCosts([gen.cost, ...heroOutputs.map((h) => h.cost), animate.cost, music?.cost]),
         latencyMs: Date.now() - startedAt,
       }

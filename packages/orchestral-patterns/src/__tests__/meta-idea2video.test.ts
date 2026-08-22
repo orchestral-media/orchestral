@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ExecutionContext, PatternRef, AskUserGeneric } from '@orchestral/core'
 import { buildAskUserFacade } from '@orchestral/core'
-import { createIdea2VideoMeta } from '../meta/idea2video'
+import { createIdea2VideoMeta, IdeaToVideoOutputSchema } from '../meta/idea2video'
+import { expectProducedAssetsEnvelope } from './helpers/produced-assets'
 import {
   STORY_DEVELOPMENT_PROMPT,
   CHARACTER_EXTRACTION_PROMPT,
@@ -19,6 +20,9 @@ function makeCtx(
     charactersText?: string
     // Raw text returned by the script-writing step (default: three scene scripts).
     scriptText?: string
+    // Output of each nested meta_script2video dispatch (default: one
+    // `final-video`-labelled asset per scene).
+    sceneOutput?: (scene: number) => unknown
   } = {},
 ) {
   const calls: Array<{ patternId: string; input: Record<string, unknown> }> = []
@@ -55,7 +59,13 @@ function makeCtx(
       calls.push({ patternId: ref.patternId, input })
       if (ref.patternId === 'meta_script2video') {
         scene += 1
-        return { videoAssetId: `scene-vid-${scene}`, shotCount: 1, cost: 0.5 } as unknown as T
+        return (opts.sceneOutput
+          ? opts.sceneOutput(scene)
+          : {
+              assets: [{ assetId: `scene-vid-${scene}`, modality: 'video', label: 'final-video' }],
+              shotCount: 1,
+              cost: 0.5,
+            }) as unknown as T
       }
       const sys = String(input.system)
       if (sys === STORY_DEVELOPMENT_PROMPT) {
@@ -124,12 +134,38 @@ describe("meta_idea2video (W-1')", () => {
       'scene-vid-2',
       'scene-vid-3',
     ])
-    expect(out.videoAssetId).toBe('final[scene-vid-1,scene-vid-2,scene-vid-3]')
+    expect(out.assets).toEqual([
+      { assetId: 'final[scene-vid-1,scene-vid-2,scene-vid-3]', modality: 'video', label: 'final-video' },
+    ])
 
     // Cost rolls up the 3 text-generation calls (0.01 each) + every nested
     // script2video scene output (0.5 each). concatVideos adds no model cost.
     expect(out.cost).toBeCloseTo(0.01 * 3 + 0.5 * 3)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('returns the produced-assets envelope: one labelled final-video, no raw-id field anywhere', async () => {
+    const meta = createIdea2VideoMeta({ concatVideos: async () => ({ assetId: 'final' }) })
+    const { ctx } = makeCtx()
+    const out = await meta.compose({ input: { idea: 'x' } }, ctx)
+    expectProducedAssetsEnvelope(IdeaToVideoOutputSchema, out)
+    expect(out.assets.map((a) => a.label)).toEqual(['final-video'])
+  })
+
+  it('reads each scene video by its final-video label — a nested output without one is a labeled failure', async () => {
+    const concatVideos = vi.fn(async () => ({ assetId: 'final' }))
+    const meta = createIdea2VideoMeta({ concatVideos })
+    const { ctx } = makeCtx({
+      sceneOutput: () => ({
+        assets: [{ assetId: 'x', modality: 'video', label: 'clip-0' }],
+        shotCount: 1,
+        cost: 0,
+      }),
+    })
+    await expect(meta.compose({ input: { idea: 'x' } }, ctx)).rejects.toThrow(
+      'idea2video: meta_script2video produced no asset labelled "final-video"',
+    )
+    expect(concatVideos).not.toHaveBeenCalled()
   })
 
   it('feeds userRequirement under <USER_REQUIREMENT> (the tag the story/script prompts read)', async () => {

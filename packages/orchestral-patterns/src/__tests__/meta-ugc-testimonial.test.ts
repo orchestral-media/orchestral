@@ -5,7 +5,8 @@ import { buildAskUserFacade } from '@orchestral/core'
 import type { TextToImageOutput } from '../atomic/text-to-image'
 import type { ImageToVideoOutput } from '../atomic/image-to-video'
 import type { TextToSpeechOutput } from '../atomic/text-to-speech'
-import { createUgcTestimonialMeta, toSrt, type UgcTestimonialMetaDeps } from '../meta/ugc-testimonial'
+import { createUgcTestimonialMeta, toSrt, UgcTestimonialOutputSchema, type UgcTestimonialMetaDeps } from '../meta/ugc-testimonial'
+import { byLabel, expectProducedAssetsEnvelope } from './helpers/produced-assets'
 
 describe('toSrt (SubRip formatting)', () => {
   it('floors milliseconds so a fractional second never overflows to a 4-digit field', () => {
@@ -160,10 +161,10 @@ describe('meta_ugc-testimonial', () => {
 
     const i2vCalls = calls.filter(c => c.patternId === 'image-to-video')
     expect(i2vCalls).toHaveLength(4)
-    expect(out.shotClipAssetIds).toHaveLength(4)
+    expect(out.assets.filter((a) => a.label.startsWith('shot-'))).toHaveLength(4)
   })
 
-  it('hero startFrame identity: every image-to-video call uses same heroAssetId as startFrame', async () => {
+  it('hero startFrame identity: every image-to-video call uses the same hero still as startFrame', async () => {
     const { ctx, calls } = makeCtx({
       scriptJson: {
         script: 'I love this blender.',
@@ -186,7 +187,7 @@ describe('meta_ugc-testimonial', () => {
     }
   })
 
-  it('TTS happens and voAssetId returned; hero t2i happens and heroAssetId returned', async () => {
+  it('TTS happens and the voiceover is labelled; hero t2i happens and the hero still is labelled', async () => {
     const { ctx, calls, } = makeCtx({
       scriptJson: { script: 'Best product ever!', shots: [{ motion: 'push-in' }] },
       confirmAnswer: true,
@@ -198,13 +199,13 @@ describe('meta_ugc-testimonial', () => {
     )
 
     expect(calls.filter(c => c.patternId === 'text-to-speech')).toHaveLength(1)
-    expect(out.voAssetId).toBe('vo-1')
+    expect(byLabel(out, 'voiceover')).toMatchObject({ assetId: 'vo-1', modality: 'audio' })
 
     expect(calls.filter(c => c.patternId === 'text-to-image')).toHaveLength(1)
-    expect(out.heroAssetId).toBe('hero-0')
+    expect(byLabel(out, 'hero')).toMatchObject({ assetId: 'hero-0', modality: 'image' })
   })
 
-  it('confirm=false → zero image-to-video calls, shotClipAssetIds: [], but heroAssetId + voAssetId present; no videoAssetId', async () => {
+  it('confirm=false → zero image-to-video calls; assets[] holds hero + voiceover only (no shots, no final-video)', async () => {
     const deps = makeDeps()
     const { ctx, calls } = makeCtx({
       scriptJson: {
@@ -220,10 +221,12 @@ describe('meta_ugc-testimonial', () => {
     )
 
     expect(calls.filter(c => c.patternId === 'image-to-video')).toHaveLength(0)
-    expect(out.shotClipAssetIds).toEqual([])
-    expect(out.heroAssetId).toBe('hero-0')
-    expect(out.voAssetId).toBe('vo-1')
-    expect(out.videoAssetId).toBeUndefined()
+    // The assets already paid for — hero + voiceover — still go out; nothing
+    // else does: no shots, no final-video.
+    expect(out.assets).toEqual([
+      { assetId: 'hero-0', modality: 'image', label: 'hero' },
+      { assetId: 'vo-1', modality: 'audio', label: 'voiceover' },
+    ])
     expect(deps.concatVideos).not.toHaveBeenCalled()
     expect(deps.addBackgroundAudio).not.toHaveBeenCalled()
 
@@ -233,7 +236,7 @@ describe('meta_ugc-testimonial', () => {
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('confirm=true → concat(shotClips) then addBackgroundAudio(stitched, vo, {mode:replace}); videoAssetId set', async () => {
+  it('confirm=true → concat(shotClips) then addBackgroundAudio(stitched, vo, {mode:replace}); final-video labelled', async () => {
     const deps = makeDeps()
     const { ctx } = makeCtx({
       scriptJson: {
@@ -248,9 +251,13 @@ describe('meta_ugc-testimonial', () => {
       ctx,
     )
 
-    expect(deps.concatVideos).toHaveBeenCalledWith(out.shotClipAssetIds)
+    const shotIds = out.assets.filter((a) => a.label.startsWith('shot-')).map((a) => a.assetId)
+    expect(shotIds).toEqual(['clip-0', 'clip-1'])
+    expect(deps.concatVideos).toHaveBeenCalledWith(shotIds)
     expect(deps.addBackgroundAudio).toHaveBeenCalledWith('stitched-1', 'vo-1', { mode: 'replace' })
-    expect(out.videoAssetId).toBe('muxed-1')
+    expect(byLabel(out, 'final-video')).toMatchObject({ assetId: 'muxed-1', modality: 'video' })
+    // Role order: hero, voiceover, shots in order, then the assembled video.
+    expect(out.assets.map((a) => a.label)).toEqual(['hero', 'voiceover', 'shot-0', 'shot-1', 'final-video'])
   })
 
   it('empty-assets guard on image-to-video → throws "produced no asset"', async () => {
@@ -344,7 +351,7 @@ describe('meta_ugc-testimonial', () => {
     expect(calls.filter(c => c.patternId === 'image-to-video')).toHaveLength(2)
   })
 
-  it('subtitles on + ASR has segments → createSubtitleAsset(srt) + addSubtitles(video,srt-1,{hard}); videoAssetId=subbed-1', async () => {
+  it('subtitles on + ASR has segments → createSubtitleAsset(srt) + addSubtitles(video,srt-1,{hard}); final-video = subbed-1', async () => {
     const deps = makeDeps()
     const { ctx, calls } = makeCtx({
       scriptJson: { script: 'Love this product.', shots: [{ motion: 'push-in' }] },
@@ -374,9 +381,9 @@ describe('meta_ugc-testimonial', () => {
     expect(srt).toContain('00:00:01,500 --> 00:00:03,000')
     expect(srt).toContain('product.')
 
-    // burned onto the muxed video, replacing videoAssetId with the subbed asset.
+    // burned onto the muxed video — the subbed asset is what final-video names.
     expect(deps.addSubtitles).toHaveBeenCalledWith('muxed-1', 'srt-1', { mode: 'hard' })
-    expect(out.videoAssetId).toBe('subbed-1')
+    expect(byLabel(out, 'final-video')?.assetId).toBe('subbed-1')
 
     // Aggregated cost = gen + vo + hero + one animated shot + asr; host mux/sub
     // ops add nothing. 0.02 + 0.2 + 0.1 + 0.4 + 0.05 = 0.77.
@@ -404,7 +411,7 @@ describe('meta_ugc-testimonial', () => {
     expect(out.cost).toBeCloseTo(GEN_COST + TTS_COST + HERO_COST + SHOT_COST)
   })
 
-  it('subtitles on but ASR returns no segments → neither sub dep called; videoAssetId = pre-sub muxed id', async () => {
+  it('subtitles on but ASR returns no segments → neither sub dep called; final-video = pre-sub muxed id', async () => {
     const deps = makeDeps()
     const { ctx, calls } = makeCtx({
       scriptJson: { script: 'Love this product.', shots: [{ motion: 'push-in' }] },
@@ -420,10 +427,10 @@ describe('meta_ugc-testimonial', () => {
     expect(calls.filter((c) => c.patternId === 'automatic-speech-recognition')).toHaveLength(1)
     expect(deps.createSubtitleAsset).not.toHaveBeenCalled()
     expect(deps.addSubtitles).not.toHaveBeenCalled()
-    expect(out.videoAssetId).toBe('muxed-1')
+    expect(byLabel(out, 'final-video')?.assetId).toBe('muxed-1')
   })
 
-  it('subtitles:false → no ASR call; videoAssetId = muxed id', async () => {
+  it('subtitles:false → no ASR call; final-video = muxed id', async () => {
     const deps = makeDeps()
     const { ctx, calls } = makeCtx({
       scriptJson: { script: 'Love this product.', shots: [{ motion: 'push-in' }] },
@@ -439,6 +446,19 @@ describe('meta_ugc-testimonial', () => {
     expect(calls.filter((c) => c.patternId === 'automatic-speech-recognition')).toHaveLength(0)
     expect(deps.createSubtitleAsset).not.toHaveBeenCalled()
     expect(deps.addSubtitles).not.toHaveBeenCalled()
-    expect(out.videoAssetId).toBe('muxed-1')
+    expect(byLabel(out, 'final-video')?.assetId).toBe('muxed-1')
+  })
+
+  it('returns the produced-assets envelope: every element labelled, no raw-id field anywhere', async () => {
+    const { ctx } = makeCtx({
+      scriptJson: { script: 'Love this product.', shots: [{ motion: 'push-in' }] },
+      confirmAnswer: true,
+      asrSegments: [{ startSecond: 0, endSecond: 1.5, text: 'Love this' }],
+    })
+    const out = await createUgcTestimonialMeta(makeDeps()).compose(
+      { input: { product: 'Widget Pro', targetSeconds: 10, shots: 1, subtitles: true } },
+      ctx,
+    )
+    expectProducedAssetsEnvelope(UgcTestimonialOutputSchema, out)
   })
 })

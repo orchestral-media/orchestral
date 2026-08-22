@@ -9,7 +9,16 @@ import {
   automaticSpeechRecognition,
   type AutomaticSpeechRecognitionOutput,
 } from '../../atomic/automatic-speech-recognition'
-import { firstAssetId, parseJsonWithSchema, resolvePrompts, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
+import {
+  firstAsset,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  sumCosts,
+  toJsonSchemaCached,
+  type MetaCommonDeps,
+} from '../_shared/meta-utils'
 import { UGC_SCRIPT_SYSTEM, UGC_HERO_GUIDANCE } from './prompts'
 
 export const UGC_TESTIMONIAL_PATTERN_ID = 'meta_ugc-testimonial'
@@ -26,11 +35,22 @@ export const UgcTestimonialInputSchema = z.object({
 })
 export type UgcTestimonialInput = z.infer<typeof UgcTestimonialInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way. Three
+// modalities come out of this meta, so the element is a union of the
+// per-modality shapes (serialises as `anyOf`, which the outputs audit walks).
+const UgcTestimonialAssetSchema = z.union([
+  z.object(labelledAssetShape('image')),
+  z.object(labelledAssetShape('audio')),
+  z.object(labelledAssetShape('video')),
+])
+
 export const UgcTestimonialOutputSchema = z.object({
-  heroAssetId: z.string().describe('Asset id of the identity-locked hero still (reused as startFrame on every shot).'),
-  voAssetId: z.string().describe('Asset id of the synthesized voiceover.'),
-  shotClipAssetIds: z.array(z.string()).describe('Asset ids of the animated talking-head shot clips (empty if user declined).'),
-  videoAssetId: z.string().optional().describe('Asset id of the final assembled video (concat shots + VO overlay). Present only when shots were produced.'),
+  assets: z
+    .array(UgcTestimonialAssetSchema)
+    .describe(
+      'Every produced asset, by label: `hero` (the identity-locked still reused as startFrame on every shot), `voiceover` (the synthesized narration), `shot-<i>` (the animated talking-head clips, in shot order — absent if the user declined), and `final-video` (the shots concatenated with the voiceover laid over, subtitles burned in when requested — present only when shots were produced).',
+    ),
   ...metaEnvelopeShape,
 })
 export type UgcTestimonialOutput = z.infer<typeof UgcTestimonialOutputSchema>
@@ -127,8 +147,8 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
           prompt: `${input.persona ?? 'a relatable everyday person'}, ${resolved.ugcHeroGuidance} Product: ${input.product}.`,
         }),
       ])
-      const voAssetId = firstAssetId(voOut, 'ugc-testimonial: text-to-speech')
-      const heroAssetId = firstAssetId(heroOut, 'ugc-testimonial: text-to-image')
+      const voAsset = labelAsset(firstAsset(voOut, 'ugc-testimonial: text-to-speech'), 'audio', 'voiceover')
+      const heroAsset = labelAsset(firstAsset(heroOut, 'ugc-testimonial: text-to-image'), 'image', 'hero')
 
       // Cost gate — confirm before animating shots
       const confirmed = await ctx.askUser.confirm({
@@ -137,10 +157,10 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
       })
 
       if (!confirmed) {
+        // The assets already paid for are still the caller's — hero + voiceover
+        // go out even though no shot was animated.
         return {
-          heroAssetId,
-          voAssetId,
-          shotClipAssetIds: [],
+          assets: [heroAsset, voAsset],
           cost: sumCosts([gen.cost, voOut.cost, heroOut.cost]),
           latencyMs: Date.now() - startedAt,
         }
@@ -152,17 +172,20 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
           imageToVideo(
             ctx,
             { prompt: shot.motion },
-            { assets: [{ slot: 'startFrame', assetId: heroAssetId, modality: 'image' }] },
+            { assets: [{ slot: 'startFrame', assetId: heroAsset.assetId, modality: 'image' }] },
           ),
         ),
       )
-      const shotClipAssetIds = shotOutputs.map((r) =>
-        firstAssetId(r, 'ugc-testimonial: image-to-video'),
+      // `parallel` preserves shot order, so shot i is the i-th planned shot.
+      const shotAssets = shotOutputs.map((r, i) =>
+        labelAsset(firstAsset(r, 'ugc-testimonial: image-to-video'), 'video', `shot-${i}`),
       )
 
       // Stage 4 — concat shots then lay the VO over the stitched clip.
-      const { assetId: stitched } = await ctx.compute('concat-shots', () => deps.concatVideos(shotClipAssetIds))
-      let videoAssetId = (await ctx.compute('mux-vo', () => deps.addBackgroundAudio(stitched, voAssetId, { mode: 'replace' }))).assetId
+      const { assetId: stitched } = await ctx.compute('concat-shots', () =>
+        deps.concatVideos(shotAssets.map((s) => s.assetId)),
+      )
+      let finalVideoId = (await ctx.compute('mux-vo', () => deps.addBackgroundAudio(stitched, voAsset.assetId, { mode: 'replace' }))).assetId
 
       // Stage 5 — optional burned subtitles. Transcribe the VO for timed
       // segments, build an SRT, materialize it, then hard-burn onto the video.
@@ -172,22 +195,19 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
         const asr = await automaticSpeechRecognition(
           ctx,
           { timestamps: 'segment' },
-          { assets: [{ slot: 'source', assetId: voAssetId, modality: 'audio' }] },
+          { assets: [{ slot: 'source', assetId: voAsset.assetId, modality: 'audio' }] },
         )
         asrCost = sumCosts([asr.cost])
         if (asr.segments?.length) {
           const srt = toSrt(asr.segments)
           const { assetId: srtId } = await ctx.compute('subtitle-asset', () => deps.createSubtitleAsset(srt))
-          const { assetId: subbed } = await ctx.compute('burn-subs', () => deps.addSubtitles(videoAssetId, srtId, { mode: 'hard' }))
-          videoAssetId = subbed
+          const { assetId: subbed } = await ctx.compute('burn-subs', () => deps.addSubtitles(finalVideoId, srtId, { mode: 'hard' }))
+          finalVideoId = subbed
         }
       }
 
       return {
-        heroAssetId,
-        voAssetId,
-        shotClipAssetIds,
-        videoAssetId,
+        assets: [heroAsset, voAsset, ...shotAssets, labelAsset({ assetId: finalVideoId }, 'video', 'final-video')],
         cost: sumCosts([gen.cost, voOut.cost, heroOut.cost, ...shotOutputs.map((s) => s.cost), asrCost]),
         latencyMs: Date.now() - startedAt,
       }

@@ -32,7 +32,7 @@ import {
   type ImageToImageOutput,
 } from '../../atomic/image-to-image'
 import { BEST_OF_N_IMAGE_JUDGE_PROMPT } from './prompts'
-import { firstAssetId, resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
+import { firstAsset, labelAsset, labelledAssetShape, resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
 
 // VLM judge response shape (matches the best-of-n-image-judge output section).
 const BestOfNJudgeResponseSchema = z.object({
@@ -88,17 +88,15 @@ export const ImageBestOfNInputSchema = z.object({
 })
 export type ImageBestOfNInput = z.infer<typeof ImageBestOfNInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way.
 export const ImageBestOfNOutputSchema = z.object({
-  winningAssetId: z
-    .string()
-    .describe('Asset id of the candidate the VLM judge selected.'),
-  reason: z.string().describe('Judge rationale (verbatim from VLM).'),
-  allCandidates: z
-    .array(z.string())
-    .readonly()
+  assets: z
+    .array(z.object(labelledAssetShape('image')))
     .describe(
-      'Asset ids of every generated candidate in submission order (idx 0..n-1), so a downstream human-in-the-loop reviewer can override.',
+      'Every generated candidate in submission order (idx 0..n-1). The one the VLM judge selected is labelled `winner`, every other one `candidate` — all kept so a downstream human-in-the-loop reviewer can override the pick.',
     ),
+  reason: z.string().describe('Judge rationale (verbatim from VLM).'),
   cost: metaEnvelopeShape.cost.describe(
     'USD cost summed across all N image-gen calls + 1 judge call.',
   ),
@@ -156,7 +154,7 @@ export function createImageBestOfNMeta(
       'Quality gate on top of any image-gen Pattern: fan out N parallel samples through text-to-image or image-to-image, then use a VLM judge with the best-of-n-image-judge skill to select the strongest candidate by character consistency, spatial consistency, and description fidelity.',
     tool: {
       description:
-        'Render multiple image candidates and pick the best one via VLM quality judging. Use when a single t2i / i2i call risks under-delivering (face drift, missing detail, off-style) and you can afford 2-4× the cost for a quality lift. Caller picks the inner Pattern (text-to-image or image-to-image) and forwards its input; the meta handles fan-out, judging, and selection.',
+        'Render multiple image candidates and pick the best one via VLM quality judging. Use when a single t2i / i2i call risks under-delivering (face drift, missing detail, off-style) and you can afford 2-4× the cost for a quality lift. Caller picks the inner Pattern (text-to-image or image-to-image) and forwards its input; the meta handles fan-out, judging, and selection. Returns every candidate in assets[], the pick labelled `winner` and the rest `candidate`.',
       inputs: ImageBestOfNInputSchema,
     },
     outputs: ImageBestOfNOutputSchema,
@@ -178,9 +176,10 @@ export function createImageBestOfNMeta(
           dispatchInner(ctx, input.innerPatternId, input.innerInput, idx),
         ),
       )
-      const candidateIds = candidateOutputs.map((out) =>
-        firstAssetId(out, 'meta_image-best-of-n: inner image-gen'),
+      const candidates = candidateOutputs.map((out) =>
+        firstAsset(out, 'meta_image-best-of-n: inner image-gen'),
       )
+      const candidateIds = candidates.map((c) => c.assetId)
       const candidateLatencyMs = candidateOutputs.reduce(
         (max, out) => Math.max(max, out.latencyMs),
         0,
@@ -243,9 +242,12 @@ export function createImageBestOfNMeta(
       }
 
       return {
-        winningAssetId: candidateIds[parsed.best_image_index]!,
+        // Submission order is preserved (assets[i] is candidate i); the role
+        // rides on the label so it survives the model-facing projection.
+        assets: candidates.map((c, idx) =>
+          labelAsset(c, 'image', idx === parsed.best_image_index ? 'winner' : 'candidate'),
+        ),
         reason: parsed.reason,
-        allCandidates: candidateIds,
         cost: sumCosts([...candidateOutputs.map((c) => c.cost), judgeOut.cost]),
         latencyMs: candidateLatencyMs + judgeOut.latencyMs,
       }

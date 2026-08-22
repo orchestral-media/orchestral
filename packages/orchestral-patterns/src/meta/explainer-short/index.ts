@@ -1,10 +1,20 @@
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
-import { metaEnvelopeShape, parallel } from '@orchestral/core'
+import { boundedText, metaEnvelopeShape, parallel } from '@orchestral/core'
 import { textGeneration } from '../../atomic/text-generation'
 import { textToImage } from '../../atomic/text-to-image'
 import { textToSpeech } from '../../atomic/text-to-speech'
-import { firstAssetId, parseJsonWithSchema, resolvePrompts, styleTag, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
+import {
+  firstAsset,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  styleTag,
+  sumCosts,
+  toJsonSchemaCached,
+  type MetaCommonDeps,
+} from '../_shared/meta-utils'
 import { EXPLAINER_SCENES_SYSTEM } from './prompts'
 
 export const EXPLAINER_SHORT_PATTERN_ID = 'meta_explainer-short'
@@ -28,20 +38,37 @@ export const ExplainerShortInputSchema = z.object({
 })
 export type ExplainerShortInput = z.infer<typeof ExplainerShortInputSchema>
 
+const SceneTypeSchema = z.enum(['hook', 'concept', 'broll', 'cta'])
+
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way. The
+// per-scene structure stays in `scenes[]` carrying only non-asset fields;
+// scene i's media is addressed by label (`scene-<i>-image`, `scene-<i>-vo`).
+// Three modalities come out of this meta, so the element is a union of the
+// per-modality shapes (serialises as `anyOf`, which the outputs audit walks).
+const ExplainerShortAssetSchema = z.union([
+  z.object(labelledAssetShape('image')),
+  z.object(labelledAssetShape('audio')),
+  z.object(labelledAssetShape('video')),
+])
+
 export const ExplainerShortOutputSchema = z.object({
   scenes: z
     .array(
       z.object({
-        imageAssetId: z.string(),
-        voAssetId: z.string(),
+        type: SceneTypeSchema,
+        narration: boundedText(2048).describe(
+          "The narration as voiced — the generated text after the user's review edits.",
+        ),
       }),
     )
-    .describe('Per-scene component assets (visual + narration VO).'),
-  videoAssetId: z
-    .string()
-    .optional()
     .describe(
-      'Asset id of the assembled narrated video (present when assemble is on and scenes were produced).',
+      "The scene breakdown in order. Scene i's still and voiceover are the `scene-<i>-image` / `scene-<i>-vo` elements of assets[]. Empty when the user declined the cost gate.",
+    ),
+  assets: z
+    .array(ExplainerShortAssetSchema)
+    .describe(
+      "Every produced asset, by label: `scene-<i>-image` (the scene's still), `scene-<i>-vo` (its narration voiceover), and — when assemble is on — `final-video` (each still held over its narration, concatenated in scene order).",
     ),
   ...metaEnvelopeShape,
 })
@@ -51,7 +78,7 @@ const ScenesSchema = z.object({
   scenes: z
     .array(
       z.object({
-        type: z.enum(['hook', 'concept', 'broll', 'cta']),
+        type: SceneTypeSchema,
         narration: z.string().min(1),
         visual: z.string().min(1),
       }),
@@ -132,7 +159,7 @@ export function createExplainerShortMeta(
     kind: 'meta',
     namespace: 'meta-pipelines',
     description:
-      'Create a short explainer video / tutorial / concept walkthrough / narrated scenes: break a topic into typed scenes (hook/concept/broll/cta), let the user review/edit per-scene narration, then generate each scene\'s visual (text-to-image) and voiceover (text-to-speech). Returns component assets per scene.',
+      'Create a short explainer video / tutorial / concept walkthrough / narrated scenes: break a topic into typed scenes (hook/concept/broll/cta), let the user review/edit per-scene narration, then generate each scene\'s visual (text-to-image) and voiceover (text-to-speech). Returns every scene\'s still and voiceover (and the assembled video, when requested) as labelled assets.',
     searchHint:
       'explainer video tutorial concept walkthrough narrated scenes educational breakdown',
     tool: {
@@ -180,7 +207,7 @@ export function createExplainerShortMeta(
       })
 
       if (!confirmed) {
-        return { scenes: [], cost: sumCosts([gen.cost]), latencyMs: Date.now() - startedAt }
+        return { scenes: [], assets: [], cost: sumCosts([gen.cost]), latencyMs: Date.now() - startedAt }
       }
 
       // Stage 3 — parallel per-scene: text-to-image + text-to-speech. Keep the
@@ -193,10 +220,13 @@ export function createExplainerShortMeta(
           ]).then(([image, vo]) => ({ image, vo })),
         ),
       )
-      const sceneAssets = sceneOutputs.map(({ image, vo }) => ({
-        imageAssetId: firstAssetId(image, 'explainer-short: text-to-image'),
-        voAssetId: firstAssetId(vo, 'explainer-short: text-to-speech'),
+      // `parallel` preserves scene order, so the label index is the scene index.
+      const sceneAssets = sceneOutputs.map(({ image, vo }, i) => ({
+        image: labelAsset(firstAsset(image, 'explainer-short: text-to-image'), 'image', `scene-${i}-image`),
+        vo: labelAsset(firstAsset(vo, 'explainer-short: text-to-speech'), 'audio', `scene-${i}-vo`),
       }))
+      const sceneSummaries = scenes.map((s, i) => ({ type: s.type, narration: finalNarration[i] }))
+      const assets: ExplainerShortOutput['assets'] = sceneAssets.flatMap(({ image, vo }) => [image, vo])
       const cost = sumCosts([
         gen.cost,
         ...sceneOutputs.flatMap(({ image, vo }) => [image.cost, vo.cost]),
@@ -212,17 +242,22 @@ export function createExplainerShortMeta(
           (scene, i) =>
             ctx
               .compute(`seg-${i}`, () =>
-                deps.stillToVideo(scene.imageAssetId, scene.voAssetId),
+                deps.stillToVideo(scene.image.assetId, scene.vo.assetId),
               )
               .then((r) => r.assetId),
         )
-        const { assetId: videoAssetId } = await ctx.compute('concat-scenes', () =>
+        const final = await ctx.compute('concat-scenes', () =>
           deps.concatVideos(segmentIds),
         )
-        return { scenes: sceneAssets, videoAssetId, cost, latencyMs: Date.now() - startedAt }
+        return {
+          scenes: sceneSummaries,
+          assets: [...assets, labelAsset(final, 'video', 'final-video')],
+          cost,
+          latencyMs: Date.now() - startedAt,
+        }
       }
 
-      return { scenes: sceneAssets, cost, latencyMs: Date.now() - startedAt }
+      return { scenes: sceneSummaries, assets, cost, latencyMs: Date.now() - startedAt }
     },
   }
 }

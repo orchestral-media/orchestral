@@ -56,7 +56,16 @@ import {
   I2V_SHOT_SINGLE_PROMPT,
   I2V_SHOT_TRANSITION_PROMPT,
 } from './prompts'
-import { firstAssetId, parseJsonWithSchema, resolvePrompts, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
+import {
+  firstAssetId,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  sumCosts,
+  toJsonSchemaCached,
+  type MetaCommonDeps,
+} from '../_shared/meta-utils'
 
 // ── Per-step response models (mirror each stage prompt's [Output]) ─────────
 
@@ -144,10 +153,14 @@ export const ScriptToVideoInputSchema = z.object({
 })
 export type ScriptToVideoInput = z.infer<typeof ScriptToVideoInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way.
 export const ScriptToVideoOutputSchema = z.object({
-  videoAssetId: z
-    .string()
-    .describe('Asset id of the final concatenated video.'),
+  assets: z
+    .array(z.object(labelledAssetShape('video')))
+    .describe(
+      'The produced video: exactly one element, labelled `final-video` — every shot clip (and transition clip, when requested) concatenated in storyboard order.',
+    ),
   shotCount: z.number().int().min(0).describe('Number of shots rendered.'),
   ...metaEnvelopeShape,
 })
@@ -487,7 +500,7 @@ export function createScript2VideoMeta(
       )
 
       return {
-        videoAssetId: final.assetId,
+        assets: [labelAsset(final, 'video', 'final-video')],
         shotCount: storyboard.length,
         // The DAG accumulates bare per-step costs (it's deep and heterogeneous —
         // pushing as calls complete is clearer than reconstructing at the end);

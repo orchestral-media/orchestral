@@ -37,7 +37,7 @@
 
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
-import { resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
+import { assetIdByLabel, resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
 import { textGeneration } from '../../atomic/text-generation'
 import { imageToImage } from '../../atomic/image-to-image'
@@ -532,7 +532,11 @@ async function renderBestOfN(
     },
     { stepId: `panel-${idx}` },
   )
-  return { assetIds: [out.winningAssetId], cost: out.cost }
+  // The pick is the `winner`-labelled element of best-of-n's assets[].
+  return {
+    assetIds: [assetIdByLabel(out, 'winner', 'storyboard: meta_image-best-of-n')],
+    cost: out.cost,
+  }
 }
 
 /**

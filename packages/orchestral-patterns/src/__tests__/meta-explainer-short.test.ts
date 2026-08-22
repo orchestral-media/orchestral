@@ -6,6 +6,7 @@ import type { TextGenerationOutput } from '../atomic/text-generation'
 import type { TextToImageOutput } from '../atomic/text-to-image'
 import type { TextToSpeechOutput } from '../atomic/text-to-speech'
 import { createExplainerShortMeta, ExplainerShortOutputSchema } from '../meta/explainer-short'
+import { byLabel, expectProducedAssetsEnvelope } from './helpers/produced-assets'
 
 // ── fake output helpers ───────────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ describe('meta_explainer-short', () => {
         },
       },
     })
-    await createExplainerShortMeta(deps).compose(
+    const out = await createExplainerShortMeta(deps).compose(
       { input: { topic: 'photosynthesis', sceneCount: 3, assemble: false } },
       ctx,
     )
@@ -163,21 +164,29 @@ describe('meta_explainer-short', () => {
     // The unchanged scenes use the original generated narration
     expect(ttsCalls[1].input.text).toBe('narration 1')
     expect(ttsCalls[2].input.text).toBe('narration 2')
+    // The voiced narration is what the output reports back per scene.
+    expect(out.scenes.map((s) => s.narration)).toEqual([
+      'EDITED narration for scene 0',
+      'narration 1',
+      'narration 2',
+    ])
   })
 
-  it('per-scene pairing: output scenes.length === sceneCount, each has imageAssetId and voAssetId', async () => {
+  it('per-scene pairing: output scenes.length === sceneCount; each scene\'s still and VO are labelled scene-<i>-image / scene-<i>-vo', async () => {
     const { ctx, deps } = makeCtx({ scenesJson: fakeScenesJson(4) })
     const out = await createExplainerShortMeta(deps).compose(
       { input: { topic: 'black holes', sceneCount: 4, assemble: false } },
       ctx,
     )
     expect(out.scenes).toHaveLength(4)
-    for (const scene of out.scenes) {
-      expect(typeof scene.imageAssetId).toBe('string')
-      expect(scene.imageAssetId.length).toBeGreaterThan(0)
-      expect(typeof scene.voAssetId).toBe('string')
-      expect(scene.voAssetId.length).toBeGreaterThan(0)
+    expect(out.scenes.map((s) => s.type)).toEqual(['hook', 'concept', 'broll', 'cta'])
+    for (let i = 0; i < 4; i++) {
+      expect(byLabel(out, `scene-${i}-image`)).toMatchObject({ assetId: `img-${i}`, modality: 'image' })
+      expect(byLabel(out, `scene-${i}-vo`)).toMatchObject({ assetId: `vo-${i}`, modality: 'audio' })
     }
+    // assemble:false → 4 stills + 4 VOs and no final-video.
+    expect(out.assets).toHaveLength(8)
+    expect(byLabel(out, 'final-video')).toBeUndefined()
     // gen 0.02 + 4 scenes × (t2i 0.1 + tts 0.05) = 0.02 + 0.60
     expect(out.cost).toBeCloseTo(0.62)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
@@ -297,7 +306,7 @@ describe('meta_explainer-short', () => {
     expect(calls.filter((c) => c.patternId === 'text-to-image')).toHaveLength(0)
     expect(calls.filter((c) => c.patternId === 'text-to-speech')).toHaveLength(0)
     expect(out.scenes).toEqual([])
-    expect(out.videoAssetId).toBeUndefined()
+    expect(out.assets).toEqual([])
     // The early return still satisfies the output schema (cost/latency required).
     expect(() => ExplainerShortOutputSchema.parse(out)).not.toThrow()
     // Decline path only bills the planning text-generation (0.02); nothing paid ran.
@@ -338,7 +347,7 @@ describe('meta_explainer-short', () => {
     expect(calls.filter((c) => c.patternId === 'text-to-speech')).toHaveLength(0)
   })
 
-  it('assemble (default true): stillToVideo per scene, concat over the segments, videoAssetId returned', async () => {
+  it('assemble (default true): stillToVideo per scene, concat over the segments, final-video labelled', async () => {
     const { ctx, deps, stillToVideoCalls, concatVideosCalls } = makeCtx({
       scenesJson: fakeScenesJson(3),
     })
@@ -347,25 +356,26 @@ describe('meta_explainer-short', () => {
       { input: { topic: 'gravity', sceneCount: 3, assemble: true } },
       ctx,
     )
-    // one stillToVideo per scene, called with (imageAssetId, voAssetId)
+    // one stillToVideo per scene, called with (scene still, scene VO)
     expect(stillToVideoCalls).toHaveLength(3)
     for (let i = 0; i < 3; i++) {
       expect(stillToVideoCalls[i]).toEqual({
-        imageAssetId: out.scenes[i].imageAssetId,
-        audioAssetId: out.scenes[i].voAssetId,
+        imageAssetId: byLabel(out, `scene-${i}-image`)!.assetId,
+        audioAssetId: byLabel(out, `scene-${i}-vo`)!.assetId,
       })
     }
     // concat called once with exactly the segment ids stillToVideo produced
     expect(concatVideosCalls).toHaveLength(1)
     expect([...concatVideosCalls[0]]).toEqual(['seg-0', 'seg-1', 'seg-2'])
-    expect(out.videoAssetId).toBe('video-1')
+    expect(byLabel(out, 'final-video')).toMatchObject({ assetId: 'video-1', modality: 'video' })
+    expect(out.assets.at(-1)?.label).toBe('final-video')
     expect(out.scenes).toHaveLength(3)
     // gen 0.02 + 3 scenes × (t2i 0.1 + tts 0.05) = 0.02 + 0.45; host assembly adds no cost
     expect(out.cost).toBeCloseTo(0.47)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('assemble:false → neither host dep called, no videoAssetId, scenes still returned', async () => {
+  it('assemble:false → neither host dep called, no final-video, scenes still returned', async () => {
     const { ctx, deps, stillToVideoCalls, concatVideosCalls } = makeCtx({
       scenesJson: fakeScenesJson(3),
     })
@@ -375,7 +385,7 @@ describe('meta_explainer-short', () => {
     )
     expect(stillToVideoCalls).toHaveLength(0)
     expect(concatVideosCalls).toHaveLength(0)
-    expect(out.videoAssetId).toBeUndefined()
+    expect(byLabel(out, 'final-video')).toBeUndefined()
     expect(out.scenes).toHaveLength(3)
     // assemble-off return path also carries cost/latency: gen 0.02 + 3 × 0.15
     expect(out.cost).toBeCloseTo(0.47)
@@ -450,5 +460,21 @@ describe('meta_explainer-short', () => {
         ctx,
       ),
     ).rejects.toThrow('encoder session failed')
+  })
+
+  it('returns the produced-assets envelope: every element labelled, no raw-id field anywhere', async () => {
+    const { ctx, deps } = makeCtx({ scenesJson: fakeScenesJson(2) })
+    const out = await createExplainerShortMeta(deps).compose(
+      { input: { topic: 'gravity', sceneCount: 2, assemble: true } },
+      ctx,
+    )
+    expectProducedAssetsEnvelope(ExplainerShortOutputSchema, out)
+    expect(out.assets.map((a) => a.label)).toEqual([
+      'scene-0-image',
+      'scene-0-vo',
+      'scene-1-image',
+      'scene-1-vo',
+      'final-video',
+    ])
   })
 })

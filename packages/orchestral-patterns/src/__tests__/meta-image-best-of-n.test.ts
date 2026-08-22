@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ExecutionContext, StepOptions, PatternRef } from '@orchestral/core'
-import { createImageBestOfNMeta } from '../meta/image-best-of-n'
+import { createImageBestOfNMeta, ImageBestOfNOutputSchema } from '../meta/image-best-of-n'
+import { byLabel, expectProducedAssetsEnvelope } from './helpers/produced-assets'
 import { BEST_OF_N_IMAGE_JUDGE_PROMPT } from '../meta/image-best-of-n/prompts'
 
 // Recorded shape for each ctx.step invocation — used by tests to assert
@@ -121,15 +122,14 @@ describe('meta_image-best-of-n', () => {
     expect(judgeInput.responseFormat).toBe('json')
     expect(judgeInput.jsonSchema).toBeDefined()
 
-    // Winner = candidate 1 (per judgeJson), full candidate list preserved
-    // for human review.
-    expect(out.winningAssetId).toBe('asset-cand-1')
-    expect(out.reason).toBe('best character match')
-    expect(out.allCandidates).toEqual([
-      'asset-cand-0',
-      'asset-cand-1',
-      'asset-cand-2',
+    // Winner = candidate 1 (per judgeJson); every candidate is kept in
+    // submission order for human review, the pick carrying the `winner` label.
+    expect(out.assets).toEqual([
+      { assetId: 'asset-cand-0', modality: 'image', label: 'candidate' },
+      { assetId: 'asset-cand-1', modality: 'image', label: 'winner' },
+      { assetId: 'asset-cand-2', modality: 'image', label: 'candidate' },
     ])
+    expect(out.reason).toBe('best character match')
 
     // cost = 3 image-gen × 1 + 1 judge × 2 = 5. latency = max(100,100,100) + 50.
     expect(out.cost).toBe(5)
@@ -200,7 +200,7 @@ describe('meta_image-best-of-n', () => {
     )
 
     // best_image_index=1 is candidate-relative → asset-cand-1.
-    expect(out.winningAssetId).toBe('asset-cand-1')
+    expect(byLabel(out, 'winner')?.assetId).toBe('asset-cand-1')
   })
 
   it('labels references with (no caption) when refDescriptions is shorter than referenceHandles', async () => {
@@ -349,5 +349,27 @@ describe('meta_image-best-of-n', () => {
     expect(meta.namespace).toBe('meta-pipelines')
     expect(meta.searchHint).toContain('multiple image candidates')
     expect(meta.tool.description).toBeTruthy()
+  })
+
+  it('returns the produced-assets envelope: every candidate labelled, no raw-id field and no allCandidates', async () => {
+    const meta = createImageBestOfNMeta()
+    const { ctx } = makeCtx({
+      n: 2,
+      judgeJson: JSON.stringify({ best_image_index: 0, reason: 'ok' }),
+    })
+    const out = await meta.compose(
+      {
+        input: {
+          innerPatternId: 'text-to-image',
+          innerInput: { prompt: 'x' },
+          n: 2,
+          targetDescription: 'x',
+        },
+      },
+      ctx,
+    )
+    expectProducedAssetsEnvelope(ImageBestOfNOutputSchema, out)
+    expect(out).not.toHaveProperty('allCandidates')
+    expect(out.assets.map((a) => a.label)).toEqual(['winner', 'candidate'])
   })
 })

@@ -206,7 +206,7 @@ describe('meta_image-best-of-n — reference images reach the judge (real merge)
     expect(genB).toBeGreaterThan(genA)
 
     // best_image_index stays candidate-relative → the 2nd candidate wins.
-    expect(out.winningAssetId).toBe('cand-1')
+    expect(out.assets.find((a) => a.label === 'winner')?.assetId).toBe('cand-1')
   })
 
   it('carries only the candidates when no referenceHandles are supplied (zero regression)', async () => {
@@ -271,6 +271,6 @@ describe('meta_image-best-of-n — reference images reach the judge (real merge)
     expect(ref1).toBeGreaterThan(ref0)
     expect(gen0).toBeGreaterThan(ref1)
 
-    expect(out.winningAssetId).toBe('cand-0')
+    expect(out.assets.find((a) => a.label === 'winner')?.assetId).toBe('cand-0')
   })
 })

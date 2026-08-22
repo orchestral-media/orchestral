@@ -5,7 +5,8 @@ import { buildAskUserFacade } from '@orchestral/core'
 import type { TextToImageOutput } from '../atomic/text-to-image'
 import type { ImageToVideoOutput } from '../atomic/image-to-video'
 import type { TextToAudioOutput } from '../atomic/text-to-audio'
-import { createProductAdShortMeta, type ProductAdShortMetaDeps } from '../meta/product-ad-short'
+import { createProductAdShortMeta, ProductAdShortOutputSchema, type ProductAdShortMetaDeps } from '../meta/product-ad-short'
+import { byLabel, expectProducedAssetsEnvelope } from './helpers/produced-assets'
 
 // ── fake deps ─────────────────────────────────────────────────────────────
 
@@ -187,8 +188,8 @@ describe('meta_product-ad-short', () => {
       { input: { brief: 'x', variantCount: 3, withMusic: false } }, ctx,
     )
     expect(askedKind).toBe('choice')
-    // withMusic=false → no mux → videoAssetId is the raw adclip
-    expect(out.videoAssetId).toBe('adclip-1')
+    // withMusic=false → no mux → the final video IS the raw ad clip
+    expect(out.assets).toEqual([{ assetId: 'adclip-1', modality: 'video', label: 'final-video' }])
   })
 
   it('animates the chosen hero (threaded as startFrame) into the ad clip', async () => {
@@ -200,9 +201,9 @@ describe('meta_product-ad-short', () => {
     )
     const i2v = calls.find((c) => c.patternId === 'image-to-video')!
     expect(i2v.assets).toMatchObject([{ slot: 'startFrame', assetId: 'hero-1' }])
-    // withMusic=false → no mux → videoAssetId is the raw clip
-    expect(out.videoAssetId).toBe('adclip-1')
-    expect(out.musicAssetId).toBeUndefined()
+    // withMusic=false → no mux → the final video IS the raw clip, and no music element
+    expect(byLabel(out, 'final-video')).toMatchObject({ assetId: 'adclip-1', modality: 'video' })
+    expect(byLabel(out, 'music')).toBeUndefined()
     expect(calls.filter((c) => c.patternId === 'text-to-audio')).toHaveLength(0)
     expect(deps.addBackgroundAudio).not.toHaveBeenCalled()
     // cost = gen + ALL 2 hero drafts + animate (no music) = 0.02 + 2*0.1 + 0.4
@@ -210,7 +211,7 @@ describe('meta_product-ad-short', () => {
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('with withMusic, muxes music into clip and returns muxed videoAssetId', async () => {
+  it('with withMusic, muxes music into clip and labels the muxed clip final-video', async () => {
     const deps = makeDeps()
     // thumbnail path (sessionId set), pick index 0 → hero-0
     const { ctx, calls } = makeCtxPick({ heroPrompts: ['p1'], chooseIndex: 0, onAsk: () => {}, sessionId: 's1' })
@@ -218,10 +219,11 @@ describe('meta_product-ad-short', () => {
       { input: { brief: 'x', variantCount: 1, withMusic: true } }, ctx,
     )
     expect(calls.filter((c) => c.patternId === 'text-to-audio')).toHaveLength(1)
-    expect(out.musicAssetId).toBe('music-1')
+    expect(byLabel(out, 'music')).toMatchObject({ assetId: 'music-1', modality: 'audio' })
     // addBackgroundAudio called with (adclip, music, {mode:'replace'}) — silent clip has no audio track
     expect(deps.addBackgroundAudio).toHaveBeenCalledWith('adclip-1', 'music-1', { mode: 'replace' })
-    expect(out.videoAssetId).toBe('muxed-1')
+    expect(byLabel(out, 'final-video')).toMatchObject({ assetId: 'muxed-1', modality: 'video' })
+    expect(out.assets.map((a) => a.label)).toEqual(['final-video', 'music'])
     // cost = gen + 1 hero draft + animate + music (host mux adds none) = 0.02 + 0.1 + 0.4 + 0.3
     expect(out.cost).toBeCloseTo(GEN_COST + HERO_COST + ANIMATE_COST + MUSIC_COST)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
@@ -417,5 +419,13 @@ describe('meta_product-ad-short', () => {
       ),
     ).rejects.toThrow()
     expect(calls.filter((c) => c.patternId === 'image-to-video')).toHaveLength(0)
+  })
+
+  it('returns the produced-assets envelope: every element labelled, no raw-id field anywhere', async () => {
+    const { ctx } = makeCtxPick({ heroPrompts: ['p1'], chooseIndex: 0, onAsk: () => {}, sessionId: 's1' })
+    const out = await createProductAdShortMeta(makeDeps()).compose(
+      { input: { brief: 'x', variantCount: 1, withMusic: true } }, ctx,
+    )
+    expectProducedAssetsEnvelope(ProductAdShortOutputSchema, out)
   })
 })

@@ -59,20 +59,20 @@ Every pattern this package exports, generated from the built package by
 | `text-to-video` | atomic | Generate a short video clip from a text prompt. | `reference`:image[]<br>`endFrame`:image | video, assets[] | — | — |
 | `video-to-video` | atomic | Transform an existing video: reframe its aspect ratio, upscale its resolution, restyle its look from… | `source`:video **req**<br>`reference`:image[] | video, assets[] | — | — |
 | `meta_event-to-script` | meta | Adapt a single plot event into polished per-scene screenplays with cross-scene character continuity. | — | — | — | — |
-| `meta_explainer-short` | meta | Generate a short explainer video from a topic: write a typed scene breakdown, let the user review… | — | — | `concatVideos`<br>`stillToVideo` | — |
-| `meta_idea2video` | meta | Generate a multi-scene video from a short idea. | — | — | `concatVideos` | — |
-| `meta_image-best-of-n` | meta | Render multiple image candidates and pick the best one via VLM quality judging. | — | — | — | — |
+| `meta_explainer-short` | meta | Generate a short explainer video from a topic: write a typed scene breakdown, let the user review… | — | assets[] | `concatVideos`<br>`stillToVideo` | — |
+| `meta_idea2video` | meta | Generate a multi-scene video from a short idea. | — | assets[] | `concatVideos` | — |
+| `meta_image-best-of-n` | meta | Render multiple image candidates and pick the best one via VLM quality judging. | — | assets[] | — | — |
 | `meta_image-to-image-via-caption` | meta | Edit an image without a native image-to-image model by chaining caption → text-to-image. | `source`:image[] **req** | image, assets[] | — | — |
-| `meta_lyrics-to-mv` | meta | Generate a music video by planning keyframes, confirming, then generating music + animated clips. | — | — | `concatVideos`<br>`addBackgroundAudio` | — |
+| `meta_lyrics-to-mv` | meta | Generate a music video by planning keyframes, confirming, then generating music + animated clips. | — | assets[] | `concatVideos`<br>`addBackgroundAudio` | — |
 | `meta_novel-to-events` | meta | Decompose a novel (or any long-form prose) into a causal chain of plot events. | — | — | — | — |
-| `meta_product-ad-short` | meta | Generate a short product ad clip via a pick-then-animate flow. | — | — | `addBackgroundAudio`<br>`recordSessionAsset` | — |
-| `meta_product-photo-pack` | meta | Generate a product photo pack (multiple e-commerce shots) from a product brief. | — | — | — | — |
+| `meta_product-ad-short` | meta | Generate a short product ad clip via a pick-then-animate flow. | — | assets[] | `addBackgroundAudio`<br>`recordSessionAsset` | — |
+| `meta_product-photo-pack` | meta | Generate a product photo pack (multiple e-commerce shots) from a product brief. | — | assets[] | — | — |
 | `meta_prose-chunking` | meta | Compress and stitch a long prose passage (novel chapter, multi-chapter span, or any extended… | — | — | — | — |
 | `meta_reference-image-cascade` | meta | Choose which of several candidate images best match a target frame description, and produce a prompt… | — | — | — | — |
 | `meta_script-planning` | meta | Turn a one-line story idea into a full planned script. | — | — | — | — |
-| `meta_script2video` | meta | Generate a video from a scene script. | — | — | `concatVideos` | — |
+| `meta_script2video` | meta | Generate a video from a scene script. | — | assets[] | `concatVideos` | — |
 | `meta_storyboard` | meta | Generate a multi-panel storyboard from a scene and character reference sheets, keeping each… | — | assets[] | — | — |
-| `meta_ugc-testimonial` | meta | Generate a UGC product testimonial video from a product description and optional persona. | — | — | `concatVideos`<br>`addBackgroundAudio`<br>`addSubtitles`<br>`createSubtitleAsset` | — |
+| `meta_ugc-testimonial` | meta | Generate a UGC product testimonial video from a product description and optional persona. | — | assets[] | `concatVideos`<br>`addBackgroundAudio`<br>`addSubtitles`<br>`createSubtitleAsset` | — |
 
 25 Patterns.
 
@@ -123,11 +123,12 @@ from the five exemplars: `src/meta/product-ad-short/`,
 `src/meta/product-photo-pack/`, `src/meta/ugc-testimonial/`,
 `src/meta/explainer-short/`, `src/meta/lyrics-to-mv/`.
 
-Every helper they import from `../_shared/meta-utils` (`firstAssetId`,
+Every helper they import from `../_shared/meta-utils` (`firstAsset`,
+`firstAssetId`, `labelAsset`, `labelledAssetShape`, `assetIdByLabel`,
 `parseJsonWithSchema`, `resolvePrompts`, `styleTag`, `sumCosts`,
-`toJsonSchemaCached`, and the `MetaCommonDeps` type) is re-exported from the
-package root, so a copied exemplar compiles once you rewrite that one relative
-import to `@orchestral/patterns`.
+`toJsonSchemaCached`, and the `MetaCommonDeps` / `LabelledAsset` types) is
+re-exported from the package root, so a copied exemplar compiles once you
+rewrite that one relative import to `@orchestral/patterns`.
 
 Be aware of what these metas assume of you: `MetaCommonDeps` declares six
 media operations — `concatVideos`, `stillToVideo`, `addBackgroundAudio`,
@@ -139,17 +140,26 @@ implement against.
 
 Conventions they all follow:
 
-1. Never index `assets[0]` directly — read every asset id through
-   `firstAssetId(out, label)`.
-2. Bound every LLM-JSON array schema with `.min(1)` and clamp to the input
+1. Never index `assets[0]` directly — read a sub-step's produced asset
+   through `firstAsset(out, label)` / `firstAssetId(out, label)`.
+2. Return produced media through one flat top-level `assets[]` of
+   `z.object(labelledAssetShape(modality))` elements and nowhere else — no
+   `videoAssetId` / `imageAssetIds` fields, top-level or nested. The
+   model-facing projection rebuilds `assets[]` from the handle whitelist and
+   passes every other field through untouched, so an id anywhere else reaches
+   the model verbatim. The role an asset played (`final-video`, `hero`,
+   `scene-2-vo`, `winner`) rides on the element as its `label`, which the
+   projection keeps; stamp it with `labelAsset(el, modality, label)` and read
+   another meta's deliverable back with `assetIdByLabel(out, label, errLabel)`.
+3. Bound every LLM-JSON array schema with `.min(1)` and clamp to the input
    cap (`slice(0, cap)`) so the paid-gen count can't exceed the bounded input.
-3. Parse LLM JSON with `parseJsonWithSchema(text, schema, label)` — labeled
+4. Parse LLM JSON with `parseJsonWithSchema(text, schema, label)` — labeled
    error on malformed JSON, Zod errors propagate as-is.
-4. Guard any `indexOf`-based pick mapping (`idx < 0` → throw a labeled error).
-5. Type `ctx.step` results with the real atomic Output types
+5. Guard any `indexOf`-based pick mapping (`idx < 0` → throw a labeled error).
+6. Type `ctx.step` results with the real atomic Output types
    (`TextToImageOutput`, `ImageToVideoOutput`, …), never inline structural
    types. No `any` in tests — `Record<string, unknown>` + `as unknown as T`.
-6. Every paid multi-gen sits behind a `ctx.askUser` checkpoint (cost gate),
+7. Every paid multi-gen sits behind a `ctx.askUser` checkpoint (cost gate),
    or is bounded and confirmed up front.
 
 Picking the `ctx.askUser` method:

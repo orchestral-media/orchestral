@@ -327,11 +327,16 @@ export { REFERENCE_IMAGE_CASCADE_DEFAULT_PROMPTS } from './meta/reference-image-
 // signatures are settled and covered by the frozen public-surface snapshot,
 // but a minor release may still break them before 1.0.
 export {
+  assetIdByLabel,
+  firstAsset,
   firstAssetId,
+  labelAsset,
+  labelledAssetShape,
   parseJsonWithSchema,
   resolvePrompts,
   styleTag,
   sumCosts,
   toJsonSchemaCached,
+  type LabelledAsset,
   type MetaCommonDeps,
 } from './meta/_shared/meta-utils'

@@ -107,11 +107,11 @@ For each polished scene in \`eventScenes\`:
 
    \`staticFeatures\` comes from the canonical \`novelChar.static_features\` so visual identity survives across events; the other fields come from the matching original scene character. Do not pass the snake_case \`static_features\` field directly.
 2. Dispatch \`meta_script2video\` with \`sceneScript = scene.polishedScript\`, the projected characters from step 1, \`style\` set to the visual style you committed to (see Stage 0 below), and \`transitionMode\` set to \`'between-shots'\` if you want cross-shot transition clips inserted, otherwise omit.
-3. Record the resulting \`videoAssetId\` in your \`sceneAssetLog\`.
+3. Record the \`handle\` of the tool result's \`assets[]\` entry labelled \`final-video\` as that scene's \`videoHandle\` in your \`sceneAssetLog\`. The result carries no raw asset id — the handle is the only name you have for the scene video.
 
 ### Stage 5 — concatenate and finish
 
-Once all scenes are rendered, call the \`concat_videos\` tool with \`{ assetIds: <ordered sceneAssetLog videoAssetId values> }\` to stitch them into the final long-form video. Then call \`complete_task\` exactly once with:
+Once all scenes are rendered, call the \`concat_videos\` tool with \`{ assetIds: <ordered sceneAssetLog videoHandle values> }\` — the scene videos by handle, exactly as they appeared in each \`meta_script2video\` tool result, never a raw asset id — to stitch them into the final long-form video. Then call \`complete_task\` exactly once with:
 
 \`\`\`
 summary: "<one-line description of what you produced>"
@@ -131,7 +131,7 @@ Before Stage 4 begins, commit to a single visual style for the whole video. The 
 You maintain two pieces of state across your loop iterations, **visible only in your reasoning** (the tool dispatches see them only via what you pass into their \`input\` fields):
 
 - \`novelCharRegistry: CharacterInNovel[]\` — a single canonical character map for the whole novel. Updated after each event by the Stage 3.2 character merge. Used as the source for the per-scene character projection in Stage 4.
-- \`sceneAssetLog: { eventIdx, sceneIdx, videoAssetId }[]\` — the ordered list of rendered scene assets. Used to call \`concat_videos\` at the end and to detect prior progress when resuming (see RESUME AWARENESS).
+- \`sceneAssetLog: { eventIdx, sceneIdx, videoHandle }[]\` — the ordered list of rendered scene assets, each by the \`final-video\` handle its \`meta_script2video\` result carried. Used to call \`concat_videos\` at the end and to detect prior progress when resuming (see RESUME AWARENESS).
 
 Do not invent new state fields. Do not try to persist these to disk; the framework persists your transcript for you.
 
@@ -142,7 +142,7 @@ Your transcript is recorded as the run progresses. This is not automatic crash r
 In resume mode:
 
 - Do **not** re-dispatch \`meta_event-to-script\` for events whose \`eventScenes\` you already received in transcript.
-- Do **not** re-dispatch \`meta_script2video\` for scenes whose \`videoAssetId\` you already received in transcript.
+- Do **not** re-dispatch \`meta_script2video\` for scenes whose \`final-video\` handle you already received in transcript.
 - Rebuild \`novelCharRegistry\` and \`sceneAssetLog\` from the transcript: walk the prior tool results in order and accumulate the same state you would have had if the dispatch had not been interrupted.
 - If an older Stage 3.2 result cannot be replayed as this merge shape, rerun only Stage 3.2 using the already-recorded \`eventCharRegistry\`; do not rerun Stage 3.1 or rendered scenes.
 - Continue from the first incomplete event / scene.

@@ -16,7 +16,16 @@ import type { MetaPattern } from '@orchestral/core'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
 import { textGeneration } from '../../atomic/text-generation'
 import { script2videoMeta, CharacterInSceneSchema } from '../script2video'
-import { parseJsonWithSchema, resolvePrompts, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
+import {
+  assetIdByLabel,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  sumCosts,
+  toJsonSchemaCached,
+  type MetaCommonDeps,
+} from '../_shared/meta-utils'
 import {
   STORY_DEVELOPMENT_PROMPT,
   CHARACTER_EXTRACTION_PROMPT,
@@ -42,8 +51,14 @@ export const IdeaToVideoInputSchema = z.object({
 })
 export type IdeaToVideoInput = z.infer<typeof IdeaToVideoInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way.
 export const IdeaToVideoOutputSchema = z.object({
-  videoAssetId: z.string().describe('Asset id of the final concatenated video.'),
+  assets: z
+    .array(z.object(labelledAssetShape('video')))
+    .describe(
+      'The produced video: exactly one element, labelled `final-video` — the rendered scene videos concatenated in script order.',
+    ),
   sceneCount: z.number().int().min(0).describe('Number of scenes rendered.'),
   ...metaEnvelopeShape,
 })
@@ -176,14 +191,18 @@ export function createIdea2VideoMeta(
           }),
         ),
       )
-      const sceneVideos = sceneOutputs.map((r) => r.videoAssetId)
+      // Each scene's deliverable is the `final-video` element of the nested
+      // meta's assets[] — found by label, never by a field name.
+      const sceneVideos = sceneOutputs.map((r) =>
+        assetIdByLabel(r, 'final-video', 'idea2video: meta_script2video'),
+      )
 
       // Stage 5 — concatenate the scene videos (host op, no model cost).
       const final = await ctx.compute('concat-final-video', () =>
         deps.concatVideos(sceneVideos),
       )
       return {
-        videoAssetId: final.assetId,
+        assets: [labelAsset(final, 'video', 'final-video')],
         sceneCount: finalScripts.length,
         cost: sumCosts([storyOut.cost, charsOut.cost, scriptOut.cost, ...sceneOutputs.map((s) => s.cost)]),
         latencyMs: Date.now() - startedAt,

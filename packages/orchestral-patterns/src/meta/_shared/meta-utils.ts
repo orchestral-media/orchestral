@@ -4,6 +4,7 @@
 // One copy here keeps them from drifting apart.
 
 import { z } from 'zod'
+import { boundedText, producedAssetShape, type ProducedAssetModality } from '@orchestral/core'
 
 // Schemas passed here are module-level constants, so this cache is effectively
 // a per-schema compute-once — the same object identity recurs every call.
@@ -28,18 +29,111 @@ export const toJsonSchemaCached = (s: z.ZodType): unknown => {
 }
 
 /**
- * Pull the first produced asset id off a step output, throwing a labeled error
- * when the step produced nothing. `label` is the full error prefix — callers
- * pass e.g. `'product-ad-short: image-to-video'` so the thrown message reads
- * `'<label> produced no asset'`, matching the inline guards this replaces.
+ * Pull the first produced asset off a step output, throwing a labeled error
+ * when the step produced nothing. Returns the element as the sub-step emitted
+ * it. `label` is the full error prefix — callers pass e.g.
+ * `'product-ad-short: image-to-video'` so the thrown message reads
+ * `'<label> produced no asset'`.
+ */
+export function firstAsset<A extends { assetId: string }>(
+  out: { assets?: ReadonlyArray<A> },
+  label: string,
+): A {
+  const asset = out.assets?.[0]
+  if (asset === undefined) throw new Error(`${label} produced no asset`)
+  return asset
+}
+
+/**
+ * `firstAsset(...).assetId` — the id-only form, for feeding a sub-step's
+ * output straight into a host op or the next step's internal-asset channel.
  */
 export function firstAssetId(
   out: { assets?: ReadonlyArray<{ assetId: string }> },
   label: string,
 ): string {
-  const id = out.assets?.[0]?.assetId
-  if (id === undefined) throw new Error(`${label} produced no asset`)
-  return id
+  return firstAsset(out, label).assetId
+}
+
+/**
+ * One element of a meta's produced `assets[]`: the atomic element shape
+ * (`assetId`, `modality`, optional `url` / `cost`) plus a required `label`
+ * naming the role the asset played — `final-video`, `hero`, `winner`,
+ * `scene-2-vo`. The `z.infer` twin is {@link LabelledAsset}.
+ *
+ * Why the role rides on the element and not in a field name: the model-facing
+ * boundary (`projectToolOutputForModel` in @orchestral/core) rebuilds
+ * `assets[]` from a whitelist of handle-shaped fields — handle, modality,
+ * label — and passes every other top-level field through untouched. A meta
+ * that returns `videoAssetId: '<id>'` therefore hands the model a raw id; a
+ * meta that returns `assets: [{ assetId, modality: 'video', label:
+ * 'final-video' }]` hands it `{ handle, uri, modality, label }`, and the
+ * label is how both the model and a consuming meta still tell the final video
+ * from a scene clip. The rule for every media-producing meta: every produced
+ * assetId appears in `assets[]`, and no other output field carries one.
+ *
+ * `label` is bounded like every other string in an outputs schema
+ * (output-fields.ts); 64 characters fits any role a first-party meta stamps
+ * (`scene-7-image`) with room for a third party's.
+ */
+export function labelledAssetShape<M extends ProducedAssetModality>(modality: M) {
+  return {
+    ...producedAssetShape(modality),
+    label: boundedText(64).describe(
+      'The role this asset played in the pipeline (e.g. `final-video`). The enclosing assets[] description lists the vocabulary; the label is how a consumer picks an asset out once the projection has replaced its id with a handle.',
+    ),
+  } as const
+}
+
+/** The element type of a `z.array(z.object(labelledAssetShape(m)))`. */
+export type LabelledAsset<M extends ProducedAssetModality = ProducedAssetModality> = {
+  assetId: string
+  modality: M
+  label: string
+  url?: string
+  cost?: number
+}
+
+/**
+ * Forward a produced asset into a meta's own `assets[]`, stamped with its
+ * role. Copies only `assetId` and, when present, `url` / `cost` — anything
+ * else on the source element (a handle a host stamped on a sub-step's output,
+ * a stray field) is dropped, so the meta's element is exactly its schema's.
+ *
+ * `modality` is passed by the meta rather than read off the source: the
+ * meta's outputs schema declares the literal, and a host op's `{ assetId }`
+ * result carries none to read.
+ */
+export function labelAsset<M extends ProducedAssetModality>(
+  asset: { assetId: string; url?: string; cost?: number },
+  modality: M,
+  label: string,
+): LabelledAsset<M> {
+  return {
+    assetId: asset.assetId,
+    modality,
+    label,
+    ...(asset.url !== undefined ? { url: asset.url } : {}),
+    ...(asset.cost !== undefined ? { cost: asset.cost } : {}),
+  }
+}
+
+/**
+ * The assetId carrying `label` in a step output's `assets[]` — how one meta
+ * reads another's deliverable (idea2video reads script2video's `final-video`,
+ * storyboard reads best-of-n's `winner`). Throws a labeled error when no
+ * element carries it; `errLabel` is the error prefix, as for firstAsset.
+ */
+export function assetIdByLabel(
+  out: { assets?: ReadonlyArray<{ assetId: string; label?: string }> },
+  label: string,
+  errLabel: string,
+): string {
+  const hit = out.assets?.find((a) => a.label === label)
+  if (hit === undefined) {
+    throw new Error(`${errLabel} produced no asset labelled "${label}"`)
+  }
+  return hit.assetId
 }
 
 /**

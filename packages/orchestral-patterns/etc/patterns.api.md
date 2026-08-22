@@ -9,6 +9,7 @@ import { AtomicPattern } from '@orchestral/core';
 import { DerivedReferences } from '@orchestral/core';
 import { MetaPattern } from '@orchestral/core';
 import { PatternFn } from '@orchestral/core';
+import { ProducedAssetModality } from '@orchestral/core';
 import { z } from 'zod';
 
 // @public
@@ -16,6 +17,14 @@ export interface AsrTranscriptionParams {
     format?: 'json' | 'srt' | 'vtt' | 'text';
     timestamps?: 'segment' | 'word' | 'none';
 }
+
+// @public
+export function assetIdByLabel(out: {
+    assets?: ReadonlyArray<{
+        assetId: string;
+        label?: string;
+    }>;
+}, label: string, errLabel: string): string;
 
 // @public (undocumented)
 export const AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID = "automatic-speech-recognition";
@@ -296,14 +305,44 @@ export const ExplainerShortOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     scenes: z.ZodArray<z.ZodObject<{
-        imageAssetId: z.ZodString;
-        voAssetId: z.ZodString;
+        type: z.ZodEnum<{
+            hook: "hook";
+            concept: "concept";
+            broll: "broll";
+            cta: "cta";
+        }>;
+        narration: z.ZodString;
     }, z.core.$strip>>;
-    videoAssetId: z.ZodOptional<z.ZodString>;
+    assets: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"image">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>, z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"audio">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>, z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"video">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>]>>;
 }, z.core.$strip>;
 
 // @alpha
 export type ExplainerShortPromptOverrides = Partial<Record<keyof typeof EXPLAINER_SHORT_DEFAULT_PROMPTS, string>>;
+
+// @public
+export function firstAsset<A extends {
+    assetId: string;
+}>(out: {
+    assets?: ReadonlyArray<A>;
+}, label: string): A;
 
 // @public
 export function firstAssetId(out: {
@@ -344,7 +383,13 @@ export type IdeaToVideoOutput = z.infer<typeof IdeaToVideoOutputSchema>;
 export const IdeaToVideoOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
-    videoAssetId: z.ZodString;
+    assets: z.ZodArray<z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"video">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>>;
     sceneCount: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -396,9 +441,14 @@ targetDescription: string;
 referenceHandles?: string[] | undefined;
 refDescriptions?: string[] | undefined;
 }, {
-winningAssetId: string;
+assets: {
+label: string;
+assetId: string;
+modality: "image";
+url?: string | undefined;
+cost?: number | undefined;
+}[];
 reason: string;
-allCandidates: readonly string[];
 cost: number | null;
 latencyMs: number;
 }>;
@@ -413,9 +463,14 @@ export type ImageBestOfNOutput = z.infer<typeof ImageBestOfNOutputSchema>;
 
 // @public (undocumented)
 export const ImageBestOfNOutputSchema: z.ZodObject<{
-    winningAssetId: z.ZodString;
+    assets: z.ZodArray<z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"image">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>>;
     reason: z.ZodString;
-    allCandidates: z.ZodReadonly<z.ZodArray<z.ZodString>>;
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
 }, z.core.$strip>;
@@ -624,6 +679,31 @@ export const ImageToVideoPrimaryInputSchema: z.ZodObject<{
     prompt: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
+// @public
+export function labelAsset<M extends ProducedAssetModality>(asset: {
+    assetId: string;
+    url?: string;
+    cost?: number;
+}, modality: M, label: string): LabelledAsset<M>;
+
+// @public
+export type LabelledAsset<M extends ProducedAssetModality = ProducedAssetModality> = {
+    assetId: string;
+    modality: M;
+    label: string;
+    url?: string;
+    cost?: number;
+};
+
+// @public
+export function labelledAssetShape<M extends ProducedAssetModality>(modality: M): {
+    readonly label: z.ZodString;
+    readonly assetId: z.ZodString;
+    readonly modality: z.ZodLiteral<M>;
+    readonly url: z.ZodOptional<z.ZodString>;
+    readonly cost: z.ZodOptional<z.ZodNumber>;
+};
+
 // @alpha
 export const LYRICS_TO_MV_DEFAULT_PROMPTS: Readonly<{
     mvKeyframes: "You plan the key visual moments of a short music video.\nGiven a theme and optional style, output JSON {\"keyframes\": [{\"prompt\": string}]} — one prompt per key visual moment, in sequence.\nRules: keep a CONSISTENT visual world across all keyframes (same palette / setting / subject treatment — restate the shared style anchor in each prompt); describe concrete imagery a camera would capture; NO quality boosters (8k/masterpiece); NO artist names. 1-3 sentences each.";
@@ -655,9 +735,19 @@ export type LyricsToMvOutput = z.infer<typeof LyricsToMvOutputSchema>;
 export const LyricsToMvOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
-    musicAssetId: z.ZodOptional<z.ZodString>;
-    clipAssetIds: z.ZodArray<z.ZodString>;
-    videoAssetId: z.ZodOptional<z.ZodString>;
+    assets: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"audio">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>, z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"video">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>]>>;
 }, z.core.$strip>;
 
 // @alpha
@@ -804,8 +894,19 @@ export type ProductAdShortOutput = z.infer<typeof ProductAdShortOutputSchema>;
 export const ProductAdShortOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
-    videoAssetId: z.ZodString;
-    musicAssetId: z.ZodOptional<z.ZodString>;
+    assets: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"video">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>, z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"audio">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>]>>;
 }, z.core.$strip>;
 
 // @alpha
@@ -833,7 +934,13 @@ export type ProductPhotoPackOutput = z.infer<typeof ProductPhotoPackOutputSchema
 export const ProductPhotoPackOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
-    imageAssetIds: z.ZodArray<z.ZodString>;
+    assets: z.ZodArray<z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"image">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>>;
 }, z.core.$strip>;
 
 // @alpha
@@ -982,7 +1089,13 @@ transitionMode?: "none" | "between-shots" | undefined;
 }, {
 cost: number | null;
 latencyMs: number;
-videoAssetId: string;
+assets: {
+label: string;
+assetId: string;
+modality: "video";
+url?: string | undefined;
+cost?: number | undefined;
+}[];
 shotCount: number;
 }>;
 
@@ -1061,7 +1174,13 @@ export type ScriptToVideoOutput = z.infer<typeof ScriptToVideoOutputSchema>;
 export const ScriptToVideoOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
-    videoAssetId: z.ZodString;
+    assets: z.ZodArray<z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"video">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>>;
     shotCount: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -1465,10 +1584,25 @@ export type UgcTestimonialOutput = z.infer<typeof UgcTestimonialOutputSchema>;
 export const UgcTestimonialOutputSchema: z.ZodObject<{
     cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
-    heroAssetId: z.ZodString;
-    voAssetId: z.ZodString;
-    shotClipAssetIds: z.ZodArray<z.ZodString>;
-    videoAssetId: z.ZodOptional<z.ZodString>;
+    assets: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"image">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>, z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"audio">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>, z.ZodObject<{
+        label: z.ZodString;
+        assetId: z.ZodString;
+        modality: z.ZodLiteral<"video">;
+        url: z.ZodOptional<z.ZodString>;
+        cost: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>]>>;
 }, z.core.$strip>;
 
 // @alpha

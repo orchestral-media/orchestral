@@ -27,7 +27,7 @@ interface RecordedStep {
  *     ({ storyboard: [ShotBrief] }) — the decomposition step.
  *   • image-to-image          → returns one produced asset
  *     (`asset-i2i-<idx>`).
- *   • meta_image-best-of-n     → returns a best-of-n output with a winning asset.
+ *   • meta_image-best-of-n     → returns a best-of-n output with a `winner`-labelled asset.
  *
  * `compute` just runs the fn (parallel() leans on it being awaited, but the
  * meta uses ctx.step + parallel over the panel promises directly).
@@ -60,9 +60,11 @@ function makeCtx(
       if (ref.patternId === 'meta_image-best-of-n') {
         const idx = bestOfNCount++
         return {
-          winningAssetId: `asset-bestof-${idx}`,
+          assets: [
+            { assetId: `asset-bestof-${idx}`, modality: 'image', label: 'winner' },
+            { assetId: `asset-bestof-${idx}-b`, modality: 'image', label: 'candidate' },
+          ],
           reason: 'best',
-          allCandidates: [`asset-bestof-${idx}`, `asset-bestof-${idx}-b`],
           cost: 0.5,
           latencyMs: 200,
         } as unknown as T

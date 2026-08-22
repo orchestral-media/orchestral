@@ -3,7 +3,16 @@ import type { MetaPattern, ExecutionContext } from '@orchestral/core'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
 import { textGeneration } from '../../atomic/text-generation'
 import { textToImage } from '../../atomic/text-to-image'
-import { firstAssetId, parseJsonWithSchema, resolvePrompts, styleTag, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
+import {
+  firstAsset,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  styleTag,
+  sumCosts,
+  toJsonSchemaCached,
+} from '../_shared/meta-utils'
 import { PRODUCT_PHOTO_PACK_SYSTEM } from './prompts'
 
 export const PRODUCT_PHOTO_PACK_PATTERN_ID = 'meta_product-photo-pack'
@@ -16,8 +25,14 @@ export const ProductPhotoPackInputSchema = z.object({
 })
 export type ProductPhotoPackInput = z.infer<typeof ProductPhotoPackInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way.
 export const ProductPhotoPackOutputSchema = z.object({
-  imageAssetIds: z.array(z.string()).describe('Asset ids of the generated product shot images, in slot order.'),
+  assets: z
+    .array(z.object(labelledAssetShape('image')))
+    .describe(
+      'The generated product shots in planned slot order, labelled `shot-<i>`. Empty when the user declined the cost gate.',
+    ),
   ...metaEnvelopeShape,
 })
 export type ProductPhotoPackOutput = z.infer<typeof ProductPhotoPackOutputSchema>
@@ -83,22 +98,22 @@ export function createProductPhotoPackMeta(
       })
       if (!confirmed) {
         return {
-          imageAssetIds: [],
+          assets: [],
           cost: sumCosts([gen.cost]),
           latencyMs: Date.now() - startedAt,
         }
       }
 
-      // Stage 2 — parallel text-to-image for all chosen slots
+      // Stage 2 — parallel text-to-image for all chosen slots. `parallel`
+      // preserves slot order, so shot i is the i-th planned slot.
       const images = await parallel(
         chosen.map((slot) => textToImage(ctx, { prompt: slot.prompt })),
       )
-      const imageAssetIds = images.map((r) =>
-        firstAssetId(r, 'product-photo-pack: text-to-image'),
-      )
 
       return {
-        imageAssetIds,
+        assets: images.map((r, i) =>
+          labelAsset(firstAsset(r, 'product-photo-pack: text-to-image'), 'image', `shot-${i}`),
+        ),
         cost: sumCosts([gen.cost, ...images.map((r) => r.cost)]),
         latencyMs: Date.now() - startedAt,
       }

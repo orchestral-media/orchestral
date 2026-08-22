@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vitest'
 import type { ExecutionContext, PatternRef, AskUserGeneric } from '@orchestral/core'
 import { buildAskUserFacade } from '@orchestral/core'
 import type { TextToImageOutput } from '../atomic/text-to-image'
-import { createProductPhotoPackMeta } from '../meta/product-photo-pack'
+import { createProductPhotoPackMeta, ProductPhotoPackOutputSchema } from '../meta/product-photo-pack'
+import { expectProducedAssetsEnvelope } from './helpers/produced-assets'
 
 // ── fake output helpers ───────────────────────────────────────────────────
 
@@ -72,33 +73,37 @@ describe('meta_product-photo-pack', () => {
       ctx,
     )
     expect(calls.filter((c) => c.patternId === 'text-to-image')).toHaveLength(2)
-    expect(out.imageAssetIds).toHaveLength(2)
+    expect(out.assets).toHaveLength(2)
     // cost = planning + 2 shots (0.1 + 0.2); latencyMs measured, non-negative.
     expect(out.cost).toBeCloseTo(TEXT_GEN_COST + t2iCost(0) + t2iCost(1))
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('confirm=false → zero text-to-image calls, returns { imageAssetIds: [] }', async () => {
+  it('confirm=false → zero text-to-image calls, returns { assets: [] }', async () => {
     const { ctx, calls } = makeCtx({ slotNames: ['hero', 'lifestyle', 'macro'], confirmed: false })
     const out = await createProductPhotoPackMeta().compose(
       { input: { brief: 'ceramic coffee mug', maxSlots: 3 } },
       ctx,
     )
     expect(calls.filter((c) => c.patternId === 'text-to-image')).toHaveLength(0)
-    expect(out.imageAssetIds).toEqual([])
+    expect(out.assets).toEqual([])
     // Only the planning step ran before the user declined.
     expect(out.cost).toBeCloseTo(TEXT_GEN_COST)
     expect(out.latencyMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('confirm=true → N text-to-image calls, returns N ids', async () => {
+  it('confirm=true → N text-to-image calls, returns N labelled shots in slot order', async () => {
     const { ctx, calls } = makeCtx({ slotNames: ['hero', 'lifestyle', 'macro'], confirmed: true })
     const out = await createProductPhotoPackMeta().compose(
       { input: { brief: 'ceramic coffee mug', maxSlots: 3 } },
       ctx,
     )
     expect(calls.filter((c) => c.patternId === 'text-to-image')).toHaveLength(3)
-    expect(out.imageAssetIds).toEqual(['shot-0', 'shot-1', 'shot-2'])
+    expect(out.assets).toEqual([
+      { assetId: 'shot-0', modality: 'image', label: 'shot-0' },
+      { assetId: 'shot-1', modality: 'image', label: 'shot-1' },
+      { assetId: 'shot-2', modality: 'image', label: 'shot-2' },
+    ])
     expect(out.cost).toBeCloseTo(
       TEXT_GEN_COST + t2iCost(0) + t2iCost(1) + t2iCost(2),
     )
@@ -180,5 +185,14 @@ describe('meta_product-photo-pack', () => {
         ctx,
       ),
     ).rejects.toThrow('produced no asset')
+  })
+
+  it('returns the produced-assets envelope: every shot labelled, no raw-id field anywhere', async () => {
+    const { ctx } = makeCtx({ slotNames: ['hero', 'lifestyle'], confirmed: true })
+    const out = await createProductPhotoPackMeta().compose(
+      { input: { brief: 'ceramic coffee mug', maxSlots: 2 } },
+      ctx,
+    )
+    expectProducedAssetsEnvelope(ProductPhotoPackOutputSchema, out)
   })
 })

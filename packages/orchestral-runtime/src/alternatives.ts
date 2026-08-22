@@ -210,6 +210,16 @@ export interface AvailableAlternative {
   description: string
   /** `Alternative.via.patternId` — submit this to take the path by hand. */
   targetPatternId: PatternId
+  /**
+   * `Alternative.preserves` / `Alternative.losses`, verbatim. The whole point
+   * of refusing-with-the-path-named is that the host can put the trade-off in
+   * front of a user before deciding; a diagnostic that names the path but not
+   * what it gives up sends the host back to the registry to look it up by id.
+   * The `job:alternative-selected` event on the `'auto'` path already carries
+   * both — the default `'off'` path must not be the less informative one.
+   */
+  preserves?: readonly Semantics[]
+  losses?: readonly Semantics[]
 }
 
 /** One sentence, both in the message and on the structured diagnostic. */
@@ -246,6 +256,8 @@ export class AlternativesNotEnabledError extends Error {
         id: alt.id,
         description: alt.description,
         targetPatternId: alt.via.patternId,
+        ...(alt.preserves ? { preserves: alt.preserves } : {}),
+        ...(alt.losses ? { losses: alt.losses } : {}),
       }),
     )
     super(

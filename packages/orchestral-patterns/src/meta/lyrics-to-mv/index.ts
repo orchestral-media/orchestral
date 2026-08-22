@@ -5,7 +5,18 @@ import { textGeneration } from '../../atomic/text-generation'
 import { textToImage } from '../../atomic/text-to-image'
 import { imageToVideo } from '../../atomic/image-to-video'
 import { textToAudio } from '../../atomic/text-to-audio'
-import { firstAssetId, parseJsonWithSchema, resolvePrompts, styleTag, sumCosts, toJsonSchemaCached, type MetaCommonDeps } from '../_shared/meta-utils'
+import {
+  firstAsset,
+  firstAssetId,
+  labelAsset,
+  labelledAssetShape,
+  parseJsonWithSchema,
+  resolvePrompts,
+  styleTag,
+  sumCosts,
+  toJsonSchemaCached,
+  type MetaCommonDeps,
+} from '../_shared/meta-utils'
 import { MV_KEYFRAMES_SYSTEM } from './prompts'
 
 export const LYRICS_TO_MV_PATTERN_ID = 'meta_lyrics-to-mv'
@@ -20,10 +31,21 @@ export const LyricsToMvInputSchema = z.object({
 })
 export type LyricsToMvInput = z.infer<typeof LyricsToMvInputSchema>
 
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way. Two
+// modalities come out of this meta, so the element is a union of the
+// per-modality shapes (serialises as `anyOf`, which the outputs audit walks).
+const LyricsToMvAssetSchema = z.union([
+  z.object(labelledAssetShape('audio')),
+  z.object(labelledAssetShape('video')),
+])
+
 export const LyricsToMvOutputSchema = z.object({
-  musicAssetId: z.string().optional().describe('Asset id of the music bed (omitted if user declined).'),
-  clipAssetIds: z.array(z.string()).describe('Asset ids of the animated keyframe clips.'),
-  videoAssetId: z.string().optional().describe('Asset id of the final MV (clips stitched + music laid in). Present only when user confirmed.'),
+  assets: z
+    .array(LyricsToMvAssetSchema)
+    .describe(
+      'Every produced asset, by label: `music` (the audio bed), `clip-<i>` (the animated keyframe clips, in keyframe order) and `final-video` (the clips stitched with the music laid in). Empty when the user declined the cost gate.',
+    ),
   ...metaEnvelopeShape,
 })
 export type LyricsToMvOutput = z.infer<typeof LyricsToMvOutputSchema>
@@ -89,7 +111,7 @@ export function createLyricsToMvMeta(deps: LyricsToMvMetaDeps): MetaPattern<Lyri
       })
 
       if (!confirmed) {
-        return { clipAssetIds: [], cost: sumCosts([gen.cost]), latencyMs: Date.now() - startedAt }
+        return { assets: [], cost: sumCosts([gen.cost]), latencyMs: Date.now() - startedAt }
       }
 
       // After confirm — music and keyframe animation run concurrently.
@@ -114,19 +136,22 @@ export function createLyricsToMvMeta(deps: LyricsToMvMetaDeps): MetaPattern<Lyri
       )
 
       const [music, clipOutputs] = await Promise.all([musicP, clipsP])
-      const musicAssetId = firstAssetId(music, 'lyrics-to-mv: text-to-audio')
-      const clipAssetIds = clipOutputs.map(({ clip }) =>
-        firstAssetId(clip, 'lyrics-to-mv: image-to-video'),
+      const musicAsset = labelAsset(firstAsset(music, 'lyrics-to-mv: text-to-audio'), 'audio', 'music')
+      // `parallel` preserves frame order, so clip i is keyframe i.
+      const clipAssets = clipOutputs.map(({ clip }, i) =>
+        labelAsset(firstAsset(clip, 'lyrics-to-mv: image-to-video'), 'video', `clip-${i}`),
       )
 
       // Stitch the clips then lay the music track in.
-      const { assetId: stitched } = await ctx.compute('concat-clips', () => deps.concatVideos(clipAssetIds))
-      const { assetId: videoAssetId } = await ctx.compute('mux-music', () => deps.addBackgroundAudio(stitched, musicAssetId, { mode: 'replace' }))
+      const { assetId: stitched } = await ctx.compute('concat-clips', () =>
+        deps.concatVideos(clipAssets.map((c) => c.assetId)),
+      )
+      const final = await ctx.compute('mux-music', () =>
+        deps.addBackgroundAudio(stitched, musicAsset.assetId, { mode: 'replace' }),
+      )
 
       return {
-        musicAssetId,
-        clipAssetIds,
-        videoAssetId,
+        assets: [musicAsset, ...clipAssets, labelAsset(final, 'video', 'final-video')],
         cost: sumCosts([
           gen.cost,
           music.cost,

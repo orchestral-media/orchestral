@@ -53,14 +53,37 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   unreported; wall-clock compose time), so a generic consumer can rely on those
   fields on any dispatch.
 
+- **Uniform `assets[]` + `label` envelope on every media-producing meta.**
+  The eight metas that handed their media back as bare id fields
+  (`videoAssetId`, `musicAssetId`, `clipAssetIds`, `scenes[].imageAssetId`,
+  `winningAssetId` / `allCandidates`, `imageAssetIds`, `heroAssetId`, …) now
+  return one flat top-level `assets[]` — the same `{ assetId, modality, url?,
+  cost? }` element the atomics produce, plus a required `label` naming the role
+  the asset played: `final-video` on every pipeline that ends in a video,
+  `music`, `clip-<i>`, `hero`, `voiceover`, `shot-<i>`, `scene-<i>-image` /
+  `scene-<i>-vo`, and `winner` / `candidate` (best-of-n keeps submission
+  order, so `assets[i]` is still candidate `i`). No other output field carries
+  an asset id, nested or not. The reason is the model-facing projection:
+  `projectToolOutputForModel` in `@orchestral/core` rebuilds `assets[]` from
+  the handle whitelist and deletes the legacy top-level `assetId`, but passes
+  every other field through untouched — so a `videoAssetId` reached the model
+  as a raw id on every dispatch of these metas. `label` is on that whitelist,
+  which is why the role rides on the element rather than in a field name; a
+  consumer (`meta_idea2video` reading `meta_script2video`, `meta_storyboard`
+  reading `meta_image-best-of-n`) finds an asset by label. `meta_storyboard`
+  already used this shape and is unchanged. `meta_explainer-short`'s
+  `scenes[]` now carries only `{ type, narration }`; its media is in
+  `assets[]` by scene label.
+
 - **Meta authoring surface.** `MetaCommonDeps` (the host-op contract every
-  deliverable meta `Pick`s from), plus `firstAssetId`, `parseJsonWithSchema`,
+  deliverable meta `Pick`s from), plus `firstAsset`, `firstAssetId`,
+  `labelAsset`, `labelledAssetShape`, `assetIdByLabel`, `parseJsonWithSchema`,
   `resolvePrompts`, `styleTag`, `sumCosts`, and `toJsonSchemaCached` — the
-  helpers a third-party meta needs to build the same cost envelope and prompt
-  fragments the first-party metas do. (`toJsonSchemaCached` is memoised and
-  returns a shared object per schema — treat the result as immutable; the
-  `-Cached` suffix keeps it distinct from `@orchestral/core`'s uncached
-  `toJsonSchema`.)
+  helpers a third-party meta needs to build the same cost envelope,
+  produced-assets envelope, and prompt fragments the first-party metas do.
+  (`toJsonSchemaCached` is memoised and returns a shared object per schema —
+  treat the result as immutable; the `-Cached` suffix keeps it distinct from
+  `@orchestral/core`'s uncached `toJsonSchema`.)
 
 - **Cost gates on the deliverable metas.** Six metas — `meta_explainer-short`,
   `meta_idea2video`, `meta_lyrics-to-mv`, `meta_product-ad-short`,

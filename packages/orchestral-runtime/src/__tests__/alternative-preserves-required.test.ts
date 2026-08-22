@@ -333,6 +333,9 @@ describe("preserves-required alternatives under the default alternatives: 'off'"
         id: 'via-identity',
         description: 'route through the identity-preserving capability',
         targetPatternId: 'identity_cap',
+        // The refusal carries the trade-off, not just the path.
+        preserves: ['subject-identity', 'composition'],
+        losses: ['style'],
       },
     ])
     expect(calls).toEqual([])

@@ -154,12 +154,16 @@ describe('alternatives default to off', () => {
         .diagnostic
       expect(diagnostic.capability).toBe('parent_cap')
       expect(diagnostic.reason).toBe('no-model-in-catalog')
-      // Every applicable path, named well enough to dispatch by hand.
+      // Every applicable path, named well enough to dispatch by hand — and
+      // with what it keeps and loses, so the host can put the trade-off in
+      // front of a user without going back to the registry for it.
       expect(diagnostic.alternatives).toEqual([
         {
           id: 'via-fallback',
           description: 'degrade to the fallback capability',
           targetPatternId: 'fallback_cap',
+          preserves: ['style'],
+          losses: ['subject-identity'],
         },
       ])
       // …and how to stop having to.

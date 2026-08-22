@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ExecutionContext, PatternRef } from '@orchestral/core'
 import {
   createScript2VideoMeta,
+  ScriptToVideoOutputSchema,
   type ScriptToVideoMetaDeps,
 } from '../meta/script2video'
+import { expectProducedAssetsEnvelope } from './helpers/produced-assets'
 import {
   CHARACTER_EXTRACTION_PROMPT,
   PORTRAIT_FRONT_PROMPT,
@@ -146,6 +148,17 @@ function makeCtx() {
 }
 
 describe("meta_script2video (W-1')", () => {
+  it('returns the produced-assets envelope: one labelled final-video, no raw-id field anywhere', async () => {
+    const meta = createScript2VideoMeta({ concatVideos: async () => ({ assetId: 'final' }) })
+    const { ctx } = makeCtx()
+    const out = await meta.compose(
+      { input: { sceneScript: 'a short scene', characters: [] } },
+      ctx,
+    )
+    expectProducedAssetsEnvelope(ScriptToVideoOutputSchema, out)
+    expect(out.assets.map((a) => a.label)).toEqual(['final-video'])
+  })
+
   it('runs the 8-stage DAG and concatenates the per-shot clips', async () => {
     const concatVideos = vi.fn(async (ids: readonly string[]) => ({
       assetId: `final[${ids.join(',')}]`,
@@ -178,7 +191,9 @@ describe("meta_script2video (W-1')", () => {
     expect(concatVideos).toHaveBeenCalledTimes(1)
     const concatArg = concatVideos.mock.calls[0][0]
     expect(concatArg).toHaveLength(2)
-    expect(out.videoAssetId).toBe(`final[${concatArg.join(',')}]`)
+    expect(out.assets).toEqual([
+      { assetId: `final[${concatArg.join(',')}]`, modality: 'video', label: 'final-video' },
+    ])
 
     // Meta envelope — accumulated cost is the sum over every paid atomic
     // dispatch (host concatVideos runs via ctx.compute and adds nothing);
