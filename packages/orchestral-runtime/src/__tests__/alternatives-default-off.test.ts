@@ -133,12 +133,10 @@ describe('alternatives default to off', () => {
     async ({ alternatives }) => {
       const { rt, events, calls, jobIds } = harness({ alternatives })
 
-      const thrown = await rt
-        .submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } })
-        .then(() => null)
-        .catch((e: unknown) => e)
+      const settled = await rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } })
 
-      expect((thrown as { code?: string }).code).toBe('ALTERNATIVES_NOT_ENABLED')
+      expect(settled.status).toBe('error')
+      expect(settled.error?.code).toBe('ALTERNATIVES_NOT_ENABLED')
       // The declared path did not run behind the caller's back.
       expect(calls).toEqual([])
       expect(events.some((e) => e.type === 'job:alternative-selected')).toBe(false)
@@ -214,9 +212,9 @@ describe('alternatives default to off', () => {
     registry.register(atomic('fallback_cap'))
 
     const { rt, jobIds } = harness({ registry })
-    await expect(
-      rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow(/ALTERNATIVES_NOT_ENABLED/)
+    const failed = await rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } })
+    expect(failed.status).toBe('error')
+    expect(failed.error?.message).toMatch(/ALTERNATIVES_NOT_ENABLED/)
 
     const job = await rt.pollJob(jobIds[0]!)
     const diagnostic = (job.error!.details as {
@@ -237,9 +235,9 @@ describe('alternatives default to off', () => {
     registry.register(atomic('fallback_cap'))
 
     const { rt, events, calls, jobIds } = harness({ registry })
-    await expect(
-      rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow(/NO_MODEL_FOR_CAPABILITY/)
+    const failed = await rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } })
+    expect(failed.status).toBe('error')
+    expect(failed.error?.message).toMatch(/NO_MODEL_FOR_CAPABILITY/)
 
     const job = await rt.pollJob(jobIds[0]!)
     expect(job.status).toBe('error')
@@ -264,7 +262,7 @@ describe('alternatives default to off', () => {
     expect(events.some((e) => e.type === 'job:alternative-selected')).toBe(true)
   })
 
-  it('rethrows a failed model call verbatim rather than restating it as a routing error', async () => {
+  it('surfaces a failed model call verbatim rather than restating it as a routing error', async () => {
     // The other fall-through into alternatives: a model WAS resolved and its
     // call failed. Off means no redirect there either, but the provider error
     // is the actionable one, so it must reach the host unmasked.
@@ -300,9 +298,9 @@ describe('alternatives default to off', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('provider 401')
+    const failed = await rt.submitJob({ patternId: 'parent_cap', input: { prompt: 'go' } })
+    expect(failed.status).toBe('error')
+    expect(failed.error?.message).toContain('provider 401')
 
     const job = await rt.pollJob(jobIds[0]!)
     expect(job.error!.code).toBe('PROVIDER_AUTH_FAILED')

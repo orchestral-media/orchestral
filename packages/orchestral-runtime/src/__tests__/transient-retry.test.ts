@@ -13,19 +13,28 @@
 //   • Retries do not buy fallback hops and hops do not buy retries — the last
 //     test pins the exact call matrix.
 //   • `isTransient` false is instant: no backoff, no second call.
-//   • Abort during backoff rejects immediately rather than sleeping the delay
-//     out first.
+//   • Abort during backoff settles the job cancelled immediately rather than
+//     sleeping the delay out first.
+//   • Every model the walk gives up on is announced once, as
+//     `job:model-fallback` carrying that hop's attempt count and the provider's
+//     own error — and nothing in a dispatch writes to the console. The loop
+//     used to console.error every failure and this file had to spy on stderr
+//     to see it; the event is the contract now, and the console spy exists to
+//     prove it stays empty.
 //
 // Harness mirrors atomic-model-call-failure.test.ts: a real InlineRuntime over
 // an in-memory store plus a hand-rolled fake router whose resolve/call we
 // script. No alternatives are registered, so a terminal failure falls straight
-// through to `throw lastErr` and the submitJob promise rejects with it.
+// through to `throw lastErr`, lands on the row as its JobError, and submitJob
+// resolves with the failed Job.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import type {
   AtomicPattern,
   CapabilityRouter,
+  DiagnosticsLogger,
+  JobEvent,
   Modality,
   ModelCapability,
   ResolveContext,
@@ -110,32 +119,69 @@ function scriptedRouter(order: readonly ModelCapability[]) {
   return { router, excludeSeen, resolves: () => hop }
 }
 
+type ModelFallbackEvent = Extract<JobEvent, { type: 'job:model-fallback' }>
+
+/**
+ * Every event the job under test fanned out, in order, and every line the
+ * runtime sent to its DiagnosticsLogger. Both reset per test. The logger is
+ * injected rather than left on the console default so the console spies
+ * below prove a dispatch writes nothing there — not merely that it writes
+ * little.
+ */
+let events: JobEvent[] = []
+let diagnostics: { level: 'warn' | 'error'; message: string }[] = []
+const logger: DiagnosticsLogger = {
+  warn: (message) => void diagnostics.push({ level: 'warn', message }),
+  error: (message) => void diagnostics.push({ level: 'error', message }),
+}
+const fallbacks = (): ModelFallbackEvent[] =>
+  events.filter((e): e is ModelFallbackEvent => e.type === 'job:model-fallback')
+
 function runtimeFor(
   router: CapabilityRouter,
   init: Partial<ConstructorParameters<typeof InlineRuntime>[0]> = {},
 ) {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger })
   registry.register(atomic('cap'))
-  return new InlineRuntime({
+  const rt = new InlineRuntime({
     store: new MemoryJobStore() as never,
     registry,
     router,
+    logger,
     ...init,
+    // submitJob resolves at terminal, so onJobCreated is the only window in
+    // which a subscription still sees progress events. A caller's own hook
+    // runs after the subscription is attached.
+    onJobCreated: (jobId, spec) => {
+      rt.subscribe(jobId, (ev) => void events.push(ev))
+      init.onJobCreated?.(jobId, spec)
+    },
   })
+  return rt
 }
 
-const transientErr = () => new Error('RATE_LIMITED_429')
+/** A 429 the way a provider SDK would throw it — a message plus a code. */
+const transientErr = () =>
+  Object.assign(new Error('RATE_LIMITED_429'), { code: 'RATE_LIMITED' })
 
 let consoleError: ReturnType<typeof vi.spyOn>
+let consoleWarn: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  // The dispatch loop prints every provider failure by design; these tests
-  // provoke a lot of them on purpose.
+  events = []
+  diagnostics = []
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 afterEach(() => {
+  // The contract every test in this file runs under: a dispatch — retries,
+  // fallback hops, a host predicate that throws — never reaches the console.
+  // It goes to the job stream or to the injected logger, nowhere else.
+  expect(consoleError).not.toHaveBeenCalled()
+  expect(consoleWarn).not.toHaveBeenCalled()
   consoleError.mockRestore()
+  consoleWarn.mockRestore()
 })
 
 describe('same-model transient retry', () => {
@@ -158,6 +204,17 @@ describe('same-model transient retry', () => {
     expect(b.calls.n).toBe(1)
     // A was given up on after that single call, so hop 1 resolved with it out.
     expect(excludeSeen).toEqual([[], ['prov:A']])
+    // ...and the give-up is on the job stream, once, with the provider's own
+    // error: one attempt, because nothing granted a second.
+    expect(fallbacks()).toMatchObject([
+      {
+        capability: 'cap',
+        failedModel: 'prov:A',
+        hop: 0,
+        attempts: 1,
+        error: { code: 'RATE_LIMITED', message: 'RATE_LIMITED_429' },
+      },
+    ])
   })
 
   it('retries the SAME model maxAttempts times before excluding it', async () => {
@@ -189,12 +246,12 @@ describe('same-model transient retry', () => {
       { capability: 'cap', model: 'prov:A', attempt: 2 },
       { capability: 'cap', model: 'prov:A', attempt: 3 },
     ])
-    // The log line names the hop and the attempt so a support ticket can tell
-    // "tried three providers" from "tried one provider three times".
-    expect(consoleError).toHaveBeenCalledTimes(3)
-    expect(String(consoleError.mock.calls[2]?.[0])).toContain(
-      'hop=0, attempt=3',
-    )
+    // One event for the hop — not one per attempt — and it carries the attempt
+    // count, so a support ticket can tell "tried three providers" from "tried
+    // one provider three times".
+    expect(fallbacks()).toMatchObject([
+      { failedModel: 'prov:A', hop: 0, attempts: 3, error: { code: 'RATE_LIMITED' } },
+    ])
   })
 
   it('falls back to the next model once the retries are spent', async () => {
@@ -215,6 +272,8 @@ describe('same-model transient retry', () => {
     expect(b.calls.n).toBe(1)
     expect(resolves()).toBe(2)
     expect(job.output).toEqual({ modality: 'text', text: 'from-B' })
+    // B succeeded, so only A was given up on: one event, two attempts.
+    expect(fallbacks().map((e) => [e.failedModel, e.attempts])).toEqual([['prov:A', 2]])
   })
 
   it('excludes immediately — no retry, no backoff — when isTransient says false', async () => {
@@ -238,6 +297,15 @@ describe('same-model transient retry', () => {
     expect(job.output).toEqual({ modality: 'text', text: 'from-B' })
     expect(excludeSeen).toEqual([[], ['prov:A']])
     expect(Date.now() - started).toBeLessThan(2_000)
+    // A provider error with no code normalises to the dispatch default; the
+    // event reports what the provider said, never a retry verdict.
+    expect(fallbacks()).toMatchObject([
+      {
+        failedModel: 'prov:A',
+        attempts: 1,
+        error: { code: 'DISPATCH_EXECUTE_FAILED', message: 'CONTENT_POLICY_REJECTED' },
+      },
+    ])
   })
 
   it("treats a wired policy of { kind: 'none' } as inert", async () => {
@@ -253,6 +321,7 @@ describe('same-model transient retry', () => {
 
     expect(a.calls.n).toBe(1)
     expect(b.calls.n).toBe(1)
+    expect(fallbacks().map((e) => e.attempts)).toEqual([1])
   })
 
   it('reads a throwing isTransient as false without displacing the provider error', async () => {
@@ -273,20 +342,25 @@ describe('same-model transient retry', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('REAL_PROVIDER_FAILURE')
-    // No retry was granted, and the bug was reported rather than swallowed.
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toBe('REAL_PROVIDER_FAILURE')
+    // No retry was granted, and the bug was reported — to the injected logger,
+    // which is the one channel a host-callback failure has — not swallowed.
     expect(a.calls.n).toBe(1)
     expect(
-      consoleError.mock.calls.some((c) =>
-        String(c[0]).includes('isTransient threw'),
+      diagnostics.some(
+        (d) => d.level === 'error' && d.message.includes('isTransient threw'),
       ),
     ).toBe(true)
+    // The event carries the provider's failure, not the predicate's.
+    expect(fallbacks()).toMatchObject([
+      { attempts: 1, error: { message: 'REAL_PROVIDER_FAILURE' } },
+    ])
   })
 
-  it('rejects immediately when the job is cancelled during backoff', async () => {
-    // The backoff is 30s. Cancelling 20ms in must reject then, not half a
+  it('settles cancelled immediately when the job is cancelled during backoff', async () => {
+    // The backoff is 30s. Cancelling 20ms in must settle then, not half a
     // minute later — abortableSleep rejects on the signal instead of running
     // the timer down.
     let jobId: string | undefined
@@ -315,14 +389,15 @@ describe('same-model transient retry', () => {
     })
 
     const started = Date.now()
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow(/CANCELLED/)
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('cancelled')
     expect(Date.now() - started).toBeLessThan(5_000)
     // The abort landed inside the backoff: one call made, no second attempt,
     // and the walk never advanced to B.
     expect(calls.n).toBe(1)
     expect(resolves()).toBe(1)
+    // A cancelled hop is not a hop the dispatch gave up on: no event.
+    expect(fallbacks()).toEqual([])
   })
 
   it('keeps the retry budget and the fallback budget out of each other', async () => {
@@ -348,15 +423,24 @@ describe('same-model transient retry', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('RATE_LIMITED_429')
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toBe('RATE_LIMITED_429')
 
     expect(a.calls.n).toBe(2)
     expect(b.calls.n).toBe(2)
     expect(c.calls.n).toBe(0)
     expect(resolves()).toBe(2)
     expect(excludeSeen).toEqual([[], ['prov:A']])
+    // The same 2×2 matrix as the subscriber saw it: one event per hop, each
+    // naming its own model and its own two attempts. Both landed before the
+    // terminal event, which can only carry the last of the two errors.
+    expect(fallbacks().map((e) => [e.failedModel, e.hop, e.attempts])).toEqual([
+      ['prov:A', 0, 2],
+      ['prov:B', 1, 2],
+    ])
+    const types = events.map((e) => e.type)
+    expect(types.lastIndexOf('job:model-fallback')).toBeLessThan(types.indexOf('job:failed'))
   })
 
   it('leaves the fallback walk at full width when retries are wired', async () => {
@@ -375,12 +459,18 @@ describe('same-model transient retry', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('RATE_LIMITED_429')
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toBe('RATE_LIMITED_429')
 
     // Default fallbackDepth 3 → hops 0..3 → four candidates, E untouched.
     expect(resolves()).toBe(4)
     expect(models.map((m) => m.calls.n)).toEqual([2, 2, 2, 2, 0])
+    expect(fallbacks().map((e) => [e.failedModel, e.hop])).toEqual([
+      ['prov:A', 0],
+      ['prov:B', 1],
+      ['prov:C', 2],
+      ['prov:D', 3],
+    ])
   })
 })

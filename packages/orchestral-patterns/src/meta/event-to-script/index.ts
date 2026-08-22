@@ -231,6 +231,8 @@ export function createEventToScriptMeta(
           ? Promise.resolve(
               scenes.map((s) => ({
                 text: s.script,
+                // Polish skipped: nothing ran, so this is a genuine 0, not an
+                // unreported (null) cost.
                 cost: 0,
                 latencyMs: 0,
               })),
@@ -267,7 +269,7 @@ export function createEventToScriptMeta(
         polishedScript: polishedScripts[idx]!.text,
       }))
 
-      const polishCost = sumCosts(...polishedScripts)
+      const polishCost = sumCosts(polishedScripts.map((p) => p.cost))
       const polishLatencyMs = polishedScripts.reduce(
         (max, p) => Math.max(max, p.latencyMs),
         0,
@@ -276,7 +278,7 @@ export function createEventToScriptMeta(
       return {
         eventScenes,
         eventCharRegistry,
-        cost: sumCosts(scenesOut, mergeOut, { cost: polishCost }),
+        cost: sumCosts([scenesOut.cost, mergeOut.cost, polishCost]),
         latencyMs:
           scenesOut.latencyMs +
           Math.max(mergeOut.latencyMs, polishLatencyMs),

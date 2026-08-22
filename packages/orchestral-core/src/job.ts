@@ -3,6 +3,7 @@
 // implementations (e.g. @orchestral/runtime) consume these types.
 
 import type { PatternId } from './foundational'
+import type { Capability } from './capability'
 import type { Artifact } from './pattern'
 import type { ResolvedAssetRef } from './asset-index.types'
 import type { Semantics } from './alternative'
@@ -268,6 +269,32 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
       assets?: readonly { assetId: string; modality: string; url?: string }[]
     }
   | { type: 'job:output'; job: Job<TInput, TOutput> }
+  | {
+      /**
+       * The model fallback walk gave up on a candidate and is moving on — to
+       * the next hop, or past the last one to a declared Alternative / the
+       * terminal failure. Fired once per hop, AFTER that candidate's same-model
+       * transient retry budget is spent (never per attempt) and BEFORE the next
+       * `resolve`, so a subscriber sees each provider's own error as it lands.
+       *
+       * This is the only place those errors are visible. Once a model is in
+       * `excludeModel` the router reports it as MODEL_EXCLUDED, and only the
+       * final attempt's error survives to `job:failed` — so without this event
+       * the auth / quota / network failure that actually started the walk
+       * would reach nobody.
+       */
+      type: 'job:model-fallback'
+      job: Job<TInput, TOutput>
+      capability: Capability
+      /** `${provider}:${modelId}` of the model this dispatch has now given up on. */
+      failedModel: string
+      /** 0-based position in the fallback walk. */
+      hop: number
+      /** Attempts made against this model inside this hop (1 = no transient retry). */
+      attempts: number
+      /** The error that ended the last attempt, normalised. */
+      error: JobError
+    }
   | {
       /**
        * Dispatch fell through the primary path and is redirecting via a

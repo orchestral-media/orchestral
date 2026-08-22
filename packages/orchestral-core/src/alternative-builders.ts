@@ -26,8 +26,16 @@ export const whenCapabilityUnavailable = (
 
 /**
  * Match when the planner / user has signalled they want one or more
- * semantic dimensions preserved (via the conventional
- * `input.requiresSemantics: Semantics[]` field).
+ * semantic dimensions preserved.
+ *
+ * The signal is the input field `requiresSemantics?: Semantics[]` — the
+ * convention `AlternativeAppliesWhen` documents in ./alternative. A Pattern
+ * that wants this row declares the field on its inputs, the caller fills it,
+ * and the runtime reads it off `JobSpec.input` at dispatch; there is no other
+ * wiring. @orchestral/runtime treats any overlap as a match: the row applies
+ * when at least one of `semantics` is in what the caller filled, so list
+ * every dimension the path is a good answer for. A dispatch with the field
+ * absent (or not an array of strings) requires nothing and never matches.
  */
 export const whenPreservesRequired = (
   ...semantics: readonly Semantics[]

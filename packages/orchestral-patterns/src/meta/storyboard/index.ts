@@ -294,7 +294,7 @@ export function createStoryboardMeta(
             modality: 'image' as const,
           })),
         ),
-        cost: sumCosts({ cost: designCost }, ...rendered),
+        cost: sumCosts([designCost, ...rendered.map((r) => r.cost)]),
         latencyMs: Date.now() - startedAt,
       }
     },
@@ -315,7 +315,7 @@ async function designStoryboard(
   ctx: Ctx,
   input: StoryboardInput,
   storyboardDesignPrompt: string,
-): Promise<{ shots: ShotBrief[]; cost: number }> {
+): Promise<{ shots: ShotBrief[]; cost: number | null }> {
   const prompt = buildStoryboardPrompt(
     input.scene,
     input.characters,
@@ -416,7 +416,7 @@ async function renderPanel(
   shot: ShotBrief,
   idx: number,
   refsByName: ReadonlyMap<string, readonly string[]>,
-): Promise<{ panel: StoryboardPanel; cost: number }> {
+): Promise<{ panel: StoryboardPanel; cost: number | null }> {
   const characterNames = extractCharacterNames(shot.visual_desc)
 
   // Collect refs for every on-screen character, tracking which handle belongs
@@ -486,7 +486,7 @@ async function renderSingle(
   prompt: string,
   sourceRefs: readonly string[],
   idx: number,
-): Promise<{ assetIds: string[]; cost: number }> {
+): Promise<{ assetIds: string[]; cost: number | null }> {
   const out = await imageToImage(
     ctx,
     { prompt, references: { source: [...sourceRefs] } },
@@ -511,7 +511,7 @@ async function renderBestOfN(
   refNames: readonly string[],
   n: number,
   idx: number,
-): Promise<{ assetIds: string[]; cost: number }> {
+): Promise<{ assetIds: string[]; cost: number | null }> {
   // Hand the SAME character reference handles to the judge as ground truth, so
   // it scores each candidate on character consistency (this meta's whole point)
   // rather than description-fidelity alone. referenceHandles ride the same

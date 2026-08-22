@@ -140,7 +140,7 @@ export function createReferenceImageCascadeMeta(
       const { input } = params
       const startedAt = Date.now()
       let working = input.candidates
-      let prefilterCost = 0
+      let prefilterCost: number | null = 0
 
       // Stage 1 — text-only prefilter, only for large candidate sets.
       if (working.length >= PREFILTER_THRESHOLD) {
@@ -150,7 +150,7 @@ export function createReferenceImageCascadeMeta(
           responseFormat: 'json',
           jsonSchema: toJsonSchemaCached(RefSelectionResponseSchema),
         })
-        prefilterCost = sumCosts(prefiltered)
+        prefilterCost = sumCosts([prefiltered.cost])
         const picked = validIndices(
           safeIndices(prefiltered.text),
           working.length,
@@ -186,7 +186,7 @@ export function createReferenceImageCascadeMeta(
       return {
         selectedRefs: finalIdx.map((i) => working[i].ref),
         textPrompt: parsed.text_prompt,
-        cost: sumCosts({ cost: prefilterCost }, selected),
+        cost: sumCosts([prefilterCost, selected.cost]),
         latencyMs: Date.now() - startedAt,
       }
     },

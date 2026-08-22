@@ -44,7 +44,10 @@ npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 
 Two optional packages sit on top: `@orchestral/discovery` (the BM25 search
 behind a `find_pattern` tool) and `@orchestral/agent` (the two agent patterns).
-Neither pulls in a provider SDK.
+Neither pulls in a provider SDK. A third, `@orchestral/adapters-ai-sdk`, is the
+one package that does: it wraps a Vercel AI SDK model instance as a ready-made
+`ModelCapability`, so a host already on the AI SDK skips writing the call
+adapter. It is a leaf — nothing in `@orchestral/*` depends on it.
 
 `zod` v4 (`>=4.3 <5`) is a peer dependency: pattern input/output schemas are zod
 schemas on the public API, so your app and Orchestral must share one zod
@@ -108,7 +111,8 @@ const model: ModelCapability = {
     const output = {
       modality: 'image' as const,
       assets,
-      cost: 0,
+      // the AI SDK does not report image cost; null = unknown, never 0
+      cost: null,
       latencyMs: Date.now() - startedAt,
       model: 'openai:gpt-image-1',
       provider: 'openai',
@@ -131,6 +135,11 @@ const job = await runtime.submitJob({
 })
 console.log(job.status, job.output) // 'done'  { modality: 'image', assets: [...] }
 ```
+
+Or, for the AI SDK, skip the hand-written adapter:
+`fromImageModel(openai.image('gpt-image-1'))` from
+[`@orchestral/adapters-ai-sdk`](packages/orchestral-adapters-ai-sdk) returns the
+same envelope.
 
 The annotated version of the same wiring is in
 [`packages/orchestral-core/README.md`](packages/orchestral-core/README.md#minimal-example).
@@ -157,7 +166,7 @@ implementations you swap; the third is the call adapter:
 | --- | --- | --- |
 | `JobStore` | where job rows live | `InMemoryJobStore` for dev/test; bring a durable one (e.g. SQLite-backed) for production |
 | `CapabilityRouter` | which model answers a capability | `createDefaultCapabilityRouter`; you inject `getModels` and an optional enablement gate |
-| `ModelCapability.call` | the actual provider invocation | nothing — this is the ~15-line adapter you write over your own SDK |
+| `ModelCapability.call` | the actual provider invocation | nothing — this is the ~15-line adapter you write over your own SDK (or, for the Vercel AI SDK, the one `@orchestral/adapters-ai-sdk` ships) |
 
 Agent patterns add a fourth seam, `AgentRunImpl`, which drives the inner LLM
 tool-loop. It is `@alpha`, and it ships nothing for the same reason
@@ -174,6 +183,7 @@ lines — copy it and swap in whatever loop you already run.
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
 | [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex` and the `find_pattern` tool handler. Core keeps the input contract; this package owns the searching. |
 | [`@orchestral/agent`](packages/orchestral-agent) | Optional. The two agent patterns (an orchestrator and a long-form-video director). Declarations only — the tool loop that runs them is the `AgentRunImpl` you inject. |
+| [`@orchestral/adapters-ai-sdk`](packages/orchestral-adapters-ai-sdk) | Optional. Ready-made `ModelCapability` envelopes over a Vercel AI SDK model instance — `fromImageModel` / `fromSpeechModel` / `fromTranscriptionModel` — for hosts already on the AI SDK. A leaf package: it depends on core and `ai`, and nothing depends on it. |
 | [`@orchestral/dsh-plugin`](packages/orchestral-dsh-plugin) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |
 
 All packages are Apache-2.0. The `@orchestral/*` packages are released together
@@ -201,6 +211,8 @@ This is 0.x. Each package README states its own edges rather than hiding them:
   [runtime § Alternative fallback is opt-in](packages/orchestral-runtime/README.md#alternative-fallback-is-opt-in),
   [core § Semantic fallback](packages/orchestral-core/README.md#semantic-fallback-alternative).
 
+For the reasoning behind what the library deliberately leaves out, see [DESIGN.md](DESIGN.md).
+
 ## Versioning
 
 `0.x`: minor versions may contain breaking changes, patch versions never do.
@@ -217,6 +229,7 @@ packages/orchestral-discovery/   @orchestral/discovery
 packages/orchestral-patterns/    @orchestral/patterns
 packages/orchestral-runtime/     @orchestral/runtime
 packages/orchestral-agent/       @orchestral/agent
+packages/orchestral-adapters-ai-sdk/  @orchestral/adapters-ai-sdk (leaf: AI SDK model → ModelCapability)
 packages/orchestral-dsh-plugin/  @orchestral/dsh-plugin (independent version line)
 examples/                        runnable hosts, ~50 lines each
 scripts/smoke-dist.mjs           executes the built dist bundles end to end

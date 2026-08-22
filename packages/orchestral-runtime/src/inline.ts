@@ -12,10 +12,14 @@
 // Design highlights:
 //  • The runtime resolves a ModelCapability via the Router and invokes
 //    `modelCap.call(effectiveInput, ctx)` — primary path only.
-//  • A model the dispatch gives up on is accumulated into
+//  • A model the dispatch gives up on is announced as `job:model-fallback`
+//    (that hop's own error + attempt count) and accumulated into
 //    `ResolveContext.excludeModel`, so the next `resolve` walks to the next
 //    candidate. Retrying the SAME model first is separate and opt-in
 //    (`InlineRuntimeInit.transientRetry`) — the two budgets never mix.
+//  • Nothing here writes to the host console — what belongs to a job is a
+//    JobEvent; what has no job to ride on (a host callback that threw) goes
+//    to `InlineRuntimeInit.logger`.
 //  • Cross-Pattern recovery is declarative via `Pattern.alternatives[*]`
 //    evaluated in the satisfiability phase — opt-in, off by default
 //    (`InlineRuntimeInit.alternatives`).
@@ -34,6 +38,7 @@ import type {
   CallEvents,
   Capability,
   CapabilityRouter,
+  DiagnosticsLogger,
   DispatchContext,
   DispatchMiddleware,
   ExecutionContext,
@@ -52,12 +57,14 @@ import type {
   ResolvedAssetRef,
   RetryPolicy,
   Runtime,
+  Semantics,
   TranscriptStore,
   Unsubscribe,
   DispatchResult,
 } from '@orchestral/core'
 import {
   assertSupportedModelSpecVersion,
+  consoleDiagnosticsLogger,
   NoModelForCapabilityError,
 } from '@orchestral/core'
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core'
@@ -116,6 +123,29 @@ function stepAssets(
       typeof (a as { modality?: unknown }).modality === 'string',
   )
   return usable.length > 0 ? usable : undefined
+}
+
+/**
+ * The semantic dimensions the caller asked this dispatch to preserve, read off
+ * the input's `requiresSemantics` field. This is the caller's half of
+ * `appliesWhen: { kind: 'preserves-required' }`: core/alternative.ts sets the
+ * convention that a Pattern wanting that member exposes
+ * `requiresSemantics?: Semantics[]` on its inputs, and the runtime compares
+ * whatever the caller filled against the alternative's `semantics`.
+ *
+ * Read off the input rather than demanded of every schema because the field
+ * is opt-in per Pattern — one appliesWhen kind must not force a field onto the
+ * input schema of every Pattern that will never declare such a row. That also
+ * makes this the one place the value is untyped: the input has passed the
+ * Pattern's zod schema, but `requiresSemantics` is convention, not schema, so
+ * a missing or malformed value means "nothing required" and never a throw.
+ * Anything that is not an array is ignored; non-string entries are dropped.
+ */
+function readRequiresSemantics(input: unknown): readonly Semantics[] {
+  if (typeof input !== 'object' || input === null) return []
+  const raw = (input as { requiresSemantics?: unknown }).requiresSemantics
+  if (!Array.isArray(raw)) return []
+  return raw.filter((s): s is Semantics => typeof s === 'string')
 }
 
 /**
@@ -206,18 +236,21 @@ export interface TransientRetryConfig {
  * error it was asked about. A predicate that throws (reading `err.response.status`
  * off a string, say) is a host bug, and surfacing THAT instead of the real
  * failure is the same masking the dispatch loop's lastErr guard exists to
- * prevent — so it is reported loudly and read as "not transient", which is the
- * fail-closed answer.
+ * prevent — so it is reported on the host's diagnostics logger and read as
+ * "not transient", which is the fail-closed answer.
  */
 function classifyTransient(
   config: TransientRetryConfig,
+  logger: DiagnosticsLogger,
   error: unknown,
   info: TransientFailureInfo,
 ): boolean {
   try {
     return config.isTransient(error, info) === true
   } catch (predicateError) {
-    console.error(
+    // A host-callback failure has no event to ride on; the provider failure
+    // it was asked about is what `job:model-fallback` carries.
+    logger.error(
       `[inline-runtime] transientRetry.isTransient threw for ${info.model} ` +
         `(cap=${info.capability}); treating the failure as non-transient:`,
       predicateError,
@@ -244,7 +277,8 @@ export interface InlineRuntimeInit {
    * Fires synchronously inside `submitJob` after the runtime mints a jobId
    * and inserts the queued row, BEFORE dispatch. Lets the host correlate
    * its own request id to the runtime jobId so it can call cancelJob
-   * mid-flight. Exceptions are swallowed (observational only).
+   * mid-flight. Exceptions are reported on `logger` and otherwise swallowed
+   * (observational only).
    */
   onJobCreated?: (jobId: string, spec: JobSpec) => void
   /**
@@ -377,6 +411,18 @@ export interface InlineRuntimeInit {
    * agent-loop descriptors truthful and in step with its own chat-turn catalog.
    */
   catalogOptions?: BuildCatalogDescriptorsOptions
+  /**
+   * Where diagnostics that have no JobEvent go. Anything that belongs to a
+   * job — a model the fallback walk gave up on, a meta step landing, a refused
+   * agent tool call — is an event on that job's stream, never a log line.
+   * This seam takes only what has no job to fan out on or failed while fanning
+   * out: a host callback that threw (`onJobCreated`, `middleware.onError`, a
+   * subscriber, `transientRetry.isTransient`), a transcript append that
+   * failed, a row `abandonOrphanedJobs` could not update. Defaults to the host
+   * console (`consoleDiagnosticsLogger`); pass `silentDiagnosticsLogger` in
+   * tests, or an adapter onto your own logger.
+   */
+  logger?: DiagnosticsLogger
 }
 
 
@@ -406,6 +452,7 @@ export class InlineRuntime implements Runtime {
   private readonly agentAssetBridge?: AgentAssetBridge
   private readonly askUser?: AskUserHandler
   private readonly catalogOptions?: BuildCatalogDescriptorsOptions
+  private readonly logger: DiagnosticsLogger
   /**
    * Capture the per-dispatch envelope under the jobId of the agent dispatch.
    * Populated inside dispatchAgent on completion (both
@@ -441,6 +488,7 @@ export class InlineRuntime implements Runtime {
     this.agentAssetBridge = init.assetBridge
     this.askUser = init.askUser
     this.catalogOptions = init.catalogOptions
+    this.logger = init.logger ?? consoleDiagnosticsLogger
   }
 
   /**
@@ -448,6 +496,22 @@ export class InlineRuntime implements Runtime {
    * already terminal and every job event has fired. Subscribe from the
    * `onJobCreated` init hook to observe progress; subscribing after this
    * promise resolves observes nothing.
+   *
+   * Failure is data, not a rejection. Once a job row exists, whatever happens
+   * to it — a provider failure, a middleware reject, a guard trip, a cancel —
+   * lands on that row as `status: 'error'` (with `error` populated) or
+   * `status: 'cancelled'`, the matching `job:failed` / `job:cancelled` event
+   * fans out, and this promise resolves with the row. Read `job.status`; a
+   * `try/catch` around this call never sees a dispatch failure.
+   *
+   * The promise rejects only when the request never became a job: an
+   * unregistered `patternId` (`PATTERN_NOT_REGISTERED`), an input the
+   * idempotency key cannot be derived from, a store that refuses the INSERT.
+   * The rule is "a request that could not become a job throws; a job that
+   * ran and failed returns". One case sits between the two and also rejects:
+   * the row exists but the store failed to persist its terminal state. The
+   * Job this call could hand back would then misreport where the work ended,
+   * so the underlying error surfaces instead.
    *
    * One exception: on an idempotency dedup hit this returns the existing
    * canonical row as-is, which may still be `queued` / `running` with a null
@@ -463,7 +527,34 @@ export class InlineRuntime implements Runtime {
     // (dispatchMeta sub-steps, dispatchAgent.onToolCall)
     // forward the calling chain via `_submitJobInternal` so descendants can
     // see every ancestor Pattern for runtime cycle / depth checks.
-    return this._submitJobInternal<TIn, TOut>(spec, [], undefined, undefined, undefined)
+    //
+    // `_submitJobInternal` keeps THROWING on a failed dispatch, and the
+    // recursive callers want that: the throw is what unwinds a meta's compose
+    // at a failed `ctx.step`, and what carries CANCELLED up a cascade. Only
+    // this public boundary turns the throw back into the persisted row. It
+    // can tell a pre-row failure from a post-row one because the per-call
+    // `onJobCreated` capture — the same seam `submitAgentAsync` resolves its
+    // jobId through — fires exactly when a row becomes addressable.
+    let jobId: string | undefined
+    try {
+      return await this._submitJobInternal<TIn, TOut>(
+        spec,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        { onJobCreated: (id) => { jobId = id } },
+      )
+    } catch (err) {
+      // No row was ever created: the request itself was bad, and there is no
+      // Job to describe it with.
+      if (jobId === undefined) throw err
+      const row = (await this.store.get(jobId)) as Job<TIn, TOut> | null
+      // The row exists but never reached terminal, so the failure is in the
+      // persistence path, not the dispatch — the row would misreport it.
+      if (!row || row.status === 'queued' || row.status === 'running') throw err
+      return row
+    }
   }
 
   /**
@@ -629,27 +720,27 @@ export class InlineRuntime implements Runtime {
       // wired before submitAgentAsync resolves its jobId.
       if (spec.jobKind === 'agent' && this.onJobCreated) {
         try { this.onJobCreated(winner.id, spec as JobSpec) }
-        catch (e) { console.warn(`[runtime] onJobCreated (agent dedup) threw for ${winner.id}:`, e) }
+        catch (e) { this.logger.warn(`[runtime] onJobCreated (agent dedup) threw for ${winner.id}:`, e) }
       }
       // Fire the per-call capture so a fire-and-forget caller (submitAgentAsync)
       // still sees the addressable jobId.
       if (opts?.onJobCreated) {
         try { opts.onJobCreated(winner.id) }
-        catch (e) { console.warn(`[runtime] opts.onJobCreated threw for ${winner.id}:`, e) }
+        catch (e) { this.logger.warn(`[runtime] opts.onJobCreated threw for ${winner.id}:`, e) }
       }
       return winner as Job<TIn, TOut>
     }
 
     if (this.onJobCreated) {
       try { this.onJobCreated(id, spec as JobSpec) }
-      catch (e) { console.warn(`[runtime] onJobCreated threw for ${id}:`, e) }
+      catch (e) { this.logger.warn(`[runtime] onJobCreated threw for ${id}:`, e) }
     }
     // Per-call capture fires AFTER the constructor-level hook so the host
     // correlation map (host requestId → jobId) is populated first, then
     // the fire-and-forget caller resolves its Promise.
     if (opts?.onJobCreated) {
       try { opts.onJobCreated(id) }
-      catch (e) { console.warn(`[runtime] opts.onJobCreated threw for ${id}:`, e) }
+      catch (e) { this.logger.warn(`[runtime] opts.onJobCreated threw for ${id}:`, e) }
     }
 
     // ── Middleware: beforeDispatch. Runs while the row is still 'queued'
@@ -853,7 +944,7 @@ export class InlineRuntime implements Runtime {
       try {
         await mw.onError(job, err)
       } catch (e) {
-        console.error(`[runtime] middleware.onError threw for ${id}:`, e)
+        this.logger.error(`[runtime] middleware.onError threw for ${id}:`, e)
       }
     }
   }
@@ -880,6 +971,26 @@ export class InlineRuntime implements Runtime {
         new Error(`ALTERNATIVE_DEPTH_EXCEEDED: ${pattern.id}`),
         { code: 'ALTERNATIVE_DEPTH_EXCEEDED' },
       )
+    }
+
+    // Permission gate for the two kinds whose branches return below. The atomic
+    // path runs the same hook further down, once it has forked a
+    // DispatchContext; meta and agent never reach that line, so without this
+    // the hook `PatternBase.checkPermissions` documents was dead for both of
+    // them — a host that wrote one believed it had a gate it did not have.
+    //
+    // The context passed here is the pre-fork minimum. That is the point, not a
+    // shortcut: the fork is an atomic-path construction, and a meta must not be
+    // handed one — the same layering that keeps `ctx.step` off the atomic
+    // adapter's context keeps it off a hook that runs before compose starts.
+    if (pattern.kind !== 'atomic') {
+      await this.assertPermitted(pattern, spec.input, {
+        signal,
+        assets: spec.assets ?? [],
+        rootJobId: metaSharedState?.rootJobId ?? jobId,
+        ...(spec.providerOptions ? { providerOptions: spec.providerOptions } : {}),
+        ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
+      })
     }
 
     if (pattern.kind === 'meta') {
@@ -911,7 +1022,9 @@ export class InlineRuntime implements Runtime {
     // primary.modelTags. Capability sub-modes flow through input.references +
     // typed providerOptions instead.
     const requiredTags: readonly ModelTag[] = atomic.primary.modelTags ?? []
-    const preserves: readonly string[] = []
+    // The caller's side of `appliesWhen: { kind: 'preserves-required' }` —
+    // see readRequiresSemantics for why it comes off the input.
+    const requestedSemantics = readRequiresSemantics(spec.input)
     const effectiveInput = spec.input
 
     const baseCtx = this.resolveCtxProvider?.(spec) ?? {}
@@ -925,7 +1038,7 @@ export class InlineRuntime implements Runtime {
 
     if (!sat.ok) {
       if (this.alternativesMode === 'auto') {
-        const alt = pickAlternative({ registry: this.registry, router: this.router }, atomic, baseCtx, requiredTags, preserves)
+        const alt = pickAlternative({ registry: this.registry, router: this.router }, atomic, baseCtx, requiredTags, requestedSemantics)
         if (alt) {
           return runAlternative<TIn, TOut>(
       {
@@ -948,7 +1061,7 @@ export class InlineRuntime implements Runtime {
           atomic,
           baseCtx,
           requiredTags,
-          preserves,
+          requestedSemantics,
         )
         if (applicable.length > 0) {
           throw new AlternativesNotEnabledError(
@@ -999,24 +1112,23 @@ export class InlineRuntime implements Runtime {
       {
         signal,
         assets: spec.assets ?? [],
+        // Correlation only — the adapter needs a stable key to file a
+        // provider-side job reference under, and under a meta this dispatch's
+        // own jobId is one the caller never saw. `MetaSharedState.rootJobId` is
+        // claimed once by the top-level meta and inherited through nesting, so
+        // every dispatch in one tree reports the same value.
+        rootJobId: metaSharedState?.rootJobId ?? jobId,
         ...(spec.providerOptions ? { providerOptions: spec.providerOptions } : {}),
         ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
       },
     )
     // Synchronous permission gate (NOT a HITL seam — mid-run "ask the user" lives
     // only on MetaPattern.compose via ctx.askUser; atomic confirms, e.g. cost, are
-    // a host dispatch-policy concern). Read checkPermissions off `pattern` (narrowed
-    // to the AtomicPattern *spec* interface, which carries the optional PatternBase
-    // hook) — the class type `atomic` is cast to does not redeclare it.
-    if (typeof pattern.checkPermissions === 'function') {
-      const perm = await pattern.checkPermissions(effectiveInput, dispatchCtx)
-      if (!perm.ok) {
-        throw Object.assign(
-          new Error(`PERMISSION_DENIED: ${perm.reason}`),
-          { code: 'PERMISSION_DENIED' },
-        )
-      }
-    }
+    // a host dispatch-policy concern). The atomic path runs it here rather than
+    // in the pre-branch gate above so the hook receives the forked
+    // DispatchContext — the same one `model.call` will get, resolved assets
+    // included — instead of the pre-fork minimum meta and agent get.
+    await this.assertPermitted(pattern, effectiveInput, dispatchCtx)
 
     // Two budgets, two loops, and neither can spend the other's.
     //
@@ -1061,7 +1173,11 @@ export class InlineRuntime implements Runtime {
       // this build cannot execute would fail identically every time.
       assertSupportedModelSpecVersion(model)
       const modelKey = `${model.provider}:${model.modelId}`
-      for (let attempt = 1; ; attempt++) {
+      // Declared outside the loop header so the count survives the `break`
+      // below: it is the `attempts` that `job:model-fallback` reports.
+      let attempt = 0
+      for (;;) {
+        attempt++
         try {
           // Primary path only. Pass the DispatchContext — the adapter reads
           // ctx.assets (resolved assetIds) + ctx.signal; the LLM never saw raw
@@ -1087,19 +1203,18 @@ export class InlineRuntime implements Runtime {
           if (e instanceof Error) {
             ;(e as Error & { failedModel?: string }).failedModel ??= modelKey
           }
-          // Print the inner provider error before adding to excludeModel —
-          // otherwise the next hop throws MODEL_EXCLUDED (because pinned
-          // model is now in excludeModel) and the real cause (auth / network /
-          // model error) gets masked behind a misleading "model excluded" message.
-          console.error(
-            `[inline-runtime] model.call failed for ${modelKey} (cap=${atomic.id}, hop=${hop}, attempt=${attempt}):`,
-            e,
-          )
+          // Nothing is printed here. An error log line used to sit here so
+          // the real provider error would not be masked by the
+          // MODEL_EXCLUDED the next hop's resolve reports once modelKey is in
+          // excludeModel. That masking is answered by `job:model-fallback`
+          // instead — emitted below, once this loop is done with the model —
+          // which carries this hop's own error and attempt count: strictly
+          // more than the log line did, on a channel a host can consume.
           // Ask the host first, THEN the policy: a `false` verdict must cost
           // nothing, so a fatal failure is not delayed by a backoff it was
           // never going to use.
           const delayMs =
-            transientRetry && classifyTransient(transientRetry, e, {
+            transientRetry && classifyTransient(transientRetry, this.logger, e, {
               capability: atomic.id as Capability,
               model: modelKey,
               attempt,
@@ -1113,6 +1228,24 @@ export class InlineRuntime implements Runtime {
           await abortableSleep(delayMs, signal)
         }
       }
+      // Giving up on this model goes out on the job stream — once per hop,
+      // never per attempt — because only the final attempt's error survives
+      // to `job:failed`; each hop's own cause is visible nowhere else. Fields
+      // are snapshotted here: fanoutJobEvent runs after a store read, by which
+      // time `lastErr` may already belong to the next hop. `lastErr` is set —
+      // the only way out of the loop above without returning is the `break`
+      // in its catch.
+      const error = normaliseError(lastErr)
+      const attempts = attempt
+      void this.fanoutJobEvent(jobId, (job) => ({
+        type: 'job:model-fallback',
+        job,
+        capability: atomic.id as Capability,
+        failedModel: modelKey,
+        hop,
+        attempts,
+        error,
+      }))
       excludeModel.push(modelKey)
     }
 
@@ -1124,7 +1257,7 @@ export class InlineRuntime implements Runtime {
     // as a routing-policy code would mask the cause the host needs.
     const alt =
       this.alternativesMode === 'auto'
-        ? pickAlternative({ registry: this.registry, router: this.router }, atomic, baseCtx, requiredTags, preserves)
+        ? pickAlternative({ registry: this.registry, router: this.router }, atomic, baseCtx, requiredTags, requestedSemantics)
         : null
     if (!alt) {
       throw lastErr instanceof Error
@@ -1143,6 +1276,27 @@ export class InlineRuntime implements Runtime {
           this.dispatch(jid, pat, sp, sig, vis, d, mss, pctx),
       },
       jobId, alt, spec, signal, visited, depth + 1, parentCtx)
+  }
+
+  /**
+   * Run a Pattern's own `checkPermissions` hook, throwing PERMISSION_DENIED on
+   * refusal. One implementation so the three kinds cannot drift in what they
+   * throw; they differ only in the context they can supply (see both call
+   * sites). Reads the hook off the `Pattern` spec interface — the concrete
+   * class an atomic is cast to does not redeclare it.
+   */
+  private async assertPermitted(
+    pattern: Pattern,
+    input: unknown,
+    ctx: DispatchContext,
+  ): Promise<void> {
+    if (typeof pattern.checkPermissions !== 'function') return
+    const perm = await pattern.checkPermissions(input, ctx)
+    if (!perm.ok) {
+      throw Object.assign(new Error(`PERMISSION_DENIED: ${perm.reason}`), {
+        code: 'PERMISSION_DENIED',
+      })
+    }
   }
 
   private async dispatchMeta<TIn, TOut>(
@@ -1408,7 +1562,7 @@ export class InlineRuntime implements Runtime {
           this.fanout(job.id, { type: 'job:stale', job: next })
         }
       } catch (e) {
-        console.warn(`[runtime] abandonOrphanedJobs failed for ${job.id}:`, e)
+        this.logger.warn(`[runtime] abandonOrphanedJobs failed for ${job.id}:`, e)
       }
     }
     return abandoned
@@ -1463,7 +1617,7 @@ export class InlineRuntime implements Runtime {
       if (!job) return
       this.fanout(jobId, build(job))
     } catch (e) {
-      console.warn(`[runtime] fanoutJobEvent failed for ${jobId}:`, e)
+      this.logger.warn(`[runtime] fanoutJobEvent failed for ${jobId}:`, e)
     }
   }
 
@@ -1491,6 +1645,7 @@ export class InlineRuntime implements Runtime {
       agentAssetBridge: this.agentAssetBridge,
       catalogOptions: this.catalogOptions,
       resolveCtxProvider: this.resolveCtxProvider,
+      logger: this.logger,
       recordEnvelope: (jobId, envelope) => {
         // Evict the oldest entry once full (Map iterates in insertion order),
         // mirroring the meta stepCache bound. Delete-then-set so re-recording
@@ -1513,7 +1668,7 @@ export class InlineRuntime implements Runtime {
     if (set && set.size > 0) {
       for (const cb of [...set]) {
         try { cb(event) }
-        catch (e) { console.error('[runtime] subscriber threw:', e) }
+        catch (e) { this.logger.error('[runtime] subscriber threw:', e) }
       }
     }
     // A terminal event is the last one this jobId can ever emit, so the

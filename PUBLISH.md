@@ -5,8 +5,8 @@ Maintainer handbook for releasing to npm. Everything here is manual on purpose
 
 Two version lines ship from this repo:
 
-- **`@orchestral/*`** — `core`, `discovery`, `runtime`, `patterns`, `agent`.
-  Five packages on one version line, released together.
+- **`@orchestral/*`** — `core`, `discovery`, `runtime`, `patterns`, `agent`,
+  `adapters-ai-sdk`. Six packages on one version line, released together.
 - **`@orchestral/dsh-plugin`** — the deepseek-harness bridge, versioned
   independently against its dev-preview host (see §7).
 
@@ -119,13 +119,13 @@ Set the release date. Each package's `CHANGELOG.md` heads its section with
 true once the publish lands. Fill it in on the day:
 
 ```sh
-# five packages, one line each
+# six packages, one line each
 grep -rn '^## \[0.1.0\]' packages/*/CHANGELOG.md
 ```
 
 Version bump, when releasing something other than the current `0.1.0`:
 
-- The five `@orchestral/*` packages move together; keep the version line
+- The six `@orchestral/*` packages move together; keep the version line
   identical. `@orchestral/dsh-plugin` does not — bump it on its own.
 - Update each package's `CHANGELOG.md`.
 - Internal dependencies are all `workspace:*`, so nothing else needs editing —
@@ -139,6 +139,7 @@ the dist in the tarball is always freshly built.
 
 ```sh
 pnpm --filter @orchestral/core publish --access public
+pnpm --filter @orchestral/adapters-ai-sdk publish --access public
 pnpm --filter @orchestral/discovery publish --access public
 pnpm --filter @orchestral/runtime publish --access public
 pnpm --filter @orchestral/patterns publish --access public
@@ -151,16 +152,19 @@ packages below it, so publishing one early leaves a window in which
 topological sort of:
 
 ```
-core         (nothing)
-discovery    core
-runtime      core, discovery
-patterns     core
-agent        core, patterns, runtime
+core             (nothing)
+adapters-ai-sdk  core            (+ `ai` as a peer; nothing depends on it)
+discovery        core
+runtime          core, discovery
+patterns         core
+agent            core, patterns, runtime
 ```
 
-`patterns` only needs `core`, so it can go anywhere after it; it sits where it
-does to keep `agent` — the only package that needs all three of the others —
-last.
+`patterns` and `adapters-ai-sdk` only need `core`, so they can go anywhere
+after it; `patterns` sits where it does to keep `agent` — the only package
+that needs all three of the others — last. `adapters-ai-sdk` is a leaf (no
+`@orchestral/*` package depends on it), so its position only has to be after
+`core`.
 
 - With 2FA enabled, append `--otp=<code>` (the code expires fast — publish one
   package per code if needed).
@@ -169,7 +173,7 @@ last.
 - `pnpm -r publish --access public` publishes every non-private package in
   topological order in one shot. It is correct, but the explicit commands fail
   more legibly, and it would sweep up `@orchestral/dsh-plugin` — which is on
-  its own version line — along with the five. `examples/*` being
+  its own version line — along with the six. `examples/*` being
   `private: true` is the only thing keeping those out of it.
 - A mistaken publish can be undone within 72 hours (`npm unpublish
   @orchestral/core@0.1.0`). After that, the version is permanent — publish a
@@ -183,7 +187,7 @@ git push origin v0.1.0
 gh release create v0.1.0 --title "v0.1.0" --notes-file <notes>
 ```
 
-Notes are assembled by hand from the five `CHANGELOG.md` files. One tag and
+Notes are assembled by hand from the six `CHANGELOG.md` files. One tag and
 one GitHub Release per version line, since the packages move together.
 
 ## 6. Verify what consumers get
@@ -211,7 +215,15 @@ node --input-type=module -e "
 "
 ```
 
-Four `function`s (then two more) means the published entry points, the type
+# the AI SDK adapters, which a host installs only if it is on the AI SDK
+npm install @orchestral/adapters-ai-sdk@0.1.0 ai
+node --input-type=module -e "
+  import { fromImageModel } from '@orchestral/adapters-ai-sdk'
+  console.log(typeof fromImageModel)
+"
+```
+
+Four `function`s (then two more, then one more) means the published entry points, the type
 surface and the cross-package resolution all landed. `@orchestral/runtime`
 pulling `@orchestral/discovery` in on its own is part of what the first block
 proves — it is a dependency, not something the host asks for. Also check the package pages render the
@@ -242,4 +254,4 @@ decision, not something CI or the tests need.
   with `id-token: write`; releases are manual, so there is no attestation.
 - **Automated releases.** No changesets, no release-please, no publish job.
 - **Prereleases / dist-tags.** Everything goes to `latest`. If that changes,
-  `--tag next` on all five at once.
+  `--tag next` on all six at once.

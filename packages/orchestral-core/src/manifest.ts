@@ -154,7 +154,18 @@ export class ManifestError extends Error {
  * makes the manifest self-describing to a static reader: an `agent_` id in the
  * list IS an agent.
  */
-function idCarriesKind(id: string, kind: ManifestPatternKind): boolean {
+/**
+ * The id ↔ kind naming contract: `meta_` prefix for meta, `agent_` for agent, a
+ * bare capability id for atomic.
+ *
+ * Exported because the contract is normative beyond the manifest.
+ * `DEFAULT_SUBAGENT_BLOCKLIST` and `inferNamespace` (catalog.ts) route purely on
+ * the prefix, so an agent Pattern whose id lacks `agent_` is invisible to the
+ * sub-agent recursion guard. Checking it only in the manifest would leave
+ * `PatternRegistry.register` — the path every first-party and hand-wired
+ * Pattern takes — as an unguarded way in.
+ */
+export function idCarriesKind(id: string, kind: ManifestPatternKind): boolean {
   if (kind === 'meta') return id.startsWith('meta_')
   if (kind === 'agent') return id.startsWith('agent_')
   return !id.startsWith('meta_') && !id.startsWith('agent_')

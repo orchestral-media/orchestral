@@ -96,8 +96,10 @@ class DefaultCapabilityRouter implements CapabilityRouter {
     }
     const selection = selectCandidate(candidates, ctx)
     if (selection.kind === 'pin-excluded') {
-      // Diagnosis travels on the error, not to stdout — a library has no
-      // business writing to the host's console. `excludedByRetry`
+      // Diagnosis travels on the error, not to a log — a library has no
+      // business writing to the host's console, and nothing in this package
+      // does: what cannot ride on an error or a JobEvent goes through the
+      // host-injectable `DiagnosticsLogger` (./logger). `excludedByRetry`
       // distinguishes "excluded after a prior dispatch failure"
       // (ResolveContext.excludeModel hit) from "never a candidate"
       // (capability / tag rejection); the two have very different fixes.

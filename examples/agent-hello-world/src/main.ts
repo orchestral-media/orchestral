@@ -2,7 +2,8 @@
 //
 // Like the atomic example, a from-scratch host needs ONLY the published
 // @orchestral/* packages plus its own ai-sdk model instances (built with its
-// own API key) and the small host-local adapters that bridge them. The agent
+// own API key) and the adapters that bridge them (`@orchestral/adapters-ai-sdk`
+// for the image model, via ./ai-sdk-wiring). The agent
 // path adds one adapter beyond the atomic example: an AgentRunImpl that drives
 // the LLM tool-loop, in ./agent-runner.ts. Orchestral does not ship one — the
 // same rule that leaves `ModelCapability.call` to the host leaves the agent

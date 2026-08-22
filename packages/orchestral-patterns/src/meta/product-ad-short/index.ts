@@ -148,7 +148,7 @@ export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPatt
       return {
         videoAssetId,
         ...(musicAssetId ? { musicAssetId } : {}),
-        cost: sumCosts(gen, ...heroOutputs, animate, music),
+        cost: sumCosts([gen.cost, ...heroOutputs.map((h) => h.cost), animate.cost, music?.cost]),
         latencyMs: Date.now() - startedAt,
       }
     },

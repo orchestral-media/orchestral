@@ -14,6 +14,7 @@ import { AssetResolutionError } from '@orchestral/core';
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core';
 import type { Capability } from '@orchestral/core';
 import type { CapabilityRouter } from '@orchestral/core';
+import type { DiagnosticsLogger } from '@orchestral/core';
 import type { DispatchContext } from '@orchestral/core';
 import type { DispatchMiddleware } from '@orchestral/core';
 import type { Job } from '@orchestral/core';
@@ -170,6 +171,7 @@ export interface InlineRuntimeInit {
     assetBridge?: AgentAssetBridge;
     catalogOptions?: BuildCatalogDescriptorsOptions;
     fallbackDepth?: number;
+    logger?: DiagnosticsLogger;
     maxAgentDepth?: number;
     maxAlternativeDepth?: number;
     middleware?: readonly DispatchMiddleware[];

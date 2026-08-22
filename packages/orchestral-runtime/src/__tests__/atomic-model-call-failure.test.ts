@@ -21,8 +21,8 @@
 // Harness mirrors alternative-not-enabled.test.ts / abort-cascade.test.ts:
 // a real InlineRuntime over an in-memory store + a hand-rolled fake router
 // whose resolve/call we script per hop. No alternatives are registered,
-// so a terminal failure falls straight through to `throw lastErr` and the
-// submitJob promise rejects with it.
+// so a terminal failure falls straight through to `throw lastErr`, lands on
+// the row as its JobError, and submitJob resolves with the failed Job.
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -149,13 +149,11 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       router,
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('IMAGE_GEN_NOT_SUPPORTED_FOR_MODEL')
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toContain('IMAGE_GEN_NOT_SUPPORTED_FOR_MODEL')
     // And explicitly NOT the masking symptom.
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.not.toThrow(/MODEL_EXCLUDED/)
+    expect(job.error?.message).not.toMatch(/MODEL_EXCLUDED/)
   })
 
   it('propagates the resolve error when the router is exhausted on hop 0 (lastErr null)', async () => {
@@ -176,17 +174,17 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       router,
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('NO_CANDIDATE_AT_RESOLVE')
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toContain('NO_CANDIDATE_AT_RESOLVE')
   })
 
-  it('throws CANCELLED when the signal is aborted between fallback hops', async () => {
+  it('settles cancelled when the signal is aborted between fallback hops', async () => {
     // hop 0: model A's call cancels its own job (aborts the runtime
     // controller) then throws — pushing A into excludeModel. hop 1's
     // top-of-loop `if (signal.aborted) throw CANCELLED` fires before any
-    // further resolve. The outer catch sees the aborted controller and rejects
-    // with CANCELLED.
+    // further resolve. The outer catch sees the aborted controller and settles
+    // the job cancelled.
     let jobId: string | undefined
     let rt: InlineRuntime
     const modelA = model('prov', 'A', async () => {
@@ -214,18 +212,17 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow(/CANCELLED/)
+    const job = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(job.status).toBe('cancelled')
     // B never resolved — the abort short-circuited the walk before hop 1.
     expect(hop).toBe(1)
     expect(jobId).toBeDefined()
   })
 
-  it('fail-fast (fallbackDepth 0) rejects on first failure with failedModel + httpStatus in JobError.details', async () => {
+  it('fail-fast (fallbackDepth 0) fails on first failure with failedModel + httpStatus in JobError.details', async () => {
     // The host's resolveCtxProvider returns fallbackDepth: 0 — one candidate
     // per dispatch, no silent cross-provider walk (the LLM filled input against
-    // THIS model's schema). The rejection must carry structured details so the
+    // THIS model's schema). The JobError must carry structured details so the
     // host can classify invalid-input (4xx) and derive the retry exclusion set.
     const providerErr = new Error(
       'APICallError 400: camera not supported',
@@ -254,9 +251,9 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('camera not supported')
+    const settled = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(settled.status).toBe('error')
+    expect(settled.error?.message).toContain('camera not supported')
     // Model B was never consulted — the walk is gone.
     expect(resolves).toBe(1)
     // The persisted JobError carries the structured provider-failure facts.
@@ -299,9 +296,9 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     })
 
-    await expect(
-      rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } }),
-    ).rejects.toThrow('prov:pinned')
+    const settled = await rt.submitJob({ patternId: 'cap', input: { prompt: 'go' } })
+    expect(settled.status).toBe('error')
+    expect(settled.error?.message).toContain('prov:pinned')
 
     const job = await store.get(jobId!)
     expect(job?.status).toBe('error')

@@ -134,7 +134,7 @@ export function createScriptPlanningMeta(
       return {
         intent,
         plannedScript,
-        cost: sumCosts(routed, planned),
+        cost: sumCosts([routed.cost, planned.cost]),
         latencyMs: routed.latencyMs + planned.latencyMs,
       }
     },

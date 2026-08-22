@@ -49,8 +49,9 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   independently.
 
 - **Uniform cost envelope.** Every meta output carries `cost` / `latencyMs`
-  (aggregated across sub-steps; wall-clock compose time), so a generic consumer
-  can rely on those fields on any dispatch.
+  (aggregated across sub-steps, `null` if any sub-step left its cost
+  unreported; wall-clock compose time), so a generic consumer can rely on those
+  fields on any dispatch.
 
 - **Meta authoring surface.** `MetaCommonDeps` (the host-op contract every
   deliverable meta `Pick`s from), plus `firstAssetId`, `parseJsonWithSchema`,
@@ -86,6 +87,14 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   HKUDS/ViMax (MIT): the affected constants are listed file by file and the MIT
   license text is reproduced in full. The file ships inside the published
   tarball.
+
+- **`sumCosts` takes an array and returns `number | null`.**
+  `sumCosts(costs: readonly (number | null | undefined)[])`, called as `sumCosts([a.cost, ...bs.map((b) => b.cost)])`.
+  This follows `@orchestral/core` making envelope `cost` nullable: when any
+  input is `null` (an adapter that did not report a cost) the total is `null`,
+  because a partial sum renders as a confident small number a host would read
+  as the real total. `undefined` still counts as 0 and the NaN / Infinity guard
+  is unchanged. Every first-party meta's `cost` is accordingly `number | null`.
 
 ### Peer dependencies
 

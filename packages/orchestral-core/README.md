@@ -91,7 +91,8 @@ const model: ModelCapability = {
     const output = {
       modality: 'image' as const,
       assets,
-      cost: 0,
+      // the AI SDK does not report image cost; null = unknown, never 0
+      cost: null,
       latencyMs: Date.now() - startedAt,
       model: 'openai:gpt-image-1',
       provider: 'openai',
@@ -122,6 +123,11 @@ const job = await runtime.submitJob({
 console.log(job.status) // 'done'
 console.log(job.output) // { modality: 'image', assets: [...] }
 ```
+
+Or, for the AI SDK, skip step 2's hand-written adapter:
+`fromImageModel(openai.image('gpt-image-1'))` from
+[`@orchestral/adapters-ai-sdk`](../orchestral-adapters-ai-sdk) returns the same
+envelope. (A leaf package — core does not depend on it.)
 
 ## The three seams
 
@@ -154,11 +160,18 @@ const contactSheet: MetaPattern<Input, Output> = {
   tool: { description: '…', inputs: InputSchema },
   outputs: OutputSchema,
   async compose({ input }, ctx) {
+    const startedAt = Date.now()
     const outs = await parallel(
       // stepId keeps the fan-out from collapsing into one cached step.
       input.prompts.map((prompt, i) => textToImage(ctx, { prompt }, { stepId: `render-${i}` })),
     )
-    return { assetIds: outs.map((o) => o.assets[0].assetId), cost: 0, latencyMs: 0 }
+    return {
+      assetIds: outs.map((o) => o.assets[0].assetId),
+      // `sumCosts` (from @orchestral/patterns) is null if any step left cost
+      // unreported — a partial sum would read as a confident total.
+      cost: sumCosts(outs.map((o) => o.cost)),
+      latencyMs: Date.now() - startedAt,
+    }
   },
 }
 ```
@@ -464,9 +477,13 @@ call rather than inferring it.
 The one soft knob is `ModelCapability.tier`: it is read **only** when the
 caller passes `ResolveContext.tier`, and then best-effort — the first tier
 match wins, otherwise resolution falls through to the remaining candidates.
-There is deliberately no cost or latency metadata on the public types: media
-generation cost is not reliably computable up front, so anything cost-aware
-belongs in your own `getModels` ordering or a custom router.
+There is deliberately no cost or latency metadata on the routing types
+(`ModelCapability` / `ModelCapabilityBlob`): media generation cost is not
+reliably computable up front, so anything cost-aware belongs in your own
+`getModels` ordering or a custom router. Output envelopes do carry `cost` /
+`latencyMs`, but those are reported by your adapter after the call and never
+validated by the library — `cost: null` means the adapter did not report one,
+and is the honest value when it does not know.
 
 Those knobs stack, and a wrong model looks exactly like a wrong catalog from
 `resolve`'s return value alone. `explain` dumps the whole decision — every

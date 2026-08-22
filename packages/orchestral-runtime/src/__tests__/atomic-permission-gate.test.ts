@@ -61,12 +61,12 @@ function makeRuntime(onCall: () => void, atomic: AtomicPattern): InlineRuntime {
 }
 
 describe('atomic checkPermissions (synchronous gate)', () => {
-  it('a deny throws PERMISSION_DENIED before the model call', async () => {
+  it('a deny fails the job with PERMISSION_DENIED before the model call', async () => {
     const onCall = vi.fn()
     const runtime = makeRuntime(onCall, makeAtomic(() => ({ ok: false, reason: 'over quota' })))
-    await expect(
-      runtime.submitJob({ patternId: 'cap_paid', input: { prompt: 'x' } } as never),
-    ).rejects.toThrow(/PERMISSION_DENIED: over quota/)
+    const job = await runtime.submitJob({ patternId: 'cap_paid', input: { prompt: 'x' } } as never)
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toMatch(/PERMISSION_DENIED: over quota/)
     expect(onCall).not.toHaveBeenCalled()
   })
 

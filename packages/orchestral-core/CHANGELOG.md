@@ -207,6 +207,32 @@ adapter over whichever provider SDK you use.
 - `Capability` covers the media and text capabilities the first-party catalog
   serves, including `embedding`.
 
+- **`cost` on output envelopes is nullable.** `dispatchEnvelopeShape.cost` and
+  `metaEnvelopeShape.cost` are `z.number().min(0).nullable()`, so `cost` on
+  every atomic and meta output is `number | null`. `null` means "this adapter
+  did not report a cost"; `0` means "this call was free". A required,
+  non-null shape would leave an adapter that does not know the price with no honest
+  value — `undefined` fails the schema and a negative fails `.min(0)` — and
+  a twelve-step run that wrote `cost: 0` for every step would come back free
+  with the same type and the same confidence as a genuinely free one. `producedAssetShape`'s per-asset `cost` was already
+  optional and is unchanged.
+
+- **A diagnostics seam instead of the console.** `DiagnosticsLogger`
+  (`warn` / `error`) is where the library sends the few findings it cannot
+  express as a `JobEvent`: the registry's two authoring lints, and a host
+  callback (`onJobCreated`, middleware `onError`, a subscriber) that threw.
+  `consoleDiagnosticsLogger` is the default; `silentDiagnosticsLogger` is
+  for tests and hosts with their own channel. `new PatternRegistry({ logger })`
+  routes the lints. Nothing in `@orchestral/core` or `@orchestral/runtime`
+  writes to the console directly.
+
+- **`job:model-fallback`.** A `JobEvent` emitted once per fallback hop, at the
+  moment a dispatch gives up on a model: `failedModel`, `hop`, `attempts`
+  (transient retries against that model plus one), and the `error` that ended
+  the last attempt, normalised. It is how a host observes the fallback walk —
+  which model was tried, how many times, why it was abandoned — without
+  scraping stderr. Not terminal: the job goes on to the next candidate.
+
 ### Peer dependencies
 
 - `zod` (`>=4.3 <5`) is a **peer** dependency, not a bundled one. The public API
@@ -241,11 +267,16 @@ hosts, planners and UIs, not enforced by this library:
 | --- | --- |
 | `ModelCapability.tier` | Read only when the caller passes `ResolveContext.tier`, and then best-effort: first tier match wins, otherwise it falls through. |
 | `ModelCapabilityBlob.streaming` / `.structuredOutput` / `.toolUse` / `.contextWindow` / `.deprecated` | Catalog metadata for the host's own Settings UI and dispatch heuristics. Neither the router nor the reference runtime reads them. |
+| `cost` / `latencyMs` on output envelopes (`dispatchEnvelopeShape`, `metaEnvelopeShape`) | Carried on every atomic and meta output. Supplied by the host adapter after the call; the library never validates the figure. `cost: null` means the adapter did not report one — it is not 0. |
 
-There is deliberately no cost or latency metadata on these types: media
-generation cost is not reliably computable up front, so anything cost-aware
-belongs in your own `getModels` ordering or a custom router. If such a field
-ever lands, it lands together with the behaviour that enforces it.
+There is deliberately no cost or latency metadata on the routing types
+(`ModelCapability` / `ModelCapabilityBlob`): media generation cost is not
+reliably computable up front, so anything cost-aware belongs in your own
+`getModels` ordering or a custom router. If such a field ever lands there, it
+lands together with the behaviour that enforces it. The `cost` / `latencyMs`
+on output envelopes are a different thing: reported by the host after the
+call, carried for cost meters and UIs, and never validated — which is why
+`cost` is nullable rather than defaulting to 0.
 
 Routing today is therefore ordering plus a small precedence. Candidates are
 filtered and ordered by the stored enablement order (`getCapabilityOrder`) or by

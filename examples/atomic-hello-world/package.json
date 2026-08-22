@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@orchestral/adapters-ai-sdk": "workspace:*",
     "@orchestral/core": "workspace:*",
     "@orchestral/runtime": "workspace:*",
     "@orchestral/patterns": "workspace:*",

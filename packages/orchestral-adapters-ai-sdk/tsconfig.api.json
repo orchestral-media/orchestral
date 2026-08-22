@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@orchestral/core": ["./node_modules/@orchestral/core/dist/index.d.ts"]
+    }
+  }
+}

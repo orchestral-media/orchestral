@@ -22,13 +22,18 @@ export interface Runtime {
    * output, because the prior submit owns the dispatch. Check `status` and
    * fall back to `subscribe` / `pollJob` when you need the outcome.
    *
-   * Failure rejects — it does not resolve with a failed Job. On the reference
-   * InlineRuntime a terminal failure first persists the row (`error`, or
-   * `cancelled` when the abort signal fired) and emits `job:failed` /
-   * `job:cancelled`, then rethrows the underlying error; an unregistered
-   * patternId rejects before any row exists at all. So a resolved Job from
-   * this call is never a failed one, and the persisted status is authoritative
-   * for anything that observes jobs out of band.
+   * Failure is data, not a rejection. Once a job row exists, the request has
+   * been accepted, and whatever happens to it from then on — a provider
+   * failure, a middleware reject, a guard trip, a cancel — lands on that row
+   * (`status: 'error'` with `error` populated, or `status: 'cancelled'`),
+   * emits `job:failed` / `job:cancelled`, and then resolves this promise with
+   * the row. Read `job.status`; a `try/catch` around this call never sees a
+   * dispatch failure. The promise rejects only when no row was ever created:
+   * the request itself was malformed — an unregistered patternId, an input
+   * the idempotency key cannot be derived from — or the store refused the
+   * INSERT. The rule: a request that could not become a job throws; a job
+   * that ran and failed returns. Either way the persisted status is
+   * authoritative for anything that observes jobs out of band.
    */
   submitJob<TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,

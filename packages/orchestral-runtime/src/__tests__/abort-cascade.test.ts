@@ -122,7 +122,7 @@ function cascadeParent(childPatternId: string): MetaPattern<Record<string, never
 }
 
 describe('abort cascade', () => {
-  it('cancelJob marks a running job cancelled, emits job:cancelled, and rejects with CANCELLED', async () => {
+  it('cancelJob marks a running job cancelled, emits job:cancelled, and settles the submit as cancelled', async () => {
     const store = new MemoryJobStore()
     const entered = deferred()
     const gate = deferred()
@@ -152,7 +152,9 @@ describe('abort cascade', () => {
     expect((await store.get(createdId!))?.status).toBe('cancelled')
 
     gate.resolve() // let the suspended dispatch resume into the abort guard
-    await expect(p).rejects.toThrow(/CANCELLED/)
+    const settled = await p
+    expect(settled.status).toBe('cancelled')
+    expect(settled.error).toBeNull()
     expect(events).toContain('job:cancelled')
     unsub()
   })
@@ -210,7 +212,7 @@ describe('abort cascade', () => {
     expect((await store.get(parentId))?.status).toBe('cancelled')
 
     gate.resolve()
-    await p.catch(() => {}) // parent settles (rejects CANCELLED)
+    expect((await p).status).toBe('cancelled') // parent settles cancelled
 
     // The child's controller was subscribed to the parent's signal, so the
     // cascade aborted it too — it ends 'cancelled', not 'done'.
@@ -271,7 +273,7 @@ describe('abort cascade', () => {
     expect((await store.get(parentId))?.status).toBe('cancelled')
 
     gate.resolve()
-    await p.catch(() => {}) // parent still rejects CANCELLED
+    expect((await p).status).toBe('cancelled') // parent still settles cancelled
 
     // The independent agent never subscribed to the parent's signal, so its
     // controller was never aborted — it runs to completion as 'done'.

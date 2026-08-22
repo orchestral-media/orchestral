@@ -39,7 +39,13 @@ export interface JobContext {
   assetEvents?: readonly AssetEvent[]
 }
 
-/** The canonical value every bridged tool returns. */
+/**
+ * The canonical value every bridged tool returns.
+ *
+ * A failed or cancelled dispatch never becomes one of these: it is thrown as
+ * a tool error (see `describeDispatchFailure`), so the only non-`done` status
+ * a model sees here is an idempotency dedup hit on a job another submit owns.
+ */
 export interface PatternToolResult {
   jobId: string
   patternId: string
@@ -73,7 +79,7 @@ export const PATTERN_TOOL_OUTPUT_SCHEMA: JsonSchemaNode = {
       type: 'string',
       enum: ['queued', 'running', 'done', 'error', 'cancelled', 'stale'],
       description:
-        'Terminal status for a fresh dispatch; may be non-terminal when an idempotency dedup hit returned a job another submit owns.',
+        '`done` for a fresh dispatch (a failed or cancelled one is reported as a tool error instead); may be non-terminal when an idempotency dedup hit returned a job another submit owns.',
     },
     output: {
       description:
@@ -100,6 +106,28 @@ function describeResolutionFailure(
 ): string {
   const where = error.slot ?? error.handle ?? 'input.references'
   return `ASSET_RESOLUTION_FAILED (${error.code}) dispatching ${patternId}: ${where}`
+}
+
+/**
+ * orchestral hands a failed dispatch back as data — a Job with
+ * `status: 'error'` and a structured `JobError`. dsh's tool contract has one
+ * channel for a failed call, a thrown error that it normalizes into an
+ * `isError` result, so the JobError is re-raised here in orchestral's own
+ * `CODE: message` form: the model reads the code and decides whether to retry
+ * with different input or re-plan. Runtime messages already lead with their
+ * code, so the prefix is added only when the message does not carry it. A
+ * cancel and a stale row carry no JobError and are named by their status.
+ */
+function describeDispatchFailure(job: Job): string {
+  if (job.status === 'cancelled') {
+    return `CANCELLED: dispatch of ${job.patternId} was cancelled before completion`
+  }
+  if (job.status === 'stale') {
+    return `JOB_STALE: dispatch of ${job.patternId} was abandoned by a runtime that did not survive it`
+  }
+  const code = job.error?.code ?? 'DISPATCH_FAILED'
+  const message = job.error?.message ?? `dispatch of ${job.patternId} failed`
+  return message.startsWith(`${code}:`) ? message : `${code}: ${message}`
 }
 
 /**
@@ -162,12 +190,19 @@ export function buildPatternTool(opts: BuildToolOptions): ToolDefinition {
         spec.assetContextId = jobCtx.assetContextId
       }
 
-      // `submitJob` REJECTS on a failed dispatch (it does not resolve with a
-      // failed Job), so a Pattern failure propagates out of this body and dsh
-      // normalizes it into an `isError` tool result carrying the message. The
-      // non-`done` statuses handled below are the dedup-hit case, where the
-      // returned row belongs to a submit this call does not own.
+      // `submitJob` resolves with the Job in whatever terminal state it
+      // reached — a failed dispatch is `status: 'error'` with its JobError on
+      // the row, a cancel is `status: 'cancelled'` — and rejects only when the
+      // request never became a job (an unregistered Pattern, an input no
+      // idempotency key can be derived from). Either way dsh hears about it
+      // the one way its contract allows, a throw, which it normalizes into an
+      // `isError` result. The non-`done` statuses that reach the result below
+      // are the dedup-hit case, where the returned row belongs to a submit
+      // this call does not own.
       const job = await runtime.submitJob(spec)
+      if (job.status === 'error' || job.status === 'cancelled' || job.status === 'stale') {
+        throw new Error(describeDispatchFailure(job))
+      }
 
       const result: PatternToolResult = {
         jobId: job.id,

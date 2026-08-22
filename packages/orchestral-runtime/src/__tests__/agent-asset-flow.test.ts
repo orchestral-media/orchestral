@@ -457,7 +457,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     expect(result.hint).toBe("Unknown references key — use only the pattern's declared slots (see error.meta.declaredSlots).")
   })
 
-  it('whole-agent failure attaches producedAssets to the thrown error', async () => {
+  it('whole-agent failure attaches producedAssets to the failed Job\'s error', async () => {
     // Worker produces image_1 via a tool call, then the whole run rejects.
     const runImpl = makeRunImpl({
       onRun: async (args) => {
@@ -470,17 +470,13 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
       },
     })
     const rt = buildRuntime({ pattern: agentTest(), runImpl, bridge })
-    // Catch the thrown error directly (submitJob rethrows the dispatch error).
-    let thrown: (Error & { producedAssets?: readonly string[] }) | undefined
+    // The failure lands on the resolved Job — submitJob settles with the
+    // errored row rather than rethrowing the dispatch error.
     let failedJob: Job | undefined
-    try {
-      await rt.submitJob({ patternId: 'agent_test', input: { prompt: 'go' } })
-    } catch (e) {
-      thrown = e as Error & { producedAssets?: readonly string[] }
-    }
-    expect(thrown).toBeDefined()
-    expect(thrown!.message).toContain('boom')
-    expect(thrown!.producedAssets).toEqual(['gen-asset'])
+    const settled = await rt.submitJob({ patternId: 'agent_test', input: { prompt: 'go' } })
+    expect(settled.status).toBe('error')
+    expect(settled.error?.message).toContain('boom')
+    expect(settled.error?.producedAssets).toEqual(['gen-asset'])
     // And the job landed in error.
     const all = await (rt as unknown as { store: MemoryJobStore }).store.query()
     failedJob = all.find((j) => j.patternId === 'agent_test')
@@ -698,13 +694,16 @@ describe('agent→meta sub-step asset context', () => {
     })
 
     // The throw happens inside the meta's compose (before any child submit) and
-    // propagates as a hard failure — submitJob rejects, unlike a recoverable
-    // resolution error which self-corrects into a tool-result. The first dispatch
-    // still produced image_1, so the reference genuinely resolved and the guard
-    // fired on a real dual-source clash (not a HANDLE_NOT_FOUND miss).
-    await expect(
-      rt.submitJob({ patternId: 'agent_test', input: { prompt: 'go' }, sessionId: 'sess-1' }),
-    ).rejects.toThrow(/DUAL_SOURCE_SINGLE_SLOT: slot "source"/)
+    // propagates as a hard failure — the job settles in error, unlike a
+    // recoverable resolution error which self-corrects into a tool-result. The
+    // first dispatch still produced image_1, so the reference genuinely resolved
+    // and the guard fired on a real dual-source clash (not a HANDLE_NOT_FOUND
+    // miss).
+    const job = await rt.submitJob({
+      patternId: 'agent_test', input: { prompt: 'go' }, sessionId: 'sess-1',
+    })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toMatch(/DUAL_SOURCE_SINGLE_SLOT: slot "source"/)
   })
 })
 

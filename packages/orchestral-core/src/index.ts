@@ -328,6 +328,18 @@ export type {
   DispatchDecision,
 } from './middleware'
 
+// ── Diagnostics ──────────────────────────────────────────────────────────
+// Everything that happens to a job is a JobEvent. What has no job to report
+// on — a host callback that threw, a registration-time authoring lint — goes
+// through this seam instead of straight to the console, so the host decides
+// where it lands. `PatternRegistry` and `InlineRuntimeInit` both take one;
+// both default to `consoleDiagnosticsLogger`.
+export {
+  consoleDiagnosticsLogger,
+  silentDiagnosticsLogger,
+  type DiagnosticsLogger,
+} from './logger'
+
 // ── AssetLedger primitives ───────────────────────────────────────────────
 export {
   mintHandle,

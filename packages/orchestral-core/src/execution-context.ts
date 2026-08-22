@@ -149,6 +149,25 @@ export interface DispatchContext<P = unknown> {
 
   sessionId?: string
 
+  /**
+   * The jobId at the ROOT of this dispatch tree — the job the caller actually
+   * submitted. On a top-level atomic dispatch it equals that job's own id; on
+   * every dispatch under a meta it is the top-level meta's id, inherited
+   * unchanged through nesting.
+   *
+   * This is a **correlation id, not a handle**: the runtime reads nothing from
+   * it and stores nothing under it. It exists because the three things a host
+   * routinely wants — attributing a provider-side job reference (a fal
+   * `request_id`, a Replicate prediction id) to the dispatch that started it,
+   * counting calls across one submitted job to enforce its own spend cap in
+   * `beforeDispatch`, and grouping log lines from one `submitJob` — all need
+   * the same key, and deriving it from the step-id namespace is guesswork.
+   *
+   * Deliberately NOT persisted on `Job`: that would put a column on every host
+   * `JobStore` to serve bookkeeping the host can do in its own tables.
+   */
+  rootJobId?: string
+
   /** Optional host-parameterised project context. */
   project?: P
 }

@@ -165,10 +165,14 @@ export function createImageBestOfNMeta(
 
       // Stage 1 — fan-out N independent samples.
       //
-      // stepOptions.stepId is essential: without it, every dispatch hits the
-      // same stepCache key (same patternId + same input), collapsing N "samples"
-      // into a single cached result. The stepId override is the documented
-      // bypass.
+      // An explicit stepId per sample (`candidate-${idx}`) is essential. Step
+      // identity is positional, not content-addressed — the runtime keys a step
+      // by its stepId, and the default id is a sequential counter — precisely
+      // so that N dispatches of the SAME patternId + SAME input stay N distinct
+      // samples. A content key would collapse them into one; the positional
+      // key is the correct semantics for sampling, and the explicit override
+      // is what keeps the N ids stable across a resume (a counter-minted id
+      // would shift if anything before the fan-out changed).
       const candidateOutputs = await parallel(
         Array.from({ length: input.n }, (_, idx) =>
           dispatchInner(ctx, input.innerPatternId, input.innerInput, idx),
@@ -242,7 +246,7 @@ export function createImageBestOfNMeta(
         winningAssetId: candidateIds[parsed.best_image_index]!,
         reason: parsed.reason,
         allCandidates: candidateIds,
-        cost: sumCosts(...candidateOutputs, judgeOut),
+        cost: sumCosts([...candidateOutputs.map((c) => c.cost), judgeOut.cost]),
         latencyMs: candidateLatencyMs + judgeOut.latencyMs,
       }
     },

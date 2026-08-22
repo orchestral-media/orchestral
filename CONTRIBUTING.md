@@ -13,6 +13,8 @@ starting point), and the actual error output rather than a description of it.
 If you are unsure whether something is a bug or a design decision, open an
 issue and ask before writing code.
 
+Before proposing a feature, read [DESIGN.md](DESIGN.md) — if one of its entries already declines it, argue against the stated reason rather than around it.
+
 ## Pull requests
 
 ```sh

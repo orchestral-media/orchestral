@@ -1,7 +1,7 @@
 // AssetLedger primitive unit tests (mintHandle / buildAssetIndex / query / resolveAssetReferences / projectAssetsForModel).
 import { describe, expect, it } from 'vitest'
 
-import { buildAssetIndex, mintHandle, projectAssetsForModel, projectToolOutputForModel, resolveAssetReferences } from '../asset-index'
+import { buildAssetIndex, mintHandle, parseMintedHandle, projectAssetsForModel, projectToolOutputForModel, resolveAssetReferences } from '../asset-index'
 import type { AssetEvent, AssetLedgerEntry, AssetNeed } from '../asset-index.types'
 import { setAssetUriScheme } from '../asset-uri'
 
@@ -13,6 +13,23 @@ describe('mintHandle', () => {
 
   it('deterministic: same args -> same handle', () => {
     expect(mintHandle('audio', 5)).toBe(mintHandle('audio', 5))
+  })
+})
+
+describe('parseMintedHandle', () => {
+  it('is the exact inverse of mintHandle for its own modality', () => {
+    expect(parseMintedHandle(mintHandle('image', 1), 'image')).toBe(2)
+    expect(parseMintedHandle('video_10', 'video')).toBe(10)
+  })
+
+  it("a mint for another modality is not this modality's ordinal", () => {
+    expect(parseMintedHandle('video_3', 'image')).toBeUndefined()
+  })
+
+  it('anything mintHandle never emits is an opaque host name', () => {
+    for (const h of ['cat.png', 'hero-shot', 'image_', 'image_0', 'image_007', 'image_1x', 'image_-1', 'image_1_2', 'IMAGE_1']) {
+      expect(parseMintedHandle(h, 'image'), h).toBeUndefined()
+    }
   })
 })
 
@@ -313,16 +330,27 @@ describe('asset-index review regressions', () => {
     expect(resolveAssetReferences({ references: { mask: [] } }, [need], idx)).toEqual({ ok: true, assets: [] })
   })
 
-  it('colliding host handles: handles stay unique in all(), resolve takes the later one, and no entry becomes unreachable', () => {
-    const idx = buildAssetIndex([ev('a1', 'image', 1, { handle: 'cat.png' }), ev('a2', 'image', 2, { handle: 'cat.png' })])
+  // The two tests below used to pin "later orderHint wins" for two DIFFERENT
+  // assets sharing a handle — i.e. they asserted the exact silent drop that
+  // HANDLE_COLLISION now refuses. Later-wins survives only for a replay of the
+  // same asset; the collision block further down covers the other half.
+  it('same handle replayed for the same asset: handles stay unique in all(), the later replay wins, and no ghost entry is left behind', () => {
+    const idx = buildAssetIndex([
+      ev('a1', 'image', 1, { handle: 'cat.png', label: 'first announcement' }),
+      ev('a1', 'image', 2, { handle: 'cat.png', label: 'replayed with a better label' }),
+    ])
     const handles = idx.all().map((e) => e.handle)
     expect(new Set(handles).size).toBe(handles.length)
-    expect(idx.resolve('cat.png')?.assetId).toBe('a2')
+    expect(idx.all()).toHaveLength(1)
+    expect(idx.resolve('cat.png')?.label).toBe('replayed with a better label')
   })
 
-  it('same handle winner is by orderHint, not array position', () => {
-    const idx = buildAssetIndex([ev('new', 'image', 2, { handle: 'dup' }), ev('old', 'image', 1, { handle: 'dup' })])
-    expect(idx.resolve('dup')?.assetId).toBe('new')
+  it('same handle, same asset: the winner is by orderHint, not array position', () => {
+    const idx = buildAssetIndex([
+      ev('same', 'image', 2, { handle: 'dup', label: 'new' }),
+      ev('same', 'image', 1, { handle: 'dup', label: 'old' }),
+    ])
+    expect(idx.resolve('dup')?.label).toBe('new')
   })
 
   it('all() returns a defensive copy (external mutation does not leak)', () => {
@@ -504,5 +532,102 @@ describe('projectToolOutputForModel — assetId is structurally absent', () => {
     }
     const projected = projectToolOutputForModel(full) as { assets: Record<string, unknown>[] }
     expect(projected.assets[0]).toEqual({ handle: 'image_9', uri: 'asset://image_9', modality: 'image' })
+  })
+})
+
+
+// A thrown (not returned) failure: pull the Error out so its attached facts
+// can be asserted field by field.
+function caught(fn: () => unknown): Error & { code?: string; details?: unknown } {
+  try {
+    fn()
+  } catch (e) {
+    return e as Error & { code?: string; details?: unknown }
+  }
+  throw new Error('expected the call to throw')
+}
+
+describe('buildAssetIndex — replayed handles and HANDLE_COLLISION', () => {
+  it('a replayed mint pulls the counter past itself: image_2 then an unannotated image mints image_3, nothing dropped', () => {
+    // The original bug: the counter advanced by event count, so the fresh
+    // mint after a replayed `image_2` was `image_2` again and the replayed
+    // asset silently vanished behind it.
+    const idx = buildAssetIndex([ev('A', 'image', 1, { handle: 'image_2' }), ev('B', 'image', 2)])
+    expect(idx.all().map((e) => [e.handle, e.assetId, e.sequence])).toEqual([
+      ['image_2', 'A', 2],
+      ['image_3', 'B', 3],
+    ])
+    expect(idx.resolve('image_2')?.assetId).toBe('A')
+    expect(idx.resolve('image_3')?.assetId).toBe('B')
+  })
+
+  it('a replayed ordinal below the counter does not wind it back', () => {
+    const idx = buildAssetIndex([
+      ev('A', 'image', 1, { handle: 'image_5' }),
+      ev('B', 'image', 2, { handle: 'image_3' }),
+      ev('C', 'image', 3),
+    ])
+    expect(idx.all().map((e) => [e.handle, e.sequence])).toEqual([
+      ['image_5', 5],
+      ['image_3', 3],
+      ['image_6', 6],
+    ])
+  })
+
+  it('HANDLE_COLLISION: a host replay of image_1 for a different asset, after this context already minted image_1', () => {
+    const err = caught(() =>
+      buildAssetIndex([ev('a1', 'image', 1), ev('a2', 'image', 2), ev('c', 'image', 3, { handle: 'image_1' })]),
+    )
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message.startsWith('HANDLE_COLLISION:')).toBe(true)
+    expect(err.code).toBe('HANDLE_COLLISION')
+    expect(err.details).toEqual({ handle: 'image_1', modality: 'image', assetIds: ['a1', 'c'] })
+  })
+
+  it('HANDLE_COLLISION: two host-provided entries with the same handle but different assetIds (never a silent later-wins)', () => {
+    const err = caught(() =>
+      buildAssetIndex([ev('a1', 'image', 1, { handle: 'cat.png' }), ev('a2', 'image', 2, { handle: 'cat.png' })]),
+    )
+    expect(err.code).toBe('HANDLE_COLLISION')
+    expect(err.details).toEqual({ handle: 'cat.png', modality: 'image', assetIds: ['a1', 'a2'] })
+  })
+
+  it('HANDLE_COLLISION reports the pair in orderHint order, not array order', () => {
+    const err = caught(() =>
+      buildAssetIndex([ev('later', 'image', 9, { handle: 'dup' }), ev('earlier', 'image', 1, { handle: 'dup' })]),
+    )
+    expect(err.details).toEqual({ handle: 'dup', modality: 'image', assetIds: ['earlier', 'later'] })
+  })
+
+  it('same handle + same assetId replayed twice → no throw, one entry', () => {
+    const idx = buildAssetIndex([ev('A', 'image', 1, { handle: 'image_1' }), ev('A', 'image', 2, { handle: 'image_1' })])
+    expect(idx.all()).toHaveLength(1)
+    expect(idx.resolve('image_1')?.assetId).toBe('A')
+  })
+
+  it('a host replay of the handle this context itself minted for the same asset is idempotent, and minting continues past it', () => {
+    const idx = buildAssetIndex([ev('A', 'image', 1), ev('A', 'image', 2, { handle: 'image_1' }), ev('B', 'image', 3)])
+    expect(idx.all().map((e) => [e.handle, e.assetId])).toEqual([
+      ['image_1', 'A'],
+      ['image_2', 'B'],
+    ])
+  })
+
+  it('a host handle outside the minted grammar (hero-shot) takes the next slot and leaves the counter alone', () => {
+    const idx = buildAssetIndex([ev('A', 'image', 1, { handle: 'hero-shot' }), ev('B', 'image', 2)])
+    expect(idx.all().map((e) => [e.handle, e.sequence])).toEqual([
+      ['hero-shot', 1],
+      ['image_2', 2],
+    ])
+    expect(idx.resolve('hero-shot')?.assetId).toBe('A')
+  })
+
+  it("another modality's mint on this event is an opaque name: video_3 on an image does not steer the image counter", () => {
+    const idx = buildAssetIndex([ev('A', 'image', 1, { handle: 'video_3' }), ev('B', 'image', 2), ev('V', 'video', 3)])
+    expect(idx.all().map((e) => [e.handle, e.sequence])).toEqual([
+      ['video_3', 1],
+      ['image_2', 2],
+      ['video_1', 1],
+    ])
   })
 })

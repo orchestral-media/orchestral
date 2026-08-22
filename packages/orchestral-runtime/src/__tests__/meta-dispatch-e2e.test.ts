@@ -178,14 +178,14 @@ describe('meta_script-planning — e2e dispatch (F1.c G1 acceptance)', () => {
       store: new MemoryJobStore() as never,
     })
 
-    // Branch step throws → meta dispatch rejects → submitJob's Promise
-    // rejects with the original error message preserved (no swallowing).
-    await expect(
-      runtime.submitJob({
-        patternId: 'meta_script-planning',
-        input: { idea: 'a hero saves the city' },
-      } as never),
-    ).rejects.toThrow(/FAKE_PROVIDER_OOPS/)
+    // Branch step throws → meta dispatch fails → the job settles in error with
+    // the original error message preserved on its JobError (no swallowing).
+    const job = await runtime.submitJob({
+      patternId: 'meta_script-planning',
+      input: { idea: 'a hero saves the city' },
+    } as never)
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toMatch(/FAKE_PROVIDER_OOPS/)
 
     // Router stage succeeded (first capture). Branch stage was attempted at
     // least once — the fallback walk hops up to `fallbackDepth` times and our

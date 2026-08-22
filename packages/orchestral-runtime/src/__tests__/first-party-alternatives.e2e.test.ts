@@ -505,13 +505,13 @@ describe('capabilities that deliberately ship no alternative', () => {
         },
       })
 
-      await expect(
-        rt.submitJob({
-          patternId,
-          input,
-          ...(assets ? { assets } : {}),
-        } as never),
-      ).rejects.toThrow(/NO_MODEL_FOR_CAPABILITY/)
+      const job = await rt.submitJob({
+        patternId,
+        input,
+        ...(assets ? { assets } : {}),
+      } as never)
+      expect(job.status).toBe('error')
+      expect(job.error?.message).toMatch(/NO_MODEL_FOR_CAPABILITY/)
 
       // No model ran: the job did not quietly land on a neighbouring capability.
       expect(calls).toEqual([])

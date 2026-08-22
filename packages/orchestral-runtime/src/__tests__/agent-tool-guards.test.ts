@@ -525,8 +525,8 @@ describe('guard verdicts on the host-visible surface', () => {
   it('contrasts with AGENT_DEPTH_EXCEEDED, which throws and lands on JobError', async () => {
     // Same harness, the throwing guard: agent_ring --tool--> meta_hop --step-->
     // agent_leaf with maxAgentDepth=0. agent_leaf sees 1 agent ancestor,
-    // dispatchAgent throws, and the rejection propagates all the way out of
-    // submitJob instead of coming back as a tool-result.
+    // dispatchAgent throws, and the failure propagates all the way up to the
+    // root job instead of coming back as a tool-result.
     const h = makeHarness({
       patterns: [
         agent('agent_ring', ['meta_hop']),
@@ -538,9 +538,9 @@ describe('guard verdicts on the host-visible surface', () => {
       },
       maxAgentDepth: 0,
     })
-    await expect(
-      h.runtime.submitJob({ patternId: 'agent_ring', input: { prompt: 'start' } }),
-    ).rejects.toThrow(/AGENT_DEPTH_EXCEEDED/)
+    const job = await h.runtime.submitJob({ patternId: 'agent_ring', input: { prompt: 'start' } })
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toMatch(/AGENT_DEPTH_EXCEEDED/)
 
     // The thrown Error carries `.code`, so normaliseError lifts the guard's
     // own name onto JobError instead of falling back to the generic

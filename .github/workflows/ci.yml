@@ -45,7 +45,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Builds the three packages in dependency order (core first). Each
+      # Builds every package in dependency order (core first). Each
       # package's build is tsdown + tsc declarations + api-extractor rollup.
       - run: pnpm build
 

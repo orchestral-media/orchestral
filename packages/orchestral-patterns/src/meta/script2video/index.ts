@@ -228,7 +228,7 @@ export function createScript2VideoMeta(
       // Running total of every paid sub-step's cost. The DAG is deep and
       // heterogeneous (text-gen + image + video across many stages), so we push
       // each call's cost as it completes rather than reconstruct it at the end.
-      const costs: number[] = []
+      const costs: (number | null)[] = []
       const runText = makeTextRunner(ctx)
 
       // Stage 1 — characters (skip when caller pre-supplied them).
@@ -490,11 +490,11 @@ export function createScript2VideoMeta(
         videoAssetId: final.assetId,
         shotCount: storyboard.length,
         // The DAG accumulates bare per-step costs (it's deep and heterogeneous —
-        // pushing as calls complete is clearer than reconstructing at the end),
-        // so wrap each for sumCosts to get the same NaN/Infinity-guarded total
+        // pushing as calls complete is clearer than reconstructing at the end);
+        // sumCosts gives the same NaN/Infinity-guarded, null-propagating total
         // every sibling meta uses. A plain reduce would let one bad adapter cost
-        // poison the aggregate.
-        cost: sumCosts(...costs.map((cost) => ({ cost }))),
+        // poison the aggregate, or quietly sum past an unreported one.
+        cost: sumCosts(costs),
         latencyMs: Date.now() - startedAt,
       }
     },
@@ -581,7 +581,7 @@ function makeTextRunner(ctx: ExecutionContext) {
     prompt: string,
     schema: T,
     step: string,
-  ): Promise<{ data: z.infer<T>; cost: number }> {
+  ): Promise<{ data: z.infer<T>; cost: number | null }> {
     const out = await textGeneration(ctx, {
       system,
       prompt,

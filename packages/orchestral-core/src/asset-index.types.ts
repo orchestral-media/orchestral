@@ -28,7 +28,11 @@ export interface AssetAnnouncement {
   /** Real id (a host concept; the host defines its format). */
   assetId: string
   modality: AssetKind
-  /** If omitted, buildAssetIndex mints one (`image_1`); uploads may pass the filename. */
+  /**
+   * If omitted, buildAssetIndex mints one (`image_1`); uploads may pass the
+   * filename. A handle already bound to a different assetId in the same
+   * context is a HANDLE_COLLISION (thrown), never silently re-pointed.
+   */
   handle?: string
   /** Human-readable description / caption to help the LLM disambiguate (plain text). */
   label?: string
@@ -42,7 +46,11 @@ export interface AssetLedgerEntry {
   assetId: string
   modality: AssetKind
   label?: string
-  /** 1-based ordinal within this context and modality; frozen at mint time. */
+  /**
+   * 1-based ordinal within this context and modality; frozen at mint time. For
+   * a host-replayed mint (`image_2`) it is that handle's own ordinal, so handle
+   * and sequence never disagree.
+   */
   sequence: number
   /** Producing toolCallId (used by latestBatchOfModality); for uploads, a host-synthesized id. */
   batchId?: string

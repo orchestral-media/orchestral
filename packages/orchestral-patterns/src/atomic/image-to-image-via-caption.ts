@@ -67,10 +67,13 @@ export const ImageToImageViaCaptionOutputSchema = z.object({
     .int()
     .min(0)
     .describe('Wall-clock latency summed across the chain.'),
-  model: z
-    .string()
-    .describe('Resolved provider:modelId of the final text-to-image step.'),
-  provider: z.string(),
+  // Same bounds as `dispatchEnvelopeShape.model` / `.provider`, which this pair
+  // mirrors — it re-`.describe()`s `model` to say *which* step resolved it, and
+  // that is the only difference that should exist between them.
+  model: boundedText(256).describe(
+    'Resolved provider:modelId of the final text-to-image step.',
+  ),
+  provider: boundedText(128),
   /**
    * The "WIDTHxHEIGHT" the render step was asked for, derived from `tier`.
    * Render size travels on text-to-image's top-level `ImageGenerationParams`
@@ -222,7 +225,7 @@ export function createImageToImageViaCaptionPattern(): MetaPattern<
         // Forward the final t2i step's produced assets[] verbatim (assetId +
         // modality; no handle — host attaches the canonical handle after record).
         assets: image.assets ?? [],
-        cost: sumCosts(caption, image),
+        cost: sumCosts([caption.cost, image.cost]),
         latencyMs: caption.latencyMs + image.latencyMs,
         model: image.model,
         provider: image.provider,

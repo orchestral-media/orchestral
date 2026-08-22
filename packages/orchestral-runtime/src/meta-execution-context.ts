@@ -24,14 +24,14 @@ import type {
 import { buildAskUserFacade } from '@orchestral/core'
 
 /**
- * Upper bound on a single run's stepCache. The cache is per dispatch tree (a
- * top-level meta and everything it fans out share one map), so it normally
- * holds a handful of steps — but a meta that fans a sub-meta out per item
- * (meta_idea2video dispatching meta_script2video once per scene) can mint
- * hundreds of cache entries. Cap
+ * Upper bound on a single run's ctx.compute cache. The cache is per dispatch
+ * tree (a top-level meta and everything it fans out share one map), so it
+ * normally holds a handful of entries — but a meta that fans a sub-meta out per
+ * item (meta_idea2video dispatching meta_script2video once per scene) can mint
+ * hundreds. Cap
  * it so one pathological run can't grow the map unbounded; evicting the oldest
- * entry on overflow is safe because resume/idempotency only needs steps still
- * referenced later in the same compose, which are the most recent ones.
+ * entry on overflow is safe because a compute id is only re-hit from later in
+ * the same compose, which keeps the live ones recent.
  */
 const MAX_STEP_CACHE = 512
 
@@ -45,10 +45,16 @@ const MAX_STEP_CACHE = 512
  * inherited state) start with a fresh instance.
  *
  * Fields:
- *   • stepCache — keyed by the effective (namespace-prefixed) stepId, holds
- *     settled `{value, attempts, durationMs}` of completed steps so a
- *     re-invocation with the same stepId short-circuits (the resume/idempotency
- *     contract). ctx.compute keys are prefixed the same way.
+ *   • stepCache — **ctx.compute only**, keyed by the namespace-prefixed compute
+ *     id, holding settled `{value, attempts, durationMs}` so a re-invocation
+ *     with the same id short-circuits. ctx.step does not participate: its
+ *     `stepIds` guard rejects a repeated stepId outright, so it has no repeat
+ *     for a cache to answer, and letting it write anyway both filled
+ *     MAX_STEP_CACHE with entries nothing reads and let a compute id shadow a
+ *     later step of the same name. Sub-Pattern re-dispatch is deduped a layer
+ *     down instead, by `deriveIdempotencyKey` + `JobStore.insertIfAbsent`,
+ *     which is where the durable half of the idempotency contract actually
+ *     lives.
  *   • stepCounter — boxed mutable counter for default stepId generation
  *     (`${patternId}#${counter}`); a box rather than a number primitive so
  *     nested ctx instances share the same monotonic sequence.
@@ -286,9 +292,21 @@ export function buildMetaExecutionContext(
     id: string,
     fn: () => Promise<T>,
     options: StepOptions | undefined,
+    // Whether this call participates in `stepCache`. Only ctx.compute does.
+    //
+    // ctx.step cannot: the `stepIds` guard throws DUPLICATE_STEP_ID on a
+    // repeated effective stepId *before* reaching here, so a step's cache read
+    // can never hit its own prior write — the writes are dead, yet they still
+    // consume MAX_STEP_CACHE and evict the compute entries that do get read.
+    // Worse, the two share one key space while only ctx.step joins `stepIds`,
+    // so `ctx.compute('seg-0', …)` followed by `ctx.step(ref, {stepId:'seg-0'})`
+    // passed the duplicate guard and then returned the compute value: no
+    // dispatch, no job:step event, no error. Keeping ctx.step out of the cache
+    // entirely closes both.
+    useCache = true,
   ): Promise<{ value: T; attempts: number; durationMs: number }> => {
     if (signal.aborted) throw new Error('CANCELLED')
-    const cached = stepCache.get(id)
+    const cached = useCache ? stepCache.get(id) : undefined
     if (cached) {
       return cached as { value: T; attempts: number; durationMs: number }
     }
@@ -307,14 +325,16 @@ export function buildMetaExecutionContext(
           attempts: attempt,
           durationMs: Date.now() - startTime,
         }
-        // Evict the oldest entry once the cache is full (Map iterates in
-        // insertion order, so the first key is the oldest). Keeps a runaway
-        // loop from growing the map without bound; the just-set entry stays.
-        if (stepCache.size >= MAX_STEP_CACHE) {
-          const oldest = stepCache.keys().next().value
-          if (oldest !== undefined) stepCache.delete(oldest)
+        if (useCache) {
+          // Evict the oldest entry once the cache is full (Map iterates in
+          // insertion order, so the first key is the oldest). Keeps a runaway
+          // loop from growing the map without bound; the just-set entry stays.
+          if (stepCache.size >= MAX_STEP_CACHE) {
+            const oldest = stepCache.keys().next().value
+            if (oldest !== undefined) stepCache.delete(oldest)
+          }
+          stepCache.set(id, result)
         }
-        stepCache.set(id, result)
         return result as { value: T; attempts: number; durationMs: number }
       } catch (err) {
         const delayMs = nextRetryDelayMs(policy, attempt)
@@ -487,14 +507,18 @@ export function buildMetaExecutionContext(
           return child.output as T
         }
 
-        // Cache + dedup key off the namespaced id so two subtrees never share
-        // a cache slot; the StepResult.meta.stepId stays the author-facing id
+        // Dedup key off the namespaced id so two subtrees never collide;
+        // the StepResult.meta.stepId stays the author-facing id
         // (what they passed in options.stepId), since the namespace is an
         // internal routing concern, not part of their addressing contract.
         const { value, attempts, durationMs } = await runWithRetry<T>(
           effectiveStepId,
           run,
           options,
+          // No cache: the stepIds guard above already rejected any repeat, so
+          // there is nothing here for a cache to short-circuit. See the
+          // `useCache` parameter.
+          false,
         )
         return { value, meta: { stepId, attempts, durationMs } }
       },

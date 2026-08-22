@@ -18,7 +18,9 @@ import {
   DispatchPatternInputSchema,
   FindPatternInputSchema,
   isDispatchError,
+  projectToolOutputForModel,
   resolveDispatchTarget,
+  sanitizeToolOutput,
 } from '@orchestral/core'
 import type {
   AgentDispatchEnvelope,
@@ -27,6 +29,7 @@ import type {
   AgentToolDescriptor,
   BuildCatalogDescriptorsOptions,
   CapabilityRouter,
+  DiagnosticsLogger,
   DispatchContext,
   TranscriptMessage,
   Job,
@@ -134,10 +137,11 @@ export interface AgentAssetBridge {
    * Records a child dispatch's produced `output.assets[]` into the context AND
    * returns the model-facing output with the store-minted handle stamped onto
    * each produced asset (plus `origin: 'generated'` and a `from` lineage built
-   * from `resolvedInputs`). The caller forwards THIS return value to the model
-   * history — never the raw adapter output, whose elements carry assetId/url
-   * but no handle and would therefore be dropped entirely by the downstream
-   * `projectToolOutputForModel` projection.
+   * from `resolvedInputs`). dispatchAgent runs THIS return value through
+   * `projectToolOutputForModel` + `sanitizeToolOutput` before handing it to
+   * the loop — never the raw adapter output, whose elements carry assetId/url
+   * but no handle and are therefore dropped entirely by that projection (a
+   * loop without a bridge sees `assets: []`, never a real assetId).
    *
    * `patternId` names the operation on the provenance edges the host records;
    * `resolvedInputs` are the slot-keyed input assets this dispatch consumed
@@ -245,6 +249,13 @@ export interface AgentDispatchDeps {
   agentAssetBridge?: AgentAssetBridge
   catalogOptions?: BuildCatalogDescriptorsOptions
   resolveCtxProvider?: (spec: JobSpec) => ResolveContext
+  /**
+   * The runtime's diagnostics seam (`InlineRuntimeInit.logger`). Agent
+   * dispatch reports what belongs to the job on the job stream; the only thing
+   * that reaches this is a transcript append failing off the loop's critical
+   * path, which has no event and must not block the loop.
+   */
+  logger: DiagnosticsLogger
   /**
    * Record the envelope `getAgentEnvelope` reads. The runtime owns the table
    * and its bound; this module only reports what a dispatch produced.
@@ -595,9 +606,10 @@ deps: AgentDispatchDeps,
         void store
           .append(runId, agentId, msg)
           .catch((err: unknown) => {
-            // An append failure must not block the agent loop; log a warning
-            // and let the host decide whether to escalate it to fatal.
-            console.warn(
+            // An append failure must not block the agent loop; report it on
+            // the host's diagnostics channel and let the host decide whether
+            // to escalate it to fatal.
+            deps.logger.warn(
               `[dispatchAgent] transcriptStore.append failed for ${runId}/${agentId} seq=${msg.seq}:`,
               err,
             )
@@ -1039,33 +1051,13 @@ deps: AgentDispatchDeps,
           }
           // Envelope: count each successful tool dispatch.
           envelopeToolCount++
-          // Record the tool-result kind into the transcript so resume can
-          // replay tool outputs alongside assistant text. Skipped if no store
-          // was injected. Failure to append is logged but never blocks the
-          // agent loop (the in-flight LLM call is more important than the log).
-          if (store) {
-            const toolResultMsg: TranscriptMessage = {
-              seq: transcriptSeq++,
-              ts: Date.now(),
-              kind: 'tool-result',
-              raw: { name, output: child.output, pattern_id: fullId },
-            }
-            void store
-              .append(runId, agentId, toolResultMsg)
-              .catch((err: unknown) => {
-                console.warn(
-                  `[dispatchAgent] transcriptStore.append (tool-result) failed for ${runId}/${agentId} seq=${toolResultMsg.seq}:`,
-                  err,
-                )
-              })
-          }
           // Record the child's produced assets into this agent context so
           // later references in the loop (or inheriting children) resolve.
           // recordOutput returns the model-facing output with handles stamped
           // (+ origin/from lineage); we forward THAT to the loop — not the raw
-          // child.output (assetId+url, no handle), which the downstream
-          // projection would drop for lacking a handle. Mirrors what the host's
-          // chat path does to job.output: stamp handles, attach lineage.
+          // child.output (assetId+url, no handle), which the projection below
+          // drops for lacking a handle. Mirrors what the host's chat path does
+          // to job.output: stamp handles, attach lineage.
           const stamped = deps.agentAssetBridge?.recordOutput({
             contextId: agentContextId,
             ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
@@ -1074,7 +1066,52 @@ deps: AgentDispatchDeps,
             resolvedInputs: childAssets,
             output: child.output,
           })
-          return stamped ?? child.output
+          // Whoever owns the model call owns the projection. This tool-result
+          // goes straight into the loop's model context, so it is projected
+          // HERE, on both paths — bridge present (stamped) and bridge absent
+          // (raw child.output) — rather than left for a host to remember.
+          // `InlineRuntime.dispatch()` deliberately does NOT do this: it
+          // returns to the host, which needs the real assetIds and URLs.
+          //
+          // Order matters: project FIRST (drops assetId / url and rebuilds
+          // assets[] from the handle whitelist — `projectToolOutputForModel`
+          // in @orchestral/core's asset-index.ts is the verifiable assertion
+          // point for the no-assetId invariant), sanitize SECOND (scrubs
+          // data: URLs / binary runs that survived inside the projected
+          // metadata). Same composition as @orchestral/dsh-plugin's tool.ts.
+          const modelFacing = sanitizeToolOutput(
+            projectToolOutputForModel(stamped ?? child.output),
+          )
+          // Record the tool-result kind into the transcript so resume can
+          // replay tool outputs alongside assistant text. Skipped if no store
+          // was injected. Failure to append is logged but never blocks the
+          // agent loop (the in-flight LLM call is more important than the log).
+          //
+          // What goes in is `modelFacing`, never `child.output`: the transcript
+          // is replayed straight back into model context on resume
+          // (`transcriptMessageToChat` returns it as a `tool` turn verbatim),
+          // so it must hold exactly what the model saw the first time. Storing
+          // the raw output did two wrong things at once — persisted real
+          // assetIds and signed provider URLs in a host store, and then fed a
+          // payload the model had never seen into its context on resume,
+          // bypassing the projection above.
+          if (store) {
+            const toolResultMsg: TranscriptMessage = {
+              seq: transcriptSeq++,
+              ts: Date.now(),
+              kind: 'tool-result',
+              raw: { name, output: modelFacing, pattern_id: fullId },
+            }
+            void store
+              .append(runId, agentId, toolResultMsg)
+              .catch((err: unknown) => {
+                deps.logger.warn(
+                  `[dispatchAgent] transcriptStore.append (tool-result) failed for ${runId}/${agentId} seq=${toolResultMsg.seq}:`,
+                  err,
+                )
+              })
+          }
+          return modelFacing
         }
 
         // Unknown tool name — LLM emitted something not in our catalog.

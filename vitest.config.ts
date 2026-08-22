@@ -8,6 +8,7 @@ export default defineConfig({
     projects: [
       './packages/orchestral-core/vitest.config.ts',
       './packages/orchestral-discovery/vitest.config.ts',
+      './packages/orchestral-adapters-ai-sdk/vitest.config.ts',
       './packages/orchestral-patterns/vitest.config.ts',
       './packages/orchestral-runtime/vitest.config.ts',
       './packages/orchestral-agent/vitest.config.ts',

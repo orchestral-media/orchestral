@@ -84,7 +84,7 @@ export function createProductPhotoPackMeta(
       if (!confirmed) {
         return {
           imageAssetIds: [],
-          cost: sumCosts(gen),
+          cost: sumCosts([gen.cost]),
           latencyMs: Date.now() - startedAt,
         }
       }
@@ -99,7 +99,7 @@ export function createProductPhotoPackMeta(
 
       return {
         imageAssetIds,
-        cost: sumCosts(gen, ...images),
+        cost: sumCosts([gen.cost, ...images.map((r) => r.cost)]),
         latencyMs: Date.now() - startedAt,
       }
     },

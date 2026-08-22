@@ -141,7 +141,7 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
           heroAssetId,
           voAssetId,
           shotClipAssetIds: [],
-          cost: sumCosts(gen, voOut, heroOut),
+          cost: sumCosts([gen.cost, voOut.cost, heroOut.cost]),
           latencyMs: Date.now() - startedAt,
         }
       }
@@ -167,14 +167,14 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
       // Stage 5 — optional burned subtitles. Transcribe the VO for timed
       // segments, build an SRT, materialize it, then hard-burn onto the video.
       // Skips gracefully when ASR returns no segments (silent VO / unsupported).
-      let asrCost = 0
+      let asrCost: number | null = 0
       if (input.subtitles) {
         const asr = await automaticSpeechRecognition(
           ctx,
           { timestamps: 'segment' },
           { assets: [{ slot: 'source', assetId: voAssetId, modality: 'audio' }] },
         )
-        asrCost = sumCosts(asr)
+        asrCost = sumCosts([asr.cost])
         if (asr.segments?.length) {
           const srt = toSrt(asr.segments)
           const { assetId: srtId } = await ctx.compute('subtitle-asset', () => deps.createSubtitleAsset(srt))
@@ -188,7 +188,7 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
         voAssetId,
         shotClipAssetIds,
         videoAssetId,
-        cost: sumCosts(gen, voOut, heroOut, ...shotOutputs, { cost: asrCost }),
+        cost: sumCosts([gen.cost, voOut.cost, heroOut.cost, ...shotOutputs.map((s) => s.cost), asrCost]),
         latencyMs: Date.now() - startedAt,
       }
     },

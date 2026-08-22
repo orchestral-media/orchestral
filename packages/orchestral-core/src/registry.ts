@@ -5,8 +5,9 @@ import type { Unsubscribe } from './job-store'
 import type { NamespaceId } from './catalog'
 import { resolveNamespace } from './catalog'
 import { DEFAULT_AGENT_FINISH_SPEC, defaultAgentFinishOutputs } from './agent-finish'
-import { ManifestError, OrchestralManifestSchema } from './manifest'
+import { idCarriesKind, ManifestError, OrchestralManifestSchema } from './manifest'
 import { auditOutputsSchema } from './output-fields'
+import { consoleDiagnosticsLogger, type DiagnosticsLogger } from './logger'
 
 /**
  * In-memory pattern lookup. Host code registers concrete Pattern instances
@@ -45,6 +46,18 @@ export class PatternRegistry {
     PatternId,
     Alternative<unknown, unknown>[]
   >()
+  /**
+   * Where the registry's non-fatal findings go — today, the two authoring
+   * lints `register` runs over a pattern's outputs schema. They are addressed
+   * to the developer wiring patterns up, so the console is the right default;
+   * a host with its own diagnostics channel, or a test that wants silence,
+   * injects a `DiagnosticsLogger` instead.
+   */
+  private readonly logger: DiagnosticsLogger
+
+  constructor(options?: { logger?: DiagnosticsLogger }) {
+    this.logger = options?.logger ?? consoleDiagnosticsLogger
+  }
 
   /**
    * Register a pattern under its declared id. Duplicate ids throw to
@@ -74,6 +87,19 @@ export class PatternRegistry {
     if (this.byId.has(pattern.id)) {
       throw new Error(
         `PATTERN_ALREADY_REGISTERED: ${pattern.id} — call unregister first if intentional`,
+      )
+    }
+    // The id ↔ kind naming contract, enforced on the direct path too. Loading a
+    // Pattern through addFromManifest already fails here (manifest.ts's
+    // `.refine`), but register() is the path first-party factories and
+    // hand-wired Patterns take, and the prefix is what DEFAULT_SUBAGENT_BLOCKLIST
+    // and inferNamespace route on — an `agent` Pattern registered without the
+    // `agent_` prefix is silently exempt from the sub-agent recursion guard.
+    if (!idCarriesKind(pattern.id, pattern.kind)) {
+      throw new Error(
+        `PATTERN_ID_KIND_MISMATCH: ${pattern.id} is kind '${pattern.kind}' — ` +
+          `meta ids need a 'meta_' prefix, agent ids an 'agent_' prefix, and an ` +
+          `atomic id must be a bare capability id carrying neither`,
       )
     }
     const dn = shortNameOf(pattern.id)
@@ -154,12 +180,12 @@ export class PatternRegistry {
     const outputs = (pattern as { outputs?: ZodSchema }).outputs
     if (outputs) {
       const audit = auditOutputsSchema(outputs)
-      // The deliberate exception to "the library writes nothing to stdout/stderr":
-      // this is a one-shot authoring lint on the registration path, addressed to
-      // the developer wiring patterns up, not to a runtime code path a host ships
-      // in a request loop. Anything on a per-call path stays silent.
+      // A one-shot authoring lint on the registration path, addressed to the
+      // developer wiring patterns up, not to a runtime code path a host ships
+      // in a request loop — which is why it is a logger line and not an error
+      // or an event. Anything on a per-call path stays silent.
       if (audit.unbounded.length > 0) {
-        console.warn(
+        this.logger.warn(
           `[patterns] OUTPUTS_UNBOUNDED_FIELDS (${pattern.id}): ${audit.unbounded.join(', ')}`,
         )
       }
@@ -167,7 +193,7 @@ export class PatternRegistry {
       // $refs and unknown()/any() fields are opaque to the walk. Surface them
       // so the author knows the audit did not cover those paths.
       if (audit.notTraversed.length > 0) {
-        console.warn(
+        this.logger.warn(
           `[patterns] OUTPUTS_UNAUDITED_FIELDS (${pattern.id}): ${audit.notTraversed.join(', ')}`,
         )
       }

@@ -20,38 +20,114 @@ export function mintHandle(modality: AssetKind, priorCountOfModality: number): s
 }
 
 /**
+ * Inverse of mintHandle: the ordinal a host-supplied handle encodes when it is
+ * a replay of one of OUR mints for this modality, else undefined. `image_2` on
+ * an image event → 2. Anything else — an upload filename (`cat.png`), a host
+ * alias (`hero-shot`), another modality's mint on this event (`video_3` on an
+ * image), or a shape mintHandle never emits (`image_0`, `image_007`, a suffix
+ * past the safe-integer range) — is an opaque name and has no ordinal.
+ *
+ * Strict on purpose: the only handles allowed to steer a counter are the ones
+ * that counter itself produced, so the grammar here must be exactly
+ * mintHandle's and nothing wider. Checked against the event's own modality
+ * rather than the AssetKind set, so no kind name is spelled out here and a
+ * new kind needs no edit.
+ *
+ * Module-level export for asset-store.ts; not re-exported from index.ts.
+ */
+export function parseMintedHandle(handle: string, modality: AssetKind): number | undefined {
+  const prefix = `${modality}_`
+  if (!handle.startsWith(prefix)) return undefined
+  const digits = handle.slice(prefix.length)
+  if (!/^[1-9]\d*$/.test(digits)) return undefined
+  const n = Number(digits)
+  return Number.isSafeInteger(n) ? n : undefined
+}
+
+/**
+ * The one ledger failure buildAssetIndex / InMemoryAssetStore refuse to paper
+ * over: one handle, two assets. Silently keeping either side makes the other
+ * asset unreachable through the only name the model knows it by — it still
+ * sits in storage, but no reference can ever land on it again, and nothing
+ * downstream can tell. That is data loss with no symptom, so it is an error.
+ *
+ * Thrown, not returned as an AssetResolutionError: this is a host-side ledger
+ * corruption (a bad replay, two uploads given one name), not a model-side
+ * reference mistake the LLM could self-correct from with a HandleSnapshot.
+ * `code` follows the runtime's error-code convention (normaliseError reads
+ * `.code` and nothing else); `details` carries the facts a host needs to
+ * repair the ledger without regexing the message. Order in `assetIds` is
+ * binding order: the asset that held the handle first, then the one refused.
+ *
+ * Module-level export for asset-store.ts; not re-exported from index.ts.
+ */
+export function handleCollisionError(
+  handle: string,
+  modality: AssetKind,
+  first: string,
+  second: string,
+): Error {
+  return Object.assign(
+    new Error(
+      `HANDLE_COLLISION: handle "${handle}" (${modality}) is already bound to asset "${first}"; refusing to rebind it to "${second}"`,
+    ),
+    { code: 'HANDLE_COLLISION', details: { handle, modality, assetIds: [first, second] } },
+  )
+}
+
+/**
  * Indexes an AssetEvent[] into an AssetIndex. Pure: same input, same output.
  * - processes in ascending orderHint
  * - per-modality counter → 1-based sequence + default handle minting
- * - if annotation.handle is present, use it (a host-persisted handle); the
- *   counter still advances
- * - for the same handle, the larger orderHint wins
+ * - if annotation.handle is present, use it (a host-persisted handle). When it
+ *   is a replay of one of our own mints for that modality (`image_2` on an
+ *   image event) the counter is pulled up to that ordinal — max(counter, 2) —
+ *   so later mints skip past it. That is honouring the host's replay, not
+ *   guessing. Any other name (`cat.png`, `hero-shot`, `video_3` on an image)
+ *   takes the next slot exactly as an unannotated event would.
+ * - sequence is the replayed ordinal for such a handle, otherwise the counter
+ *   after it advanced — so a handle and its sequence never disagree
+ * - same handle, same assetId: an idempotent replay; the larger orderHint wins
+ *   and the shadowed entry is dropped
+ * - same handle, different assetId: HANDLE_COLLISION, thrown. Never a silent
+ *   pick — see handleCollisionError for why.
  */
 export function buildAssetIndex(events: ReadonlyArray<AssetEvent>): AssetIndex {
   const sorted = [...events].sort((a, b) => a.orderHint - b.orderHint)
   const counts = new Map<string, number>()
   const ordered: AssetLedgerEntry[] = []
+  const byHandle = new Map<string, AssetLedgerEntry>()
 
   for (const e of sorted) {
     const m = e.annotation.modality
     const prior = counts.get(m) ?? 0
-    const sequence = prior + 1
-    counts.set(m, sequence)
+    const supplied = e.annotation.handle
+    // A replayed mint pins its own ordinal; everything else takes the next
+    // slot. Advancing by event count alone was the bug: replay `image_2` into
+    // an empty ledger, then mint once, and the fresh mint is `image_2` too —
+    // the replayed asset vanishes behind it with no symptom.
+    const replayed = supplied === undefined ? undefined : parseMintedHandle(supplied, m)
+    const sequence = replayed ?? prior + 1
+    counts.set(m, Math.max(prior, sequence))
     const entry: AssetLedgerEntry = {
-      handle: e.annotation.handle ?? mintHandle(m, prior),
+      handle: supplied ?? mintHandle(m, prior),
       assetId: e.annotation.assetId,
       modality: m,
       sequence,
       ...(e.annotation.label !== undefined ? { label: e.annotation.label } : {}),
       ...(e.batchId !== undefined ? { batchId: e.batchId } : {}),
     }
+    const prev = byHandle.get(entry.handle)
+    if (prev !== undefined && prev.assetId !== entry.assetId) {
+      throw handleCollisionError(entry.handle, m, prev.assetId, entry.assetId)
+    }
+    byHandle.set(entry.handle, entry) // same asset: later (higher orderHint) wins
     ordered.push(entry)
   }
 
-  const byHandle = new Map<string, AssetLedgerEntry>()
-  for (const entry of ordered) byHandle.set(entry.handle, entry) // later (higher orderHint) wins
-  // Dedup: drop shadow entries overridden by a later same-handle entry, so
-  // resolve / all / query share one source of truth (no unreachable ghosts).
+  // Dedup: drop shadow entries overridden by a later same-handle replay of the
+  // same asset, so resolve / all / query share one source of truth (no
+  // unreachable ghosts).
   const deduped = ordered.filter((e) => byHandle.get(e.handle) === e)
 
   return {

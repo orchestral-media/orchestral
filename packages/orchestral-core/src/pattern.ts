@@ -183,10 +183,20 @@ export interface PatternBase<I = unknown, O = unknown> {
    * A Pattern's own permission-check hook. Another layer of ToS / quota /
    * scope validation beyond host middleware.
    *
-   * Called before dispatch; on failure:
-   *   • atomic / meta — dispatch throws PERMISSION_DENIED, the Job is marked
-   *     'error'
-   *   • agent — the PermissionResult is fed back to the LLM via onToolCall
+   * Called before dispatch, for every kind; on refusal the dispatch throws
+   * PERMISSION_DENIED and the Job is marked 'error'. That is uniform across
+   * atomic / meta / agent — this hook gates whether the Pattern runs at all,
+   * so refusing it has nowhere to be reported except the Job.
+   *
+   * (Not to be confused with the guard verdicts an agent's INNER loop gets back
+   * as tool results — those refuse one tool call inside a run that is already
+   * permitted, which is why they are recoverable and this is not.)
+   *
+   * What the hook receives differs by kind, because the context it can be
+   * handed differs: atomic gets the forked DispatchContext the model adapter
+   * will get, resolved `assets` included; meta and agent get the pre-fork
+   * minimum (`signal`, `assets` off the spec, `rootJobId`, ambient
+   * providerOptions / sessionId), since their branches run before any fork.
    *
    * The actual rejection/confirmation UI is up to the host.
    */

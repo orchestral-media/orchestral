@@ -1,12 +1,12 @@
 // Atomic hello-world — the whole host.
 //
 // A from-scratch host needs ONLY the published @orchestral/* packages plus its
-// own ai-sdk model instance (built with its own API key) and a small adapter
-// that bridges that instance to the orchestral `call` contract. That adapter is
-// host territory — core / runtime / patterns never import a provider SDK — so it
-// lives here in `./ai-sdk-wiring`, not in a published package. Everything below
-// the `OPENAI_API_KEY` check is the ~15 lines of wiring: registry → models →
-// router → runtime → submitJob.
+// own ai-sdk model instance (built with its own API key) and an adapter that
+// bridges that instance to the orchestral `call` contract. That adapter is
+// host territory — core / runtime / patterns never import a provider SDK — and
+// for the AI SDK it ships as the leaf package `@orchestral/adapters-ai-sdk`,
+// which `./ai-sdk-wiring` calls. Everything below the `OPENAI_API_KEY` check
+// is the ~15 lines of wiring: registry → models → router → runtime → submitJob.
 
 import { openai } from '@ai-sdk/openai'
 import {

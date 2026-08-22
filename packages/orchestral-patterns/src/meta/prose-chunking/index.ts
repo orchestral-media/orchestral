@@ -181,7 +181,7 @@ export function createProseChunkingMeta(
         prompt: buildAggregationPrompt(compressed.map((c) => c.text)),
       })
 
-      const compressCost = sumCosts(...compressed)
+      const compressCost = sumCosts(compressed.map((c) => c.cost))
       const compressLatencyMs = compressed.reduce(
         (max, c) => Math.max(max, c.latencyMs),
         0,
@@ -190,7 +190,7 @@ export function createProseChunkingMeta(
       return {
         compressedChunks: compressed.map((c) => c.text),
         aggregatedNarrative: aggregated.text,
-        cost: sumCosts({ cost: compressCost }, aggregated),
+        cost: sumCosts([compressCost, aggregated.cost]),
         latencyMs: compressLatencyMs + aggregated.latencyMs,
       }
     },

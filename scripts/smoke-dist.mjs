@@ -22,8 +22,8 @@
 // an already-built tree (CI reuses the api-surface build).
 
 import { existsSync } from 'node:fs'
-import { register } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { createRequire, register } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // The three published packages and their single published entry (`.`). Each
 // package's publishConfig.exports declares only `.` → ./dist/index.js; the
@@ -35,6 +35,10 @@ const PACKAGES = [
   { name: '@orchestral/patterns', dir: 'orchestral-patterns' },
   { name: '@orchestral/runtime', dir: 'orchestral-runtime' },
   { name: '@orchestral/agent', dir: 'orchestral-agent' },
+  // The AI SDK adapters are a leaf on the same version line. Their dist
+  // externalizes `ai` as a bare import, which resolves through the package's
+  // own node_modules — the same resolution a consumer gets after publish.
+  { name: '@orchestral/adapters-ai-sdk', dir: 'orchestral-adapters-ai-sdk' },
 ]
 
 const distUrlFor = (dir) =>
@@ -96,6 +100,7 @@ const discovery = await import(distUrlFor('orchestral-discovery').href)
 const patterns = await import(distUrlFor('orchestral-patterns').href)
 const runtime = await import(distUrlFor('orchestral-runtime').href)
 const agent = await import(distUrlFor('orchestral-agent').href)
+const adapters = await import(distUrlFor('orchestral-adapters-ai-sdk').href)
 
 console.log('smoke:dist — exercising built dist/index.js of the published packages\n')
 
@@ -116,6 +121,9 @@ check('@orchestral/discovery', 'handleFindPattern is a function', typeof discove
 // there is no runner export to assert here.
 check('@orchestral/agent', 'createLongFormVideoAgent is a function', typeof agent.createLongFormVideoAgent === 'function')
 check('@orchestral/agent', 'createOrchestratorAgent is a function', typeof agent.createOrchestratorAgent === 'function')
+check('@orchestral/adapters-ai-sdk', 'fromImageModel is a function', typeof adapters.fromImageModel === 'function')
+check('@orchestral/adapters-ai-sdk', 'fromSpeechModel is a function', typeof adapters.fromSpeechModel === 'function')
+check('@orchestral/adapters-ai-sdk', 'fromTranscriptionModel is a function', typeof adapters.fromTranscriptionModel === 'function')
 
 if (failures > 0) {
   console.error(`\nsmoke:dist FAILED — ${failures} missing/invalid export(s); cannot run the dispatch flow.`)
@@ -205,6 +213,62 @@ if (parsed) {
   check('@orchestral/patterns', 'parsed.provider === "mock"', parsed.provider === 'mock')
   check('@orchestral/patterns', 'parsed.assets has one image asset', parsed.assets.length === 1 && parsed.assets[0]?.modality === 'image')
   check('@orchestral/patterns', 'asset.url is a png data URI', /^data:image\/png;base64,/.test(parsed.assets[0]?.url ?? ''))
+}
+
+// 5. The same dispatch through the shipped AI SDK adapter instead of the
+//    inline `call`: proves the adapters dist links to `ai` post-publish and
+//    produces the same schema-valid output. The model is ai/test's mock,
+//    resolved from the adapters package's own node_modules (the root has no
+//    `ai`), so no key and no network.
+console.log('\ndispatch via @orchestral/adapters-ai-sdk:')
+const adaptersRequire = createRequire(
+  new URL('../packages/orchestral-adapters-ai-sdk/package.json', import.meta.url),
+)
+const { MockImageModelV3 } = await import(pathToFileURL(adaptersRequire.resolve('ai/test')).href)
+let adapterJob
+try {
+  const registry = new core.PatternRegistry()
+  registry.add(patterns.createTextToImagePattern())
+  const envelope = adapters.fromImageModel(
+    new MockImageModelV3({
+      provider: 'openai',
+      modelId: 'gpt-image-1',
+      doGenerate: async () => ({
+        images: ['aVZCT1J3MEtHZ29BQUFBTlNVaEVVZ0E='],
+        warnings: [],
+        response: { timestamp: new Date(0), modelId: 'gpt-image-1', headers: {} },
+      }),
+    }),
+  )
+  const rt = new runtime.InlineRuntime({
+    store: new core.InMemoryJobStore(),
+    registry,
+    router: core.createDefaultCapabilityRouter({
+      getModels: (cap) => [envelope].filter((env) => env.capabilities.includes(cap)),
+    }),
+  })
+  adapterJob = await rt.submitJob({
+    patternId: patterns.TEXT_TO_IMAGE_PATTERN_ID,
+    input: { prompt: 'a red bicycle' },
+  })
+} catch (err) {
+  console.error('  ✗ [@orchestral/adapters-ai-sdk] submitJob threw instead of completing:')
+  console.error(err)
+  process.exit(1)
+}
+check('@orchestral/adapters-ai-sdk', 'job.status === "done"', adapterJob.status === 'done')
+let adapterParsed
+try {
+  adapterParsed = patterns.TextToImageOutputSchema.parse(adapterJob.output)
+  check('@orchestral/adapters-ai-sdk', 'TextToImageOutputSchema.parse(job.output) succeeds', true)
+} catch (err) {
+  check('@orchestral/adapters-ai-sdk', 'TextToImageOutputSchema.parse(job.output) succeeds', false)
+  console.error(err)
+}
+if (adapterParsed) {
+  check('@orchestral/adapters-ai-sdk', 'parsed.model === "openai:gpt-image-1"', adapterParsed.model === 'openai:gpt-image-1')
+  check('@orchestral/adapters-ai-sdk', 'parsed.cost === null (the AI SDK reports no cost)', adapterParsed.cost === null)
+  check('@orchestral/adapters-ai-sdk', 'asset.url is a png data URI', /^data:image\/png;base64,/.test(adapterParsed.assets[0]?.url ?? ''))
 }
 
 if (failures > 0) {

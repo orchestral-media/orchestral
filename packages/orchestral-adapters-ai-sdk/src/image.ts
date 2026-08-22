@@ -1,0 +1,126 @@
+// text-to-image over the AI SDK's `generateImage`.
+
+import { generateImage, type ImageModel } from 'ai'
+import type {
+  Artifact,
+  CallEvents,
+  DispatchContext,
+  DispatchResult,
+  ModelCapability,
+} from '@orchestral/core'
+
+import {
+  type AdapterOptions,
+  asRecord,
+  buildRecord,
+  dispatchEnvelope,
+  optionalNumber,
+  optionalString,
+  providerOptionsFor,
+  requireString,
+  resolveIdentity,
+} from './envelope'
+
+/**
+ * A resolved AI SDK image model OBJECT — `ImageModel` minus the bare-id string
+ * form that only helpers backed by a provider registry accept. The adapter
+ * reads `.provider` / `.modelId` off it and hands it to `generateImage`.
+ * Build one with `openai.image('gpt-image-1')` (or any provider's `.image()`).
+ */
+export type ImageModelInstance = Exclude<ImageModel, string>
+
+type ImageSize = NonNullable<Parameters<typeof generateImage>[0]['size']>
+type ImageAspectRatio = NonNullable<
+  Parameters<typeof generateImage>[0]['aspectRatio']
+>
+
+const SIZE_RE = /^\d+x\d+$/
+const ASPECT_RE = /^\d+:\d+$/
+
+/**
+ * Wrap an AI SDK image model as a `text-to-image` `ModelCapability`.
+ *
+ * Reads off the input: `prompt` (required), and the `ImageGenerationParams`
+ * the first-party pattern documents as the adapter contract — `size`
+ * (`WxH`), `aspectRatio` (`W:H`), `n`, `seed` — plus a flat
+ * `providerOptions`. Returns a `TextToImageOutput`: one `assets[]` element per
+ * generated image, `url` a `data:` URI of the bytes, `cost: null`.
+ *
+ * Not mapped: the `reference` / `control` asset slots (see README).
+ */
+export function fromImageModel(
+  model: ImageModelInstance,
+  options: AdapterOptions = {},
+): ModelCapability {
+  const identity = resolveIdentity(model, options)
+  return {
+    ...buildRecord(identity, options, {
+      capability: 'text-to-image',
+      inputs: ['text'],
+      outputs: ['image'],
+    }),
+    async call<I, O>(
+      input: I,
+      ctx: DispatchContext,
+      events?: CallEvents,
+    ): Promise<DispatchResult<O>> {
+      const fields = asRecord(input)
+      const prompt = requireString(fields, 'prompt', 'text-to-image')
+      const size = optionalString(fields, 'size')
+      if (size !== undefined && !SIZE_RE.test(size)) {
+        throw new Error(
+          `text-to-image call: input.size must be "WIDTHxHEIGHT" (got ${JSON.stringify(size)})`,
+        )
+      }
+      const aspectRatio = optionalString(fields, 'aspectRatio')
+      if (aspectRatio !== undefined && !ASPECT_RE.test(aspectRatio)) {
+        throw new Error(
+          `text-to-image call: input.aspectRatio must be "W:H" (got ${JSON.stringify(aspectRatio)})`,
+        )
+      }
+      const n = optionalNumber(fields, 'n')
+      const seed = optionalNumber(fields, 'seed')
+      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+
+      const startedAt = Date.now()
+      const { images } = await generateImage({
+        model,
+        prompt,
+        ...(size !== undefined ? { size: size as ImageSize } : {}),
+        ...(aspectRatio !== undefined
+          ? { aspectRatio: aspectRatio as ImageAspectRatio }
+          : {}),
+        ...(n !== undefined ? { n } : {}),
+        ...(seed !== undefined ? { seed } : {}),
+        ...(providerOptions ? { providerOptions } : {}),
+        abortSignal: ctx.signal,
+      })
+
+      const produced = images.filter((img) => img.base64.length > 0)
+      if (produced.length === 0) {
+        throw new Error(
+          `${identity.provider}: the AI SDK image model returned no images`,
+        )
+      }
+
+      const artifacts: Artifact[] = produced.map((img) => {
+        const mime = img.mediaType || 'image/png'
+        return { kind: 'image', uri: `data:${mime};base64,${img.base64}`, mime }
+      })
+      for (const artifact of artifacts) events?.onArtifact?.(artifact)
+
+      // No asset store at this seam, so `url` is the data URI and `assetId` a
+      // placeholder; a host that records assets stamps canonical ids afterward.
+      const output = {
+        modality: 'image' as const,
+        assets: artifacts.map((artifact, i) => ({
+          assetId: `aisdk-image-${i}`,
+          modality: 'image' as const,
+          url: artifact.uri,
+        })),
+        ...dispatchEnvelope(identity, startedAt),
+      }
+      return { output: output as O, artifacts }
+    },
+  }
+}

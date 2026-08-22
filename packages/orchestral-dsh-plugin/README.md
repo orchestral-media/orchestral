@@ -41,6 +41,10 @@ orchestral's own exposure rules admit for the configured surface:
   rather than going through `defineTool`, because round-tripping through dsh's `ParameterSchemaSpec` DSL
   would drop constraints the DSL cannot express.
 - A tool call resolves any declared asset slots, then calls `runtime.submitJob`.
+- A dispatch that fails is raised as a tool error. orchestral resolves `submitJob` with the failed Job
+  (`status: 'error'` plus a structured `JobError`); dsh's one channel for a failed call is a throw, so the
+  bridge re-raises the `JobError` as `CODE: message` and dsh normalizes it into an `isError` result the
+  model can read and re-plan from. A cancelled dispatch surfaces the same way, under `CANCELLED`.
 - **The result is always `sanitizeToolOutput(projectToolOutputForModel(job.output))`.** The projection is
   orchestral's verifiable no-assetId boundary: produced assets reach the model as an opaque handle plus an
   `asset://` URI, never a real `assetId` or a signed provider URL. The sanitizer then scrubs any `data:`
@@ -120,9 +124,6 @@ dsh --profile demo
   runtime — deliberately outside this plugin's reach. The plugin refuses to dispatch a call whose
   `exec.signal` is already aborted; a host that needs true cancellation wires `onJobCreated` to
   `runtime.cancelJob` itself.
-- **Pattern failures surface as tool errors.** `submitJob` rejects rather than resolving with a failed
-  Job, so a dispatch failure becomes a dsh `isError` result carrying the message, not a structured
-  canonical value.
 - **No UI cards.** `presentCall` / `presentResult` are not implemented, so calls render with dsh's generic
   card.
 

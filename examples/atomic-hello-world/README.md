@@ -41,9 +41,11 @@ as part of the repo's `pnpm test:run`.
   ship with the packages — `InMemoryJobStore` and `createDefaultCapabilityRouter`
   from `@orchestral/core`. Nothing to implement.
 - **`ModelCapability.call`** — the part that actually talks to a provider — is
-  host territory, and the @orchestral packages ship no provider adapter. So we
-  write our own here: [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts) is the
-  ~50-line bridge that turns an ai-sdk model instance (built with your own
-  key) into the `call` adapter the router dispatches through, via the `ai` SDK's
-  `generateImage` (this example pins `ai@^7`). Copy it into your own host, or swap `generateImage` for
-  whatever provider SDK you use.
+  host territory: `@orchestral/core` / `runtime` / `patterns` ship no provider
+  adapter. For the AI SDK that adapter is packaged as the leaf
+  [`@orchestral/adapters-ai-sdk`](../../packages/orchestral-adapters-ai-sdk)
+  (`fromImageModel`), which is what [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts)
+  now calls — the host's remaining job is to say which models it serves and
+  hand the router a `getModels`. The hand-written version of the same bridge
+  is the root README's "Minimal example"; on a different provider SDK, copy
+  that and swap `generateImage` for your own client. This example pins `ai@^7`.

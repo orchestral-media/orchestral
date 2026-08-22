@@ -144,24 +144,26 @@ describe('meta park round-trip (ctx.askUser → handler → continue)', () => {
     // The handler returns a non-string; z.string() must reject → the meta errors.
     const askUser = vi.fn<AskUserHandler>(async () => 123)
     const runtime = makeRuntime(askUser)
-    await expect(
-      runtime.submitJob({
-        patternId: 'meta_pause_demo',
-        input: {},
-        sessionId: 's2',
-      } as never),
-    ).rejects.toThrow()
+    const job = await runtime.submitJob({
+      patternId: 'meta_pause_demo',
+      input: {},
+      sessionId: 's2',
+    } as never)
+    expect(job.status).toBe('error')
+    expect(job.error).not.toBeNull()
   })
 
-  it('throws ASK_USER_NOT_SUPPORTED when the runtime has no askUser handler', async () => {
+  it('fails with ASK_USER_NOT_SUPPORTED when the runtime has no askUser handler', async () => {
     const runtime = new InlineRuntime({
       router: makeRouter(onCall),
       registry,
       store: new MemoryJobStore() as never,
     })
-    await expect(
-      runtime.submitJob({ patternId: 'meta_pause_demo', input: {}, sessionId: 's' } as never),
-    ).rejects.toThrow(/ASK_USER_NOT_SUPPORTED/)
+    const job = await runtime.submitJob({
+      patternId: 'meta_pause_demo', input: {}, sessionId: 's',
+    } as never)
+    expect(job.status).toBe('error')
+    expect(job.error?.message).toMatch(/ASK_USER_NOT_SUPPORTED/)
   })
 })
 
@@ -357,12 +359,12 @@ describe('abort while parked', () => {
     await runtime.cancelJob(capturedJobId!)
     // The park's abort race rejects CANCELLED → compose unwinds → the job
     // settles cancelled (NOT done, NOT a generic error).
-    await expect(pending).rejects.toThrow(/CANCELLED/)
+    expect((await pending).status).toBe('cancelled')
     const settled = await runtime.pollJob(capturedJobId!)
     expect(settled.status).toBe('cancelled')
   })
 
-  it('a park entered with an already-aborted signal rejects CANCELLED without calling the handler', async () => {
+  it('a park entered with an already-aborted signal settles cancelled without calling the handler', async () => {
     let capturedJobId: string | undefined
     let release: () => void = () => {}
     const gate = new Promise<void>((r) => {
@@ -402,7 +404,7 @@ describe('abort while parked', () => {
     await runtime.cancelJob(capturedJobId!) // signal aborts while compose waits at the gate
     release() // compose resumes → reaches askUser with the signal ALREADY aborted
 
-    await expect(pending).rejects.toThrow(/CANCELLED/)
+    expect((await pending).status).toBe('cancelled')
     // The top-of-askUser guard fired before bridging to the host — handler untouched.
     expect(askUser).not.toHaveBeenCalled()
   })

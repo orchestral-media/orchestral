@@ -36,6 +36,12 @@ example.
   to completion before the promise resolves, so every job event has already
   fired. Subscribe from the `onJobCreated` init hook to observe progress;
   `await submitJob(...)` then `subscribe(...)` observes nothing.
+- **A failed dispatch is a resolved Job, not a rejection.** Once a row exists,
+  a provider failure, a middleware reject, or a cancel lands on it as
+  `status: 'error'` (with `error` set) or `'cancelled'`, and the promise
+  resolves with that row — read `job.status`. It rejects only when the request
+  never became a job: an unregistered `patternId`, an input the idempotency key
+  cannot be derived from, a store that refuses the INSERT.
 - **`abandonOrphanedJobs()` is the whole crash story.** Call it on start: rows
   the dead process left `queued` / `running` go terminal `stale` (emitting
   `job:stale`). An in-process runtime has nothing left to re-attach to.
@@ -45,6 +51,13 @@ example.
 - **Node only.** The runtime uses `node:crypto` (idempotency hashing), so it
   requires a Node host (`engines.node >= 18`). `@orchestral/core` itself has
   no Node dependency and runs in renderer / worker / edge contexts.
+- **Events first, log lines only for what has no job.** Anything that happens
+  to a job is a `JobEvent` on its stream — including every model the fallback
+  walk gives up on (`job:model-fallback`, carrying that hop's own error and
+  attempt count) — and the runtime never writes to the console for it; the few
+  things with no job to report on (a host callback that threw, a transcript
+  append that failed) go to `InlineRuntimeInit.logger`, a `DiagnosticsLogger`
+  that defaults to the console and that `silentDiagnosticsLogger` turns off.
 
 ## Retry and fallback are two budgets
 

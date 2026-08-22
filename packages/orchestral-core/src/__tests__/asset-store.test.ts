@@ -114,3 +114,78 @@ describe('InMemoryAssetStore.listContext', () => {
     expect(again[0].handle).toBe('image_1')
   })
 })
+
+
+// A rejected record: pull the Error out so its attached facts can be asserted
+// field by field.
+async function rejected(p: Promise<unknown>): Promise<Error & { code?: string; details?: unknown }> {
+  try {
+    await p
+  } catch (e) {
+    return e as Error & { code?: string; details?: unknown }
+  }
+  throw new Error('expected the record to reject')
+}
+
+describe('InMemoryAssetStore.record — replayed handles and HANDLE_COLLISION', () => {
+  it('a replayed mint pulls the counter past itself: image_2 then an unannotated image mints image_3, both listed', async () => {
+    const s = new InMemoryAssetStore()
+    const a = await s.record('chat1', { assetId: 'A', modality: 'image', origin: 'upload', handle: 'image_2' })
+    const b = await s.record('chat1', { assetId: 'B', modality: 'image', origin: 'tool-output' })
+    expect([a.handle, a.seq]).toEqual(['image_2', 2])
+    expect([b.handle, b.seq]).toEqual(['image_3', 3])
+    expect((await s.listContext('chat1')).map((r) => r.handle)).toEqual(['image_2', 'image_3'])
+  })
+
+  it('HANDLE_COLLISION: a host replay of image_1 for a different asset after this context minted image_1 — and the store is left untouched', async () => {
+    const s = new InMemoryAssetStore()
+    await s.record('chat1', { assetId: 'a1', modality: 'image', origin: 'tool-output' })
+    await s.record('chat1', { assetId: 'a2', modality: 'image', origin: 'tool-output' })
+    const err = await rejected(s.record('chat1', { assetId: 'c', modality: 'image', origin: 'upload', handle: 'image_1' }))
+    expect(err).toBeInstanceOf(Error)
+    expect(err.message.startsWith('HANDLE_COLLISION:')).toBe(true)
+    expect(err.code).toBe('HANDLE_COLLISION')
+    expect(err.details).toEqual({ handle: 'image_1', modality: 'image', assetIds: ['a1', 'c'] })
+    // Nothing was written: the refused asset is absent, and the counter did not move.
+    expect((await s.listContext('chat1', { includeNonReferenceable: true })).map((r) => r.assetId)).toEqual(['a1', 'a2'])
+    const next = await s.record('chat1', { assetId: 'a3', modality: 'image', origin: 'tool-output' })
+    expect(next.handle).toBe('image_3')
+  })
+
+  it('same handle + same assetId recorded twice → no throw, one record', async () => {
+    const s = new InMemoryAssetStore()
+    const first = await s.record('chat1', { assetId: 'A', modality: 'image', origin: 'upload', handle: 'image_1' })
+    const again = await s.record('chat1', { assetId: 'A', modality: 'image', origin: 'upload', handle: 'image_1' })
+    expect(again).toEqual(first)
+    expect(await s.listContext('chat1')).toHaveLength(1)
+  })
+
+  it('a host handle outside the minted grammar (hero-shot) takes the next slot and leaves the counter alone', async () => {
+    const s = new InMemoryAssetStore()
+    const a = await s.record('chat1', { assetId: 'A', modality: 'image', origin: 'upload', handle: 'hero-shot' })
+    const b = await s.record('chat1', { assetId: 'B', modality: 'image', origin: 'tool-output' })
+    expect([a.handle, a.seq]).toEqual(['hero-shot', 1])
+    expect([b.handle, b.seq]).toEqual(['image_2', 2])
+  })
+
+  it('handles are scoped per context: the same handle in two contexts is not a collision', async () => {
+    const s = new InMemoryAssetStore()
+    await s.record('chat1', { assetId: 'A', modality: 'image', origin: 'upload', handle: 'cat.png' })
+    const other = await s.record('chat2', { assetId: 'B', modality: 'image', origin: 'upload', handle: 'cat.png' })
+    expect(other.handle).toBe('cat.png')
+  })
+
+  it('a promotion whose supplied handle collides is refused, and the record stays unpromoted', async () => {
+    const s = new InMemoryAssetStore()
+    await s.record('chat1', { assetId: 'owner', modality: 'image', origin: 'upload', handle: 'cat.png' })
+    await s.record('chat1', { assetId: 'mid', modality: 'image', origin: 'intermediate', referenceable: false })
+    const err = await rejected(
+      s.record('chat1', { assetId: 'mid', modality: 'image', origin: 'tool-output', referenceable: true, handle: 'cat.png' }),
+    )
+    expect(err.code).toBe('HANDLE_COLLISION')
+    expect(err.details).toEqual({ handle: 'cat.png', modality: 'image', assetIds: ['owner', 'mid'] })
+    const [mid] = (await s.listContext('chat1', { includeNonReferenceable: true })).filter((r) => r.assetId === 'mid')
+    expect(mid.referenceable).toBe(false)
+    expect(mid.handle).toBeUndefined()
+  })
+})

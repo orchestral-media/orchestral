@@ -58,6 +58,7 @@ function fakeCtx(): FakeCtx {
 function fakeRuntime(
   output: unknown,
   status: Job['status'] = 'done',
+  error: Job['error'] = null,
 ): Runtime & { specs: JobSpec[] } {
   const specs: JobSpec[] = []
   return {
@@ -71,7 +72,7 @@ function fakeRuntime(
         status,
         input: spec.input,
         output,
-        error: null,
+        error,
         createdAt: 0,
         updatedAt: 0,
       } as Job
@@ -362,6 +363,44 @@ describe('tool execution', () => {
       patternId: 'p',
       status: 'running',
     })
+  })
+
+  it('raises a failed dispatch as a tool error carrying the JobError code and message', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime(null, 'error', {
+      code: 'PROVIDER_FAILED',
+      message: 'provider 500',
+    })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    // orchestral returns the failure as data; dsh's only channel for a failed
+    // call is a throw, so the JobError is re-raised in its `CODE: message` form.
+    await expect(
+      registered[0]!.execute({ prompt: 'x' }, runContext()),
+    ).rejects.toThrow(/^PROVIDER_FAILED: provider 500$/)
+  })
+
+  it('does not repeat the code when the JobError message already leads with it', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime(null, 'error', {
+      code: 'PERMISSION_DENIED',
+      message: 'PERMISSION_DENIED: over quota',
+    })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await expect(
+      registered[0]!.execute({ prompt: 'x' }, runContext()),
+    ).rejects.toThrow(/^PERMISSION_DENIED: over quota$/)
+  })
+
+  it('raises a cancelled dispatch as a CANCELLED tool error', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime(null, 'cancelled')
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await expect(
+      registered[0]!.execute({ prompt: 'x' }, runContext()),
+    ).rejects.toThrow(/^CANCELLED: dispatch of p was cancelled/)
   })
 
   it('refuses to dispatch a call the caller already aborted', async () => {

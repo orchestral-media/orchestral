@@ -180,7 +180,7 @@ export function createExplainerShortMeta(
       })
 
       if (!confirmed) {
-        return { scenes: [], cost: sumCosts(gen), latencyMs: Date.now() - startedAt }
+        return { scenes: [], cost: sumCosts([gen.cost]), latencyMs: Date.now() - startedAt }
       }
 
       // Stage 3 — parallel per-scene: text-to-image + text-to-speech. Keep the
@@ -197,10 +197,10 @@ export function createExplainerShortMeta(
         imageAssetId: firstAssetId(image, 'explainer-short: text-to-image'),
         voAssetId: firstAssetId(vo, 'explainer-short: text-to-speech'),
       }))
-      const cost = sumCosts(
-        gen,
-        ...sceneOutputs.flatMap(({ image, vo }) => [image, vo]),
-      )
+      const cost = sumCosts([
+        gen.cost,
+        ...sceneOutputs.flatMap(({ image, vo }) => [image.cost, vo.cost]),
+      ])
 
       // Stage 4 (optional) — assemble each scene's still + VO into a video
       // segment, then concat the segments into one narrated video. The host

@@ -17,6 +17,8 @@ import { z } from 'zod'
 import type {
   AgentPattern,
   CapabilityRouter,
+  Job,
+  JobError,
   ModelCapability,
   Modality,
 } from '@orchestral/core'
@@ -69,17 +71,14 @@ function finishOk(args: RunArgs): Promise<unknown> {
   })
 }
 
-type RejectedError = Error & { code?: string; producedAssets?: readonly string[] }
-
-// Awaits a promise expected to reject and returns the thrown Error (typed with
-// the finish-broker's error extras).
-async function expectReject(p: Promise<unknown>): Promise<RejectedError> {
-  try {
-    await p
-    throw new Error('expected the promise to reject, but it resolved')
-  } catch (e) {
-    return e as RejectedError
-  }
+// Awaits a submit expected to settle as a failed Job and returns its JobError —
+// `code`, `message`, and the finish-broker's `producedAssets` extra, which
+// normaliseError lifts off the thrown error onto the row.
+async function expectFailed(p: Promise<Job>): Promise<JobError> {
+  const job = await p
+  expect(job.status).toBe('error')
+  expect(job.error).not.toBeNull()
+  return job.error as JobError
 }
 
 describe('dispatchAgent tool catalog', () => {
@@ -318,7 +317,7 @@ describe('dispatchAgent finish broker', () => {
         return { text: 'gave up' }
       },
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } }),
     )
     const r = results[0] as { error?: string; note?: string }
@@ -354,7 +353,7 @@ describe('dispatchAgent finish broker', () => {
         return { text: 'x' }
       },
     })
-    await runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } }).catch(() => {})
+    await runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } })
     const r = results[0] as {
       error?: string
       detail?: { code?: string; handle?: string }
@@ -390,7 +389,7 @@ describe('dispatchAgent finish broker', () => {
       bridge,
       drive: async () => ({ text: 'I answered in prose and never finished' }),
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } }),
     )
     expect(err.code).toBe('AGENT_INCOMPLETE')
@@ -411,7 +410,7 @@ describe('dispatchAgent finish broker', () => {
         return { text: 'x' }
       },
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } }),
     )
     expect(err.code).toBe('AGENT_ASSET_BRIDGE_MISSING')
@@ -427,7 +426,7 @@ describe('dispatchAgent finish broker', () => {
         return { text: 'x' }
       },
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_bad_compose', input: { prompt: 'go' } }),
     )
     expect(err.code).toBe('AGENT_FINISH_COMPOSE_THREW')
@@ -443,7 +442,7 @@ describe('dispatchAgent finish broker', () => {
         return { text: 'x' }
       },
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_bad_shape', input: { prompt: 'go' } }),
     )
     expect(err.code).toBe('AGENT_OUTPUT_COMPOSE_MISMATCH')
@@ -548,7 +547,7 @@ describe('dispatchAgent finish broker', () => {
       agentRunImpl: runImpl,
       assetBridge: bridge,
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_salvage_boom', input: { prompt: 'go' } }),
     )
     unsub()
@@ -584,7 +583,7 @@ describe('dispatchAgent finish broker', () => {
         return { text: 'x' }
       },
     })
-    const err = await expectReject(
+    const err = await expectFailed(
       runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } }),
     )
     expect(err.code).toBe('AGENT_ASSET_BRIDGE_MISSING')
@@ -619,11 +618,12 @@ describe('dispatchAgent finish broker', () => {
       router: makeRouter(),
       agentRunImpl: runImpl,
     })
-    const err = await expectReject(
-      runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } }),
-    )
+    const job = await runtime.submitJob({ patternId: 'agent_default', input: { prompt: 'go' } })
     unsub()
-    expect(err.name).toBe('AbortError')
+    // A cancel settles the row `cancelled` with no JobError — it is not a
+    // failure, so nothing is recorded as one.
+    expect(job.status).toBe('cancelled')
+    expect(job.error).toBeNull()
     expect((await store.get(jobId as string))?.status).toBe('cancelled')
     // cancelJob drops the envelope; a salvage would have written a 'completed'
     // one straight back over it.

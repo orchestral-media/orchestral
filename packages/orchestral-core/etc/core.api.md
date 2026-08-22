@@ -527,6 +527,9 @@ export interface CapabilityRouter {
 // @public
 export type CapabilitySource = 'provider-default-official' | 'provider-default-compat' | 'heuristic' | 'user' | 'probed' | 'untested';
 
+// @public
+export const consoleDiagnosticsLogger: DiagnosticsLogger;
+
 // @public (undocumented)
 export function createDefaultCapabilityRouter(deps: DefaultCapabilityRouterDeps): CapabilityRouter;
 
@@ -611,6 +614,14 @@ export function deriveLlmFacingInputSchema<T extends ZodRawShape>(baseSchema: z.
 export function deriveReferencesSchema(assetNeeds: ReadonlyArray<AssetNeed> | undefined): z.ZodOptional<z.ZodObject<z.ZodRawShape>> | undefined;
 
 // @public
+export interface DiagnosticsLogger {
+    // (undocumented)
+    error(message: string, detail?: unknown): void;
+    // (undocumented)
+    warn(message: string, detail?: unknown): void;
+}
+
+// @public
 export type DispatchAudience = 'chat-turn' | 'agent-loop' | 'slash' | 'canvas';
 
 // @public
@@ -618,6 +629,7 @@ export interface DispatchContext<P = unknown> {
     assets?: ReadonlyArray<ResolvedAssetRef>;
     project?: P;
     providerOptions?: Record<string, unknown>;
+    rootJobId?: string;
     // (undocumented)
     sessionId?: string;
     signal: AbortSignal;
@@ -638,7 +650,7 @@ export type DispatchDecision = {
 
 // @public
 export const dispatchEnvelopeShape: {
-    readonly cost: z.ZodNumber;
+    readonly cost: z.ZodNullable<z.ZodNumber>;
     readonly latencyMs: z.ZodNumber;
     readonly model: z.ZodString;
     readonly provider: z.ZodString;
@@ -871,6 +883,14 @@ export type JobEvent<TInput = unknown, TOutput = unknown> = {
     type: 'job:output';
     job: Job<TInput, TOutput>;
 } | {
+    type: 'job:model-fallback';
+    job: Job<TInput, TOutput>;
+    capability: Capability;
+    failedModel: string;
+    hop: number;
+    attempts: number;
+    error: JobError;
+} | {
     type: 'job:alternative-selected';
     job: Job<TInput, TOutput>;
     alternativeId: string;
@@ -1036,7 +1056,7 @@ export type ManifestErrorCode =
 
 // @public
 export const metaEnvelopeShape: {
-    readonly cost: z.ZodNumber;
+    readonly cost: z.ZodNullable<z.ZodNumber>;
     readonly latencyMs: z.ZodNumber;
 };
 
@@ -1325,6 +1345,9 @@ export interface PatternRef {
 export class PatternRegistry {
     // (undocumented)
     [Symbol.iterator](): IterableIterator<Pattern>;
+    constructor(options?: {
+        logger?: DiagnosticsLogger;
+    });
     add<I = unknown, O = unknown>(spec: Pattern<I, O> & {
         alternatives?: readonly Alternative<I, O>[];
     }): void;
@@ -1598,6 +1621,9 @@ export type Semantics =
 
 // @alpha
 export function setAssetUriScheme(next: string): void;
+
+// @public
+export const silentDiagnosticsLogger: DiagnosticsLogger;
 
 // @public
 export interface SkippedManifestPattern {

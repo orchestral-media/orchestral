@@ -146,6 +146,23 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
   `node:crypto` for idempotency hashing. `@orchestral/core` itself has no Node
   dependency and runs in renderer / worker / edge contexts.
 
+- **`submitJob` resolves with a failed Job; it does not reject.** Once a job
+  row exists, a dispatch failure is data: the row goes `error` (with `error`
+  populated) or `cancelled`, `job:failed` / `job:cancelled` fans out, and the
+  promise resolves with that row — the host reads `job.status`, which is
+  what `Job` carries `status: 'error'` and `error: JobError` for. The promise
+  rejects only when the request never
+  became a job — an unregistered `patternId`, an input the idempotency key
+  cannot be derived from, a store that refuses the INSERT — because there is
+  no Job to return: a request that could not become a job throws; a job that
+  ran and failed returns.
+
+- **`InlineRuntimeInit.logger`.** A `DiagnosticsLogger` for the handful of
+  diagnostics the runtime cannot express as a `JobEvent` — a host callback
+  that threw, a transcript append that failed. Defaults to the console; pass
+  `silentDiagnosticsLogger` in tests. The model-call failure that used to be a
+  `console.error` on the hot path is now the `job:model-fallback` event.
+
 ### Known limitations
 
 - **No durable queue.** The host's process lifecycle owns each job's lifetime.

@@ -4,7 +4,7 @@
 // InMemoryAssetStore uses an in-process Map (dev/test only — dropped when the
 // process exits). This mirrors the "interface + default implementation"
 // layering of JobStore / TranscriptStore.
-import { mintHandle } from './asset-index'
+import { handleCollisionError, mintHandle, parseMintedHandle } from './asset-index'
 import type { AssetKind } from './asset-index.types'
 
 /**
@@ -89,8 +89,14 @@ export class InMemoryAssetStore implements AssetStore {
   private readonly byContext = new Map<string, AssetRecord[]>()
   /** `${contextId}::${assetId}` → record (for idempotent dedup lookups). */
   private readonly byAsset = new Map<string, AssetRecord>()
-  /** `${contextId}::${modality}` → count of already-minted (referenceable) records. */
+  /**
+   * `${contextId}::${modality}` → high-water mark of the ordinals this context
+   * has seen for that modality: every fresh mint, plus every host-supplied
+   * replay of one of our own mints (`image_2`). Fresh mints start past it.
+   */
   private readonly mintCount = new Map<string, number>()
+  /** `${contextId}::${handle}` → the record that owns that handle (the one-handle-one-asset check). */
+  private readonly byHandle = new Map<string, AssetRecord>()
   /**
    * Monotonic insertion counter used as `createdAt`. It is an ordering ticket,
    * not a timestamp — the first record in a process gets 0 — which keeps
@@ -104,17 +110,39 @@ export class InMemoryAssetStore implements AssetStore {
     return `${contextId}::${assetId}`
   }
 
-  /** Mint a seq + handle for a referenceable asset (advances the count). A supplied value wins (capability off / upload filename). */
+  private handleKey(contextId: string, handle: string): string {
+    return `${contextId}::${handle}`
+  }
+
+  /**
+   * Mint a seq + handle for a referenceable asset (advances the count). A
+   * supplied value wins (capability off / upload filename). Same rules as
+   * buildAssetIndex, because a durable host replays this store's records
+   * through that function and the two must agree:
+   * - a supplied handle that replays one of our own mints for this modality
+   *   (`image_2`) pins seq to that ordinal and pulls the counter up to it, so
+   *   the next fresh mint lands past it instead of on top of it
+   * - any other supplied name (`cat.png`, an assetId) takes the next slot
+   * - a supplied handle already bound to a DIFFERENT asset in this context is
+   *   HANDLE_COLLISION. Checked before anything is written, so a refused
+   *   record leaves the store exactly as it was.
+   */
   private mint(
     contextId: string,
     modality: AssetKind,
+    assetId: string,
     supplied: string | undefined,
   ): { seq: number; handle: string } {
     const mk = `${contextId}::${modality}`
     const prior = this.mintCount.get(mk) ?? 0
-    const seq = prior + 1
+    const replayed = supplied === undefined ? undefined : parseMintedHandle(supplied, modality)
+    const seq = replayed ?? prior + 1
     const handle = supplied ?? mintHandle(modality, prior)
-    this.mintCount.set(mk, seq)
+    const bound = this.byHandle.get(this.handleKey(contextId, handle))
+    if (bound !== undefined && bound.assetId !== assetId) {
+      throw handleCollisionError(handle, modality, bound.assetId, assetId)
+    }
+    this.mintCount.set(mk, Math.max(prior, seq))
     return { seq, handle }
   }
 
@@ -126,18 +154,25 @@ export class InMemoryAssetStore implements AssetStore {
     if (existing) {
       // Idempotent: identity-stable. The only allowed change is referenceable
       // moving monotonically false→true; at the moment of promotion, mint a
-      // handle if one doesn't exist yet.
+      // handle if one doesn't exist yet. Mint BEFORE flipping the flag: a
+      // refused mint (HANDLE_COLLISION) must leave the record as it was, not
+      // promoted-but-handleless.
       if (wantRef && !existing.referenceable) {
-        existing.referenceable = true
         if (existing.handle === undefined) {
-          const { seq, handle } = this.mint(contextId, existing.modality, ann.handle)
+          const { seq, handle } = this.mint(contextId, existing.modality, existing.assetId, ann.handle)
           existing.seq = seq
           existing.handle = handle
+          this.byHandle.set(this.handleKey(contextId, handle), existing)
         }
+        existing.referenceable = true
       }
       return { ...existing }
     }
 
+    // Minting only happens when referenceable=true. It runs first because it
+    // is the only step that can refuse (HANDLE_COLLISION): nothing below is
+    // reached — no record, no ordering ticket — for a record the store won't keep.
+    const minted = wantRef ? this.mint(contextId, ann.modality, ann.assetId, ann.handle) : undefined
     const rec: AssetRecord = {
       contextId,
       assetId: ann.assetId,
@@ -147,14 +182,10 @@ export class InMemoryAssetStore implements AssetStore {
       createdAt: this.tick++,
       ...(ann.label !== undefined ? { label: ann.label } : {}),
       ...(ann.batchId !== undefined ? { batchId: ann.batchId } : {}),
-    }
-    // Minting only happens when referenceable=true.
-    if (wantRef) {
-      const { seq, handle } = this.mint(contextId, ann.modality, ann.handle)
-      rec.seq = seq
-      rec.handle = handle
+      ...(minted !== undefined ? { seq: minted.seq, handle: minted.handle } : {}),
     }
 
+    if (minted !== undefined) this.byHandle.set(this.handleKey(contextId, minted.handle), rec)
     this.byAsset.set(ak, rec)
     const arr = this.byContext.get(contextId)
     if (arr) arr.push(rec)

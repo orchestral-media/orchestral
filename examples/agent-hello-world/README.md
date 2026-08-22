@@ -10,10 +10,14 @@ This is the agent companion to
 [`../atomic-hello-world`](../atomic-hello-world). The new piece is
 [`src/agent-runner.ts`](./src/agent-runner.ts): a host-local `AgentRunImpl` that
 drives the ai-sdk `ToolLoopAgent` and bridges its tool calls back into the
-runtime. It sits next to `src/ai-sdk-wiring.ts` for exactly the same reason —
-the `@orchestral/*` packages ship no provider SDK and no agent framework, so
-both adapters are host territory. The example installs `ai@^7` and
-`@ai-sdk/openai` itself; nothing in `@orchestral/*` pulls them in.
+runtime. It sits next to `src/ai-sdk-wiring.ts` for the same reason — the
+`@orchestral/*` packages ship no provider SDK and no agent framework, so both
+adapters are host territory. (The image-model half is the one adapter that
+does ship, as the leaf package
+[`@orchestral/adapters-ai-sdk`](../../packages/orchestral-adapters-ai-sdk);
+the wiring file just calls its `fromImageModel`.) The example installs
+`ai@^7` and `@ai-sdk/openai` itself; nothing in `@orchestral/core` /
+`runtime` / `patterns` pulls them in.
 
 > **`@alpha`.** The agent seam (`AgentRunImpl`) is still evolving; a 0.1 → 0.2
 > reshape of it is not a breaking change.
@@ -56,9 +60,10 @@ repo's `pnpm test:run`.
 
 - **`JobStore` and `CapabilityRouter`** use the zero-dependency defaults
   (`InMemoryJobStore`, `createDefaultCapabilityRouter`). Nothing to implement.
-- **The tool's `ModelCapability.call`** (text-to-image) is bridged by the
-  host-local [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts), exactly as in the
-  atomic example.
+- **The tool's `ModelCapability.call`** (text-to-image) is
+  `@orchestral/adapters-ai-sdk`'s `fromImageModel`, wrapped by the host-local
+  [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts) exactly as in the atomic
+  example.
 - **The agent loop** is driven by `createInProcessAgentRunImpl` in the
   host-local [`src/agent-runner.ts`](./src/agent-runner.ts) — the file to copy
   into your own host. Its only host-shaped seam is `resolveModel`: map the

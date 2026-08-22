@@ -89,7 +89,7 @@ export function createLyricsToMvMeta(deps: LyricsToMvMetaDeps): MetaPattern<Lyri
       })
 
       if (!confirmed) {
-        return { clipAssetIds: [], cost: sumCosts(gen), latencyMs: Date.now() - startedAt }
+        return { clipAssetIds: [], cost: sumCosts([gen.cost]), latencyMs: Date.now() - startedAt }
       }
 
       // After confirm — music and keyframe animation run concurrently.
@@ -127,11 +127,11 @@ export function createLyricsToMvMeta(deps: LyricsToMvMetaDeps): MetaPattern<Lyri
         musicAssetId,
         clipAssetIds,
         videoAssetId,
-        cost: sumCosts(
-          gen,
-          music,
-          ...clipOutputs.flatMap(({ still, clip }) => [still, clip]),
-        ),
+        cost: sumCosts([
+          gen.cost,
+          music.cost,
+          ...clipOutputs.flatMap(({ still, clip }) => [still.cost, clip.cost]),
+        ]),
         latencyMs: Date.now() - startedAt,
       }
     },

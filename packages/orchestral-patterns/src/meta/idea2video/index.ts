@@ -185,7 +185,7 @@ export function createIdea2VideoMeta(
       return {
         videoAssetId: final.assetId,
         sceneCount: finalScripts.length,
-        cost: sumCosts(storyOut, charsOut, scriptOut, ...sceneOutputs),
+        cost: sumCosts([storyOut.cost, charsOut.cost, scriptOut.cost, ...sceneOutputs.map((s) => s.cost)]),
         latencyMs: Date.now() - startedAt,
       }
     },

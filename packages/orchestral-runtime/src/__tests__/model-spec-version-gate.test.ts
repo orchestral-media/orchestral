@@ -99,12 +99,10 @@ describe('ModelCapability.specificationVersion gate', () => {
   it('refuses an adapter built for a future contract before calling it', async () => {
     const { rt, calls, jobIds } = harness('v2')
 
-    const thrown = await rt
-      .submitJob({ patternId: 'text_cap', input: { prompt: 'go' } })
-      .then(() => null)
-      .catch((e: unknown) => e)
+    const settled = await rt.submitJob({ patternId: 'text_cap', input: { prompt: 'go' } })
 
-    expect((thrown as { code?: string }).code).toBe('MODEL_SPEC_VERSION_UNSUPPORTED')
+    expect(settled.status).toBe('error')
+    expect(settled.error?.code).toBe('MODEL_SPEC_VERSION_UNSUPPORTED')
     // The whole point: the adapter whose signature we cannot honour is never
     // entered, so nothing half-runs against a contract this build cannot meet.
     expect(calls).toEqual([])

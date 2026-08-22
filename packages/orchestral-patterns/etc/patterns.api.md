@@ -22,7 +22,7 @@ export const AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID = "automatic-speech-recogni
 
 // @public
 export const automaticSpeechRecognition: PatternFn<AutomaticSpeechRecognitionInput, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -54,7 +54,7 @@ export type AutomaticSpeechRecognitionOutput = z.infer<typeof AutomaticSpeechRec
 export const AutomaticSpeechRecognitionOutputSchema: z.ZodObject<{
     audioDurationMs: z.ZodOptional<z.ZodNumber>;
     language: z.ZodOptional<z.ZodString>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -257,7 +257,7 @@ export const EventToScriptOutputSchema: z.ZodObject<{
         static_features: z.ZodString;
         active_scenes: z.ZodRecord<z.ZodString, z.ZodString>;
     }, z.core.$strip>>>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -293,7 +293,7 @@ export type ExplainerShortOutput = z.infer<typeof ExplainerShortOutputSchema>;
 
 // @public (undocumented)
 export const ExplainerShortOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     scenes: z.ZodArray<z.ZodObject<{
         imageAssetId: z.ZodString;
@@ -342,7 +342,7 @@ export type IdeaToVideoOutput = z.infer<typeof IdeaToVideoOutputSchema>;
 
 // @public (undocumented)
 export const IdeaToVideoOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     videoAssetId: z.ZodString;
     sceneCount: z.ZodNumber;
@@ -399,7 +399,7 @@ refDescriptions?: string[] | undefined;
 winningAssetId: string;
 reason: string;
 allCandidates: readonly string[];
-cost: number;
+cost: number | null;
 latencyMs: number;
 }>;
 
@@ -416,7 +416,7 @@ export const ImageBestOfNOutputSchema: z.ZodObject<{
     winningAssetId: z.ZodString;
     reason: z.ZodString;
     allCandidates: z.ZodReadonly<z.ZodArray<z.ZodString>>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -434,7 +434,7 @@ export interface ImageGenerationParams {
 
 // @public
 export const imageToImage: PatternFn<ImageToImageInput, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -457,7 +457,7 @@ export type ImageToImageOutput = z.infer<typeof ImageToImageOutputSchema>;
 
 // @public (undocumented)
 export const ImageToImageOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -507,7 +507,7 @@ export const ImageToImageViaCaptionOutputSchema: z.ZodObject<{
         url: z.ZodOptional<z.ZodString>;
         cost: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -517,7 +517,7 @@ export const ImageToImageViaCaptionOutputSchema: z.ZodObject<{
 
 // @public
 export const imageToText: PatternFn<ImageToTextDispatchInput, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -535,7 +535,7 @@ export type ImageToTextOutput = z.infer<typeof ImageToTextOutputSchema>;
 
 // @public (undocumented)
 export const ImageToTextOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -569,7 +569,7 @@ export const ImageToTextPrimaryInputSchema: z.ZodObject<{
 
 // @public
 export const imageToVideo: PatternFn<ImageToVideoInput, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -600,7 +600,7 @@ export const ImageToVideoOutputSchema: z.ZodObject<{
     width: z.ZodOptional<z.ZodNumber>;
     height: z.ZodOptional<z.ZodNumber>;
     fps: z.ZodOptional<z.ZodNumber>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -653,7 +653,7 @@ export type LyricsToMvOutput = z.infer<typeof LyricsToMvOutputSchema>;
 
 // @public (undocumented)
 export const LyricsToMvOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     musicAssetId: z.ZodOptional<z.ZodString>;
     clipAssetIds: z.ZodArray<z.ZodString>;
@@ -727,7 +727,7 @@ export const NovelToEventsOutputSchema: z.ZodObject<{
         outcome: z.ZodString;
         is_last: z.ZodBoolean;
     }, z.core.$strip>>>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -802,7 +802,7 @@ export type ProductAdShortOutput = z.infer<typeof ProductAdShortOutputSchema>;
 
 // @public (undocumented)
 export const ProductAdShortOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     videoAssetId: z.ZodString;
     musicAssetId: z.ZodOptional<z.ZodString>;
@@ -831,7 +831,7 @@ export type ProductPhotoPackOutput = z.infer<typeof ProductPhotoPackOutputSchema
 
 // @public (undocumented)
 export const ProductPhotoPackOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     imageAssetIds: z.ZodArray<z.ZodString>;
 }, z.core.$strip>;
@@ -866,7 +866,7 @@ targetCompressionRatio?: number | undefined;
 }, {
 compressedChunks: readonly string[];
 aggregatedNarrative: string;
-cost: number;
+cost: number | null;
 latencyMs: number;
 }>;
 
@@ -882,7 +882,7 @@ export type ProseChunkingOutput = z.infer<typeof ProseChunkingOutputSchema>;
 export const ProseChunkingOutputSchema: z.ZodObject<{
     compressedChunks: z.ZodReadonly<z.ZodArray<z.ZodString>>;
     aggregatedNarrative: z.ZodString;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -920,7 +920,7 @@ export type ReferenceImageCascadeOutput = z.infer<typeof ReferenceImageCascadeOu
 
 // @public (undocumented)
 export const ReferenceImageCascadeOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     selectedRefs: z.ZodArray<z.ZodString>;
     textPrompt: z.ZodString;
@@ -980,7 +980,7 @@ isVisible: boolean;
 }[] | undefined;
 transitionMode?: "none" | "between-shots" | undefined;
 }, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 videoAssetId: string;
 shotCount: number;
@@ -1021,7 +1021,7 @@ export const ScriptPlanningOutputSchema: z.ZodObject<{
         montage: "montage";
     }>;
     plannedScript: z.ZodString;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
 }, z.core.$strip>;
 
@@ -1059,7 +1059,7 @@ export type ScriptToVideoOutput = z.infer<typeof ScriptToVideoOutputSchema>;
 
 // @public (undocumented)
 export const ScriptToVideoOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     videoAssetId: z.ZodString;
     shotCount: z.ZodNumber;
@@ -1112,7 +1112,7 @@ export type StoryboardOutput = z.infer<typeof StoryboardOutputSchema>;
 
 // @public (undocumented)
 export const StoryboardOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     panels: z.ZodArray<z.ZodObject<{
         shotIndex: z.ZodNumber;
@@ -1138,9 +1138,7 @@ export type StoryboardPromptOverrides = Partial<Record<keyof typeof STORYBOARD_D
 export function styleTag(style: string | undefined): string;
 
 // @public
-export function sumCosts(...outputs: ReadonlyArray<{
-    cost?: number;
-} | undefined>): number;
+export function sumCosts(costs: readonly (number | null | undefined)[]): number | null;
 
 // @public (undocumented)
 export const TEXT_GENERATION_PATTERN_ID = "text-generation";
@@ -1169,7 +1167,7 @@ stopSequences?: string[] | undefined;
 responseFormat?: "text" | "json" | undefined;
 jsonSchema?: unknown;
 }, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -1201,7 +1199,7 @@ export const TextGenerationOutputSchema: z.ZodObject<{
         content_filter: "content_filter";
         tool_calls: "tool_calls";
     }>>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -1239,7 +1237,7 @@ durationSeconds?: number | undefined;
 outputFormat?: "mp3" | "wav" | "flac" | undefined;
 seed?: number | undefined;
 }, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -1262,7 +1260,7 @@ export type TextToAudioOutput = z.infer<typeof TextToAudioOutputSchema>;
 // @public (undocumented)
 export const TextToAudioOutputSchema: z.ZodObject<{
     audioDurationMs: z.ZodOptional<z.ZodNumber>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -1301,7 +1299,7 @@ export const TextToAudioPrimaryInputSchema: z.ZodObject<{
 
 // @public
 export const textToImage: PatternFn<TextToImageInput, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -1324,7 +1322,7 @@ export type TextToImageOutput = z.infer<typeof TextToImageOutputSchema>;
 
 // @public (undocumented)
 export const TextToImageOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -1344,7 +1342,7 @@ export const TextToImagePrimaryInputSchema: z.ZodObject<{
 
 // @public
 export const textToSpeech: PatternFn<TextToSpeechInput, {
-cost: number;
+cost: number | null;
 latencyMs: number;
 model: string;
 provider: string;
@@ -1369,7 +1367,7 @@ export type TextToSpeechOutput = z.infer<typeof TextToSpeechOutputSchema>;
 // @public (undocumented)
 export const TextToSpeechOutputSchema: z.ZodObject<{
     audioDurationMs: z.ZodOptional<z.ZodNumber>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -1407,7 +1405,7 @@ export const TextToVideoOutputSchema: z.ZodObject<{
     width: z.ZodOptional<z.ZodNumber>;
     height: z.ZodOptional<z.ZodNumber>;
     fps: z.ZodOptional<z.ZodNumber>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;
@@ -1465,7 +1463,7 @@ export type UgcTestimonialOutput = z.infer<typeof UgcTestimonialOutputSchema>;
 
 // @public (undocumented)
 export const UgcTestimonialOutputSchema: z.ZodObject<{
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     heroAssetId: z.ZodString;
     voAssetId: z.ZodString;
@@ -1493,7 +1491,7 @@ export const VideoToVideoOutputSchema: z.ZodObject<{
     width: z.ZodOptional<z.ZodNumber>;
     height: z.ZodOptional<z.ZodNumber>;
     fps: z.ZodOptional<z.ZodNumber>;
-    cost: z.ZodNumber;
+    cost: z.ZodNullable<z.ZodNumber>;
     latencyMs: z.ZodNumber;
     model: z.ZodString;
     provider: z.ZodString;

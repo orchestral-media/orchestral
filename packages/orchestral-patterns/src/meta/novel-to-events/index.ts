@@ -143,12 +143,12 @@ export function createNovelToEventsMeta(
       // windows comfortably as a single LLM input.
       const compressThreshold = input.compressBeyond ?? 60_000
       let workingProse = input.prose
-      let chunkingCost = 0
+      let chunkingCost: number | null = 0
       let chunkingLatencyMs = 0
       if (compressThreshold > 0 && input.prose.length > compressThreshold) {
         const chunkOut = await proseChunkingMeta(ctx, { prose: input.prose })
         workingProse = chunkOut.aggregatedNarrative
-        chunkingCost = sumCosts(chunkOut)
+        chunkingCost = sumCosts([chunkOut.cost])
         chunkingLatencyMs = chunkOut.latencyMs
       }
 
@@ -156,7 +156,7 @@ export function createNovelToEventsMeta(
       // round needs the prior events as context for "the next" event.
       const events: Event[] = []
       const maxEvents = input.maxEvents ?? 50
-      let eventCost = 0
+      let eventCost: number | null = 0
       let eventLatencyMs = 0
 
       while (events.length < maxEvents) {
@@ -172,14 +172,14 @@ export function createNovelToEventsMeta(
         )
         const parsed = EventResponseSchema.parse(JSON.parse(out.text))
         events.push(parsed)
-        eventCost = sumCosts({ cost: eventCost }, out)
+        eventCost = sumCosts([eventCost, out.cost])
         eventLatencyMs += out.latencyMs
         if (parsed.is_last) break
       }
 
       return {
         events,
-        cost: sumCosts({ cost: chunkingCost }, { cost: eventCost }),
+        cost: sumCosts([chunkingCost, eventCost]),
         latencyMs: chunkingLatencyMs + eventLatencyMs,
       }
     },
