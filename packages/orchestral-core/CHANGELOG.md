@@ -219,7 +219,11 @@ adapter over whichever provider SDK you use.
 
 - **A diagnostics seam instead of the console.** `DiagnosticsLogger`
   (`warn` / `error`) is where the library sends the few findings it cannot
-  express as a `JobEvent`: the registry's two authoring lints, and a host
+  express as a `JobEvent`: the registry's authoring lints
+  (`OUTPUTS_UNBOUNDED_FIELDS`, `OUTPUTS_UNAUDITED_FIELDS`, and
+  `CAPABILITY_NOT_NAMESPACED` — an atomic whose id is neither a first-party
+  capability nor `vendor__capability`, because two bare third-party
+  `video-concat`s collide in one registry), and a host
   callback (`onJobCreated`, middleware `onError`, a subscriber) that threw.
   `consoleDiagnosticsLogger` is the default; `silentDiagnosticsLogger` is
   for tests and hosts with their own channel. `new PatternRegistry({ logger })`

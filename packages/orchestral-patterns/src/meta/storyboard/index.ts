@@ -10,14 +10,21 @@
 //      reuse via cam_idx, audio + dialogue, composition, safety rules) to
 //      split the scene into a list of shot briefs. Each shot's visual_desc
 //      tags on-screen characters with `<Name>` angle brackets (required by
-//      storyboard-design).
-//   2. Render per panel: regex-extract the on-screen characters from
+//      storyboard-design). The prompt is told `maxShots`, and a storyboard
+//      planned past it is refused (STORYBOARD_SHOT_CAP_EXCEEDED) before
+//      anything is rendered.
+//   2. Plan per panel: regex-extract the on-screen characters from
 //      visual_desc, gather ALL of their reference images from the registry
 //      into i2i's references.source[], and spell out in the prompt which image
 //      maps to which character so the model fuses every on-screen character
 //      into a single panel image. The i2i prompt uses the rich visual_desc
-//      directly. Optionally, bestOfN runs meta_image-best-of-n to generate N
-//      candidates and pick the best.
+//      directly. Planning is pure and fails closed on an unknown or missing
+//      character, so it runs before the gate: the counts the gate states are
+//      for panels that can render.
+//   3. Render gate: one ctx.askUser.confirm stating the exact shot / image /
+//      judge-call counts, skipped only on confirmBeforeRender: false.
+//   4. Render per panel from its plan. Optionally, bestOfN runs
+//      meta_image-best-of-n to generate N candidates and pick the best.
 //
 // Shares one storyboard-design prompt with meta_script2video: both read
 // STORYBOARD_DESIGN_PROMPT from ../_shared/storyboard-design-prompt, which is
@@ -72,6 +79,8 @@ const CharacterSchema = z.object({
     ),
 })
 
+const DEFAULT_MAX_SHOTS = 12
+
 export const StoryboardInputSchema = z.object({
   scene: z
     .string()
@@ -89,7 +98,7 @@ export const StoryboardInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Optional storyboard-design control knob, fed as <USER_REQUIREMENT>: target audience, visual style (realistic / cartoon / …), desired shot count (e.g. "no more than 8 shots"), or other specific instructions (e.g. emphasize the characters\' actions).',
+      'Optional storyboard-design control knob, fed as <USER_REQUIREMENT> ahead of the maxShots bound: target audience, visual style (realistic / cartoon / …), a tighter shot count (e.g. "no more than 8 shots"), or other specific instructions (e.g. emphasize the characters\' actions).',
     ),
   bestOfN: z
     .number()
@@ -99,6 +108,27 @@ export const StoryboardInputSchema = z.object({
     .optional()
     .describe(
       'When set (≥2), each panel renders N candidates via meta_image-best-of-n and a VLM picks the best. Omit for a single image-to-image render per panel.',
+    ),
+  // The spend of this meta used to be whatever the design model decided: no
+  // input bounded the shot count, and every shot is at least one image. Same
+  // bound, same name, and same semantics as meta_script2video's, so a caller
+  // learns one vocabulary: told to the design model, enforced on its answer,
+  // and the ceiling on the field itself is a sanity bound on an LLM-filled
+  // number, not a product limit.
+  maxShots: z
+    .number()
+    .int()
+    .min(1)
+    .max(24)
+    .default(DEFAULT_MAX_SHOTS)
+    .describe(
+      'Upper bound on storyboard shots. The design step decides how many shots the scene needs and is told this bound; a storyboard that still exceeds it is refused (STORYBOARD_SHOT_CAP_EXCEEDED) before any panel is rendered. Each shot costs one image-to-image render, or bestOfN renders plus one judge call when bestOfN is set.',
+    ),
+  confirmBeforeRender: z
+    .boolean()
+    .default(true)
+    .describe(
+      'Pause on a confirm that states the exact render counts (shots, images, judge calls) after the storyboard is designed and before the first paid image call. Set false only for a caller that has already bounded the spend through maxShots and has nobody to answer the prompt — on a runtime built without an askUser handler the gate fails with ASK_USER_NOT_SUPPORTED.',
     ),
 })
 export type StoryboardInput = z.infer<typeof StoryboardInputSchema>
@@ -145,12 +175,12 @@ export const StoryboardOutputSchema = z.object({
   panels: z
     .array(PanelSchema)
     .describe(
-      'The storyboard panels, in narrative order. Panel i\'s image is the `panel-<i>` element of assets[].',
+      'The storyboard panels, in narrative order — at most maxShots of them. Panel i\'s image is the `panel-<i>` element of assets[]. Still present when the user declined the render gate: the design was paid for, and these are the shots the declined counts were stated for.',
     ),
   assets: z
     .array(z.object(labelledAssetShape('image')))
     .describe(
-      'Every produced panel image in panel order, labelled `panel-<shotIndex>` — one element per panel (a render that returned several images contributes several elements under the same label; bestOfN keeps only the winner). The host records these as the run\'s deliverables.',
+      'Every produced panel image in panel order, labelled `panel-<shotIndex>` — one element per panel (a render that returned several images contributes several elements under the same label; bestOfN keeps only the winner). The host records these as the run\'s deliverables. Empty when the user declined the render gate.',
     ),
   ...metaEnvelopeShape,
 })
@@ -257,16 +287,20 @@ export function createStoryboardMeta(
       'generate a storyboard / shot sequence keeping characters consistent across panels',
     namespace: 'meta-pipelines',
     description:
-      'Turn a scene + character reference sheets into a consistent multi-panel storyboard. Designs a professional shot-by-shot storyboard from the scene (shot types, camera reuse, composition), then renders each panel via image-to-image, automatically fusing the reference images of every character on screen so identities stay consistent across panels — including two characters sharing one shot. Use when you have character reference images and need a coherent multi-panel storyboard / shot sequence.',
+      'Turn a scene + character reference sheets into a consistent multi-panel storyboard. Designs a professional shot-by-shot storyboard from the scene (shot types, camera reuse, composition), confirms the render counts, then renders each panel via image-to-image, automatically fusing the reference images of every character on screen so identities stay consistent across panels — including two characters sharing one shot. Use when you have character reference images and need a coherent multi-panel storyboard / shot sequence.',
     tool: {
       description:
-        'Generate a multi-panel storyboard from a scene and character reference sheets, keeping each character visually consistent across panels. Designs the shots with a professional storyboard-design pass, then for every panel fuses ALL on-screen characters\' reference images into one image-to-image render (so two characters in the same shot both keep their identity — the failure mode of doing this by hand). Provide the scene, a character registry (name + reference image handles), and optionally a userRequirement (shot count, style, audience). Use when you have character reference images and want a coherent storyboard / shot sequence rather than a single image. Set bestOfN to render N candidates per panel and VLM-pick the best.',
+        'Generate a multi-panel storyboard from a scene and character reference sheets, keeping each character visually consistent across panels. Designs the shots with a professional storyboard-design pass, confirms the render counts with the user, then for every panel fuses ALL on-screen characters\' reference images into one image-to-image render (so two characters in the same shot both keep their identity — the failure mode of doing this by hand). Provide the scene, a character registry (name + reference image handles), and optionally a userRequirement (style, audience, a tighter shot count). Use when you have character reference images and want a coherent storyboard / shot sequence rather than a single image. Set bestOfN to render N candidates per panel and VLM-pick the best.',
       inputs: StoryboardInputSchema,
     },
     outputs: StoryboardOutputSchema,
     async compose(params, ctx): Promise<StoryboardOutput> {
       const { input } = params
       const startedAt = Date.now()
+      // A nested dispatch hands compose() the input as the parent wrote it,
+      // so the schema defaults are applied here as well as declared above.
+      const maxShots = input.maxShots ?? DEFAULT_MAX_SHOTS
+      const confirmBeforeRender = input.confirmBeforeRender ?? true
 
       // Name → reference handles. The registry is the single source of truth;
       // shots reference characters by the `<Name>` tags storyboard-design
@@ -275,26 +309,66 @@ export function createStoryboardMeta(
         input.characters.map((c) => [c.name, c.refs] as const),
       )
 
-      // Stage 1 — design the storyboard (professional shot-by-shot pass).
+      // Stage 1 — design the storyboard (professional shot-by-shot pass). The
+      // shot bound goes to the model as a planning constraint (the shared
+      // prompt reads it from <USER_REQUIREMENT>) and is enforced on what
+      // comes back — after the JSON→XML fallback too, since both paths
+      // return through designStoryboard. Refused rather than sliced: a scene
+      // cut at shot N drops its ending, and the caller asked for a bound, not
+      // an abridgement.
       const { shots, cost: designCost } = await designStoryboard(
         ctx,
         input,
         resolved.storyboardDesign,
+        maxShots,
       )
+      if (shots.length > maxShots) {
+        throw Object.assign(
+          new Error(
+            `STORYBOARD_SHOT_CAP_EXCEEDED: the storyboard plans ${shots.length} shots and maxShots is ${maxShots}; nothing was rendered. Raise maxShots or give the scene fewer beats.`,
+          ),
+          { code: 'STORYBOARD_SHOT_CAP_EXCEEDED' },
+        )
+      }
 
-      // Stage 2 — render each panel. Panels are independent, so fan them out in
-      // parallel; the runtime caps actual concurrency. Each dispatch gets a
+      // Stage 2 — plan every panel. Pure: name extraction and registry
+      // lookup, failing closed on a shot that tags an unknown character or no
+      // character at all. Done before the gate so the counts it states are
+      // for panels that can actually render, and a storyboard that would
+      // fail on panel 3 never asks the user to pay for panels 1 and 2.
+      const plans = shots.map((shot, idx) => planPanel(shot, idx, refsByName))
+
+      // Stage 3 — render gate. Everything after this line is a paid image
+      // call (and, under bestOfN, a paid judge call), and the counts are now
+      // exact: the storyboard fixes the shots and bestOfN fixes the fan-out.
+      const counts = renderCounts(plans.length, input.bestOfN)
+      if (confirmBeforeRender) {
+        const confirmed = await ctx.askUser.confirm({
+          title: `Render ${counts.shots} shots, ${counts.images} images, and ${counts.judgeCalls} judge calls?`,
+          body: renderGateBody(plans, input.bestOfN),
+        })
+        if (!confirmed) {
+          // The plan was paid for and is returned; nothing else was.
+          return {
+            panels: plans.map((p) => p.panel),
+            assets: [],
+            cost: sumCosts([designCost]),
+            latencyMs: Date.now() - startedAt,
+          }
+        }
+      }
+
+      // Stage 4 — render each panel. Panels are independent, so fan them out
+      // in parallel; the runtime caps actual concurrency. Each dispatch gets a
       // unique stepId — without it the stepCache would collapse panels that
       // happen to share a patternId+input into one (same reason best-of-n
       // sets candidate-${idx}).
       const rendered = await parallel(
-        shots.map((shot, idx) =>
-          renderPanel(ctx, input, shot, idx, refsByName),
-        ),
+        plans.map((plan) => renderPanel(ctx, plan, input.bestOfN)),
       )
 
       return {
-        panels: rendered.map((r) => r.panel),
+        panels: plans.map((p) => p.panel),
         // Panel order is preserved: `parallel` keeps submission order, and
         // each panel's elements are already stamped `panel-<idx>`.
         assets: rendered.flatMap((r) => r.assets),
@@ -319,11 +393,13 @@ async function designStoryboard(
   ctx: Ctx,
   input: StoryboardInput,
   storyboardDesignPrompt: string,
+  maxShots: number,
 ): Promise<{ shots: ShotBrief[]; cost: number | null }> {
   const prompt = buildStoryboardPrompt(
     input.scene,
     input.characters,
     input.userRequirement,
+    maxShots,
   )
   // Tier A — native structured output. Wrap dispatch + parse in ONE try so
   // EITHER a dispatch failure (no structured-capable model survived the
@@ -370,21 +446,30 @@ async function designStoryboard(
 
 /**
  * Build the storyboard-design user message: scene as <SCRIPT>, character names
- * as <CHARACTERS>, optional control knob as <USER_REQUIREMENT>. The registry
- * carries no feature text (just names + ref handles), so the character block
- * lists names — storyboard-design only needs them to tag on-screen characters
- * with exact `<Name>` markers, which is how we map back to refs.
+ * as <CHARACTERS>, the control knob and the shot bound as <USER_REQUIREMENT>.
+ * The registry carries no feature text (just names + ref handles), so the
+ * character block lists names — storyboard-design only needs them to tag
+ * on-screen characters with exact `<Name>` markers, which is how we map back
+ * to refs.
  */
 function buildStoryboardPrompt(
   scene: string,
   characters: ReadonlyArray<{ name: string }>,
   userRequirement: string | undefined,
+  maxShots: number,
 ): string {
   const chars = characters.map((c) => `- ${c.name}`).join('\n')
-  const req = userRequirement
-    ? `\n\n<USER_REQUIREMENT>\n${userRequirement}\n</USER_REQUIREMENT>`
-    : ''
-  return `<SCRIPT>\n${scene}\n</SCRIPT>\n\n<CHARACTERS>\n${chars}\n</CHARACTERS>${req}`
+  // STORYBOARD_DESIGN_PROMPT reads the optional requirement from
+  // <USER_REQUIREMENT> — emit that exact tag. The shot bound rides in the
+  // same block — "desired number of shots" is one of the things the prompt
+  // says that block may carry — so the cap reaches the model as a planning
+  // constraint, not only as the tripwire compose() applies to its answer.
+  // The caller's own requirement comes first: a tighter count there still
+  // wins, and the bound is the ceiling on whatever it says.
+  const req = [userRequirement?.trim(), `Use at most ${maxShots} shots.`]
+    .filter((line): line is string => line !== undefined && line.length > 0)
+    .join('\n')
+  return `<SCRIPT>\n${scene}\n</SCRIPT>\n\n<CHARACTERS>\n${chars}\n</CHARACTERS>\n\n<USER_REQUIREMENT>\n${req}\n</USER_REQUIREMENT>`
 }
 
 // storyboard-design encloses on-screen character names in angle brackets inside
@@ -408,23 +493,64 @@ function extractCharacterNames(visualDesc: string): string[] {
 }
 
 /**
- * Render one panel. Extracts the on-screen characters from the shot's
- * visual_desc `<Name>` tags, gathers every one's reference handles into the i2i
- * `source[]` slot (fail-closed on an unknown name), builds a prompt that tells
- * the model which source image is which character, and dispatches either a
- * single i2i or a best-of-n quality gate.
+ * Everything a panel's render needs, worked out before the gate: the panel
+ * record the output carries, the i2i prompt, and the reference handles (with
+ * the character each depicts, for the best-of-n judge) in `source[]` order.
  */
-async function renderPanel(
-  ctx: Ctx,
-  input: StoryboardInput,
+interface PanelPlan {
+  idx: number
+  panel: StoryboardPanel
+  shot: ShotBrief
+  prompt: string
+  sourceRefs: string[]
+  refNames: string[]
+}
+
+/**
+ * The exact paid-call counts the gate states. Images are one per shot, or
+ * bestOfN per shot; judge calls are one per shot under bestOfN and none
+ * otherwise — meta_image-best-of-n makes exactly one image-to-text call per
+ * dispatch.
+ */
+function renderCounts(
+  shots: number,
+  bestOfN: number | undefined,
+): { shots: number; images: number; judgeCalls: number } {
+  return {
+    shots,
+    images: bestOfN === undefined ? shots : shots * bestOfN,
+    judgeCalls: bestOfN === undefined ? 0 : shots,
+  }
+}
+
+/** The gate body: how each panel is paid for, then the shot list as planned. */
+function renderGateBody(
+  plans: ReadonlyArray<PanelPlan>,
+  bestOfN: number | undefined,
+): string {
+  const how =
+    bestOfN === undefined
+      ? 'One image-to-image render per shot, from its characters\' reference sheets'
+      : `${bestOfN} image-to-image candidates per shot, and one judge call per shot to pick the panel`
+  const shots = plans.map(
+    (p) => `${p.idx + 1}. [cam ${p.shot.cam_idx}] ${p.shot.visual_desc.slice(0, 80)}`,
+  )
+  return [how, ...shots].join('\n')
+}
+
+/**
+ * Plan one panel. Extracts the on-screen characters from the shot's
+ * visual_desc `<Name>` tags, gathers every one's reference handles into the i2i
+ * `source[]` slot (fail-closed on an unknown name), and builds a prompt that
+ * tells the model which source image is which character. Pure — no dispatch —
+ * so it runs ahead of the gate and a storyboard that cannot render is refused
+ * before the user is asked to pay for it.
+ */
+function planPanel(
   shot: ShotBrief,
   idx: number,
   refsByName: ReadonlyMap<string, readonly string[]>,
-): Promise<{
-  panel: StoryboardPanel
-  assets: LabelledAsset<'image'>[]
-  cost: number | null
-}> {
+): PanelPlan {
   const characterNames = extractCharacterNames(shot.visual_desc)
 
   // Collect refs for every on-screen character, tracking which handle belongs
@@ -470,12 +596,8 @@ async function renderPanel(
     )
   }
 
-  const { assets, cost } =
-    input.bestOfN !== undefined
-      ? await renderBestOfN(ctx, prompt, sourceRefs, refNames, input.bestOfN, idx)
-      : await renderSingle(ctx, prompt, sourceRefs, idx)
-
   return {
+    idx,
     panel: {
       shotIndex: idx,
       visualDesc: shot.visual_desc,
@@ -483,9 +605,26 @@ async function renderPanel(
       camIdx: shot.cam_idx,
       characterNames,
     },
-    assets,
-    cost,
+    shot,
+    prompt,
+    sourceRefs,
+    refNames,
   }
+}
+
+/**
+ * Render one planned panel: a single i2i, or a best-of-n quality gate when
+ * bestOfN is set. Everything here is a paid call; the plan was checked and
+ * the counts confirmed before this runs.
+ */
+function renderPanel(
+  ctx: Ctx,
+  plan: PanelPlan,
+  bestOfN: number | undefined,
+): Promise<{ assets: LabelledAsset<'image'>[]; cost: number | null }> {
+  return bestOfN !== undefined
+    ? renderBestOfN(ctx, plan.prompt, plan.sourceRefs, plan.refNames, bestOfN, plan.idx)
+    : renderSingle(ctx, plan.prompt, plan.sourceRefs, plan.idx)
 }
 
 /** The label a panel's image(s) carry in the output's assets[]. */

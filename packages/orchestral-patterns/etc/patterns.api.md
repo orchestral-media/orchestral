@@ -804,6 +804,8 @@ export const StoryboardInputSchema: z.ZodObject<{
     }, z.core.$strip>>;
     userRequirement: z.ZodOptional<z.ZodString>;
     bestOfN: z.ZodOptional<z.ZodNumber>;
+    maxShots: z.ZodDefault<z.ZodNumber>;
+    confirmBeforeRender: z.ZodDefault<z.ZodBoolean>;
 }, z.core.$strip>;
 
 // @alpha

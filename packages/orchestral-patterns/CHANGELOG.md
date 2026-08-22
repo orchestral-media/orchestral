@@ -106,11 +106,22 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   treat the result as immutable; the `-Cached` suffix keeps it distinct from
   `@orchestral/core`'s uncached `toJsonSchema`.)
 
-- **Cost gates on the deliverable metas.** The four deliverable metas —
+- **Cost gates on every multi-generation meta.** The four deliverable metas —
   `meta_explainer-short`, `meta_product-ad-short`, `meta_product-photo-pack`,
   and `meta_ugc-testimonial` — put their paid multi-generation steps behind a
-  `ctx.askUser` checkpoint. The pipeline metas do not; see *Known
-  limitations*.
+  `ctx.askUser` checkpoint. The two pipeline metas, `meta_script2video` and
+  `meta_storyboard`, bound and confirm theirs up front with one vocabulary:
+  `maxShots` (default 12) is told to the design model and enforced on its
+  answer — a storyboard planned past it is refused with a coded error
+  (`SCRIPT2VIDEO_SHOT_CAP_EXCEEDED` / `STORYBOARD_SHOT_CAP_EXCEEDED`) before
+  any render, never sliced, since a scene cut at shot N loses its ending —
+  and one `ctx.askUser.confirm` in front of the first paid call states the
+  exact counts (portraits / frames / clips for script2video; shots / images /
+  judge calls for storyboard). A declined gate returns the plan with empty
+  `assets` and the planning cost only. `confirmBeforeRender: false` skips the
+  confirm for a caller that has already gated, as the long-form example's
+  `idea2video` does; on a runtime built without an `askUser` handler the gate
+  fails with `ASK_USER_NOT_SUPPORTED` rather than rendering unasked.
 
 - **Ships an `"orchestral"` manifest in package.json** — the pattern-package
   convention core defines (`OrchestralManifestSchema`). It declares all 18
@@ -166,17 +177,6 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
 
 ### Known limitations
 
-- **`meta_storyboard` spends without a confirmation gate, and the amount is
-  set by model output.** It has no `ctx.askUser` checkpoint, and it renders one
-  image per shot, where the shot count is however many shots the design step
-  emits rather than a caller-supplied bound. `meta_script2video` no longer
-  shares this limitation: it takes `maxShots` (default 12) and refuses a
-  decomposition that exceeds it before any render, then puts one
-  `ctx.askUser.confirm` in front of the first paid call stating the exact
-  portrait / frame / clip counts (`confirmBeforeRender: false` skips it for a
-  caller that has already gated, as the long-form example's `idea2video`
-  does). If your host bills real money, bound storyboard the same way in your
-  own middleware until it grows the same gate.
 - **`via-caption` image editing is lossy by construction.** When a host has
   opted into automatic alternatives and no image-to-image model is available,
   the job redirects to `meta_image-to-image-via-caption`, which captions the

@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { ExecutionContext, PatternRef } from '@orchestral/core'
 
-import { createStoryboardMeta, STORYBOARD_DEFAULT_PROMPTS } from '../meta/storyboard'
+import {
+  createStoryboardMeta,
+  STORYBOARD_DEFAULT_PROMPTS,
+  StoryboardInputSchema,
+} from '../meta/storyboard'
 import { SCRIPT2VIDEO_DEFAULT_PROMPTS } from '../meta/script2video'
 import { STORYBOARD_DESIGN_PROMPT } from '../meta/_shared/storyboard-design-prompt'
 
@@ -67,7 +71,15 @@ describe('meta prompt overrides', () => {
     const { ctx, stepInputs } = makeCtx(ONE_SHOT)
 
     const out = await meta.compose(
-      { input: { scene: 'a quiet drama', characters: [{ name: 'Ada', refs: ['h-ada'] }] } },
+      {
+        // This harness has nobody to answer the render gate; the prompt is
+        // what is under test, and the spend is one panel.
+        input: StoryboardInputSchema.parse({
+          scene: 'a quiet drama',
+          characters: [{ name: 'Ada', refs: ['h-ada'] }],
+          confirmBeforeRender: false,
+        }),
+      },
       ctx,
     )
 

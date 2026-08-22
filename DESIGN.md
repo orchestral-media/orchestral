@@ -74,6 +74,48 @@ reports the rest.
 `packages/orchestral-core/src/__tests__/manifest.test.ts:326` ("rejects a
 package-level requiredOps instead of ignoring it").
 
+### We don't prefix atomic ids
+**Why.** An atomic Pattern's id *is* its capability: "PatternId === Capability
+literal. No scope prefix" (foundational.ts), "Pattern : Capability = 1:1 —
+`Registry.get(capability as PatternId)` is the canonical capability lookup"
+(registry.ts). The runtime dispatches on that equation — `inline.ts` asks the
+router `checkSatisfiable(atomic.id as Capability, …)` — so a prefix on atomic
+ids would need a mapping table between two vocabularies, and a table is a
+second thing to keep in sync. The names are the HuggingFace task taxonomy for
+ecosystem familiarity, with zero dependency on HuggingFace. Meta and agent ids
+do carry `meta_` / `agent_`, because there the prefix is what `inferNamespace`
+and `DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes` route on: "This is a normative
+contract, not a coincidence of naming. The recursion guard is implemented as
+an id-PREFIX match, so an AgentPattern whose id does not start with `agent_`
+silently escapes it". Underscore rather than colon, because "the
+Anthropic/OpenAI tool name regex `[a-zA-Z0-9_-]` disallows colons — underscore
+lets the internal id double as the LLM tool name with zero encoding." The
+contract is enforced on both ways into the registry — `addFromManifest`
+through the manifest schema's `.refine`, `register()` directly — as
+`PATTERN_ID_KIND_MISMATCH`.
+What a bare capability id does not give a third party is a namespace:
+`Capability` is open (`string & {}`), so package A's and package B's
+`video-concat` are the same registry key and the second to load fails with
+`PATTERN_ALREADY_REGISTERED`. The answer is not a prefix on every atomic — the
+equation above is worth more — but one on the capability name itself,
+`<vendor>__<capability>` (`acme__video-concat`): two underscores, a separator
+no first-party id uses, still a legal tool name. The registry warns
+`CAPABILITY_NOT_NAMESPACED` for an atomic whose id is neither a capability
+core names nor vendor-prefixed. Warns, not throws: a host that loads exactly
+one such package has nothing to fix, and the line is addressed to the
+package's author.
+**Instead.** Atomic: the bare taxonomy name (`text-to-image`), or
+`<vendor>__<name>` for a capability core does not define. Meta: `meta_<name>`.
+Agent: `agent_<name>`.
+**Where.** `packages/orchestral-core/src/foundational.ts:4-13, 23-31`;
+`packages/orchestral-core/src/capability.ts`;
+`packages/orchestral-core/src/manifest.ts:157-172`;
+`packages/orchestral-core/src/registry.ts:17-18, 93-104, 202-221`;
+`packages/orchestral-core/src/catalog.ts:36-63, 110-114`;
+`packages/orchestral-runtime/src/inline.ts:1033-1037`;
+`packages/orchestral-core/src/__tests__/register-id-kind.test.ts`;
+`packages/orchestral-core/src/__tests__/register-capability-namespace.test.ts`.
+
 ### We don't accept raw JSON Schema as an authoring format
 **Why.** Patterns are zod throughout; JSON Schema exists only as the outbound
 wire format, because "the LLM only understands JSON Schema, and zod can't cross

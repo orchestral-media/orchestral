@@ -379,6 +379,16 @@ A package that ships patterns says so in its `package.json`, under an
   stale manifest fails loudly instead of registering something else. The kind
   prefix is part of the contract (`meta_*`, `agent_*`, bare capability id for
   atomic) — `inferNamespace` and the sub-agent recursion guard route on it.
+- **An atomic's `id` is its capability, and capability names are shared.**
+  `Capability` is open, so two packages that each ship a `video-concat` are
+  the same registry key: the second to load fails with
+  `PATTERN_ALREADY_REGISTERED`, and neither manifest says why. Name a
+  capability core does not define `<vendor>__<capability>` —
+  `acme__video-concat` — two underscores, a separator no first-party id uses,
+  still a legal LLM tool name. The registry warns `CAPABILITY_NOT_NAMESPACED`
+  through its `DiagnosticsLogger` for an atomic that is neither a first-party
+  capability nor vendor-prefixed; it does not refuse it, because a host that
+  loads exactly one such package has nothing to fix.
 - **`requiredOps`** names the host operations *that one pattern's* factory
   expects (the ffmpeg-shaped work a meta cannot do itself). It sits on the
   entry, not on the package: a package-wide list would make one ffmpeg-shaped

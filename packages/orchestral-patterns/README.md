@@ -192,8 +192,8 @@ Conventions they all follow:
 
    What the audit cannot bound is array length, so the arrays say on their
    `.describe()` what sizes them: `segments[]` / `words[]` by the audio's
-   length; `panels[]` by the shots the design pass emits (see *Known
-   limitations* in the CHANGELOG); `characterNames[]` by the input registry,
+   length; `panels[]` by `maxShots`, which the design pass is told and
+   refused past; `characterNames[]` by the input registry,
    since an unknown name fails closed; `assets[]` by the generations a dispatch
    makes (`n ≤ 8` for best-of-n).
 

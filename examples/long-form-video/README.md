@@ -61,9 +61,10 @@ Read this before wiring a key in. None of the six bounds its own spend; the
 - **Per scene, `meta_script2video` fans out hard.** Three portraits per
   visible character (front, then side and back off the front), then one first
   frame and one clip per shot, and with `transitionMode: 'between-shots'` a
-  further N−1 transition clips — see the `@orchestral/patterns` CHANGELOG,
-  *Known limitations*. An event yields up to five scenes, and the shot count
-  is whatever the storyboard-design pass emits. A fifty-event novel at three
+  further N−1 transition clips — bounded by `maxShots` (default 12) and put
+  to the user once per dispatch unless the caller passes
+  `confirmBeforeRender: false`, which `meta_idea2video` does after its own
+  form ask. An event yields up to five scenes. A fifty-event novel at three
   scenes per event and eight shots per scene is on the order of 150 × (3 ×
   characters + 16) paid image and video generations before the final concat.
 - **`meta_idea2video` has one gate, then none.** The script-review form is the
