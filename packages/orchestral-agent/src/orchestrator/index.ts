@@ -1,7 +1,7 @@
 // agent_orchestrator — a general open-ended media orchestration AgentPattern.
-// The specialised sibling agent_long-form-video bakes a novel→video director
-// workflow into its system prompt; this agent is the generalisation: no domain
-// workflow, no embedded SKILL — the LLM plans a multi-step media task as it
+// No domain workflow and no embedded SKILL (the novel→video director that
+// bakes one into its system prompt lives in examples/long-form-video, as a
+// reference host rather than API): the LLM plans a multi-step media task as it
 // goes, composing whatever atomic + meta patterns fit, deciding each step from
 // the previous result.
 //
@@ -164,28 +164,18 @@ export function createOrchestratorAgent(): AgentPattern<OrchestratorInput> {
         // the bare name does not resolve in the registry. Import the exported
         // constant so this can't drift from the pattern's declared id again.
         IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
-        // user-facing metas
-        'meta_idea2video',
+        // user-facing metas — the whole shipped meta catalog
         'meta_script2video',
         'meta_image-best-of-n',
-        'meta_reference-image-cascade',
-        'meta_script-planning',
         'meta_storyboard',
         'meta_product-ad-short',
         'meta_product-photo-pack',
         'meta_ugc-testimonial',
         'meta_explainer-short',
-        'meta_lyrics-to-mv',
-        // agent-tool metas (middle-layer; visible to agent loops, this one
-        // included — LLM-loop audience can compose them when it needs to)
-        'meta_prose-chunking',
-        'meta_novel-to-events',
-        'meta_event-to-script',
       ],
       // Long-running sub-dispatches the agent loop can't block on
       // synchronously — routed through the async fan-out plumbing.
       asyncToolPatternIds: [
-        'meta_idea2video',
         'meta_script2video',
         'meta_image-best-of-n',
         'meta_storyboard',
@@ -193,7 +183,6 @@ export function createOrchestratorAgent(): AgentPattern<OrchestratorInput> {
         'meta_product-photo-pack',
         'meta_ugc-testimonial',
         'meta_explainer-short',
-        'meta_lyrics-to-mv',
       ],
       // Fire-and-forget: this agent is meant to be started from a
       // conversational turn and outlive it, so a caller's abort must NOT

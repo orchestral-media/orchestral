@@ -361,9 +361,9 @@ A package that ships patterns says so in its `package.json`, under an
       { "id": "text-to-image", "kind": "atomic", "export": "createTextToImagePattern" },
       { "id": "meta_storyboard", "kind": "meta", "export": "createStoryboardMeta" },
       {
-        "id": "meta_idea2video",
+        "id": "meta_script2video",
         "kind": "meta",
-        "export": "createIdea2VideoMeta",
+        "export": "createScript2VideoMeta",
         "requiredOps": ["concatVideos"]
       }
     ]
@@ -405,7 +405,7 @@ the manifest does not declare is an error, not a silent no-op), and
 const { registered, skipped } = registry.addFromManifest(
   pkg.orchestral, foo, undefined, { missingOps: 'skip' },
 )
-// skipped → [{ id: 'meta_idea2video', missingOps: ['concatVideos'] }]
+// skipped → [{ id: 'meta_script2video', missingOps: ['concatVideos'] }]
 ```
 
 `missingOps` defaults to `'throw'`: fail-closed is the right default because a

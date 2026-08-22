@@ -74,15 +74,15 @@ const corpus = (): Pattern[] => [
     namespace: 'video-gen',
     description: 'generate a video clip',
   }),
-  meta('meta_idea2video', { description: 'idea to multi-scene video' }),
+  meta('meta_brief2video', { description: 'brief to multi-scene video' }),
   meta('meta_storyboard', { description: 'build a storyboard pipeline' }),
 ]
 
 describe('handleFindPattern — select: exact selection', () => {
   it('select:<full id> returns that pattern, bypassing BM25', () => {
     const index = buildIndex(corpus())
-    const res = handleFindPattern(index, { query: 'select:meta_idea2video' })
-    expect(res.matches.map((m) => m.patternId)).toEqual(['meta_idea2video'])
+    const res = handleFindPattern(index, { query: 'select:meta_brief2video' })
+    expect(res.matches.map((m) => m.patternId)).toEqual(['meta_brief2video'])
     expect(res.matches[0]!.kind).toBe('meta')
   })
 
@@ -105,10 +105,10 @@ describe('handleFindPattern — select: exact selection', () => {
   it('select:a,b returns multiple in listed order, deduped', () => {
     const index = buildIndex(corpus())
     const res = handleFindPattern(index, {
-      query: 'select:meta_idea2video,text-to-image,meta_idea2video',
+      query: 'select:meta_brief2video,text-to-image,meta_brief2video',
     })
     expect(res.matches.map((m) => m.patternId)).toEqual([
-      'meta_idea2video',
+      'meta_brief2video',
       'text-to-image',
     ])
   })
@@ -182,7 +182,7 @@ describe('handleFindPattern — prefix / namespace grouping', () => {
     const index = buildIndex(corpus())
     const res = handleFindPattern(index, { query: 'meta_*' })
     expect(res.matches.map((m) => m.patternId).sort()).toEqual([
-      'meta_idea2video',
+      'meta_brief2video',
       'meta_storyboard',
     ])
   })
@@ -224,7 +224,7 @@ describe('handleFindPattern — directToolIds diagnostic (P4)', () => {
   // from the search corpus via includeOnly (agent-dispatch.ts's
   // findPatternIncludeOnly).
   const agentScope = {
-    includeOnly: new Set(['meta_idea2video']),
+    includeOnly: new Set(['meta_brief2video']),
     directToolIds: new Set(['image-to-image', 'text-to-image']),
     audience: 'agent-loop' as const,
   }
@@ -257,7 +257,7 @@ describe('handleFindPattern — directToolIds diagnostic (P4)', () => {
     const res = handleFindPattern(
       index,
       // No kind filter needed: BM25 stopword filtering (#165) keeps the
-      // shared 'to' from matching meta_idea2video, so this is a genuine
+      // shared 'to' from matching meta_brief2video, so this is a genuine
       // zero-match and the direct-tool override fires.
       { query: 'image to image inpainting mask' },
       { ...agentScope, directToolIds: new Set(['image-to-image']) },
@@ -307,7 +307,7 @@ describe('handleFindPattern — directToolIds diagnostic (P4)', () => {
     const res = handleFindPattern(
       index,
       { query: 'image-to-image' },
-      { includeOnly: new Set(['meta_idea2video']) },
+      { includeOnly: new Set(['meta_brief2video']) },
     )
     expect(res.matches).toHaveLength(0)
     expect(res.diagnostic?.suggestion).toContain('No Patterns matched')
@@ -356,7 +356,7 @@ describe('handleFindPattern — BM25 regression', () => {
   })
 
   it('stopword overlap alone does not surface unrelated patterns', () => {
-    // meta_idea2video's description "idea to multi-scene video" shares only
+    // meta_brief2video's description "brief to multi-scene video" shares only
     // the stopword 'to' with this query — without stopword filtering it
     // surfaced as a confident match, misleading the dispatching LLM.
     const index = buildIndex(corpus())
@@ -364,7 +364,7 @@ describe('handleFindPattern — BM25 regression', () => {
       query: 'image to image inpainting mask',
     })
     expect(res.matches.map((m) => m.patternId)).not.toContain(
-      'meta_idea2video',
+      'meta_brief2video',
     )
   })
 

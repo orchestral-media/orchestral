@@ -9,17 +9,19 @@ Part of the [Orchestral monorepo](https://github.com/orchestral-media/orchestral
 `@orchestral/core`, `@orchestral/runtime` or `@orchestral/patterns` depends on
 this package; a host that never runs an LLM loop never installs it.
 
-What it ships is exactly one thing: **two first-party `AgentPattern`s.**
-
-- `agent_long-form-video` — a novel → multi-event video director, with its SKILL
-  bodies inlined.
-- `agent_orchestrator` — a general open-ended media orchestrator.
-
-Both compose the atomic + meta catalog in
+What it ships is exactly one thing: **one first-party `AgentPattern`,
+`agent_orchestrator`** — a general open-ended media orchestrator. It composes
+the atomic + meta catalog in
 [`@orchestral/patterns`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-patterns)
-by pattern id. Both are pure declarations: prompts, schemas, tool lists. **No
-loop implementation and no provider SDK ships here** — the `AgentRunImpl` that
-drives the LLM tool-loop is yours to inject (see below).
+by pattern id, and it is a pure declaration: a prompt, a schema, a tool list.
+**No loop implementation and no provider SDK ships here** — the `AgentRunImpl`
+that drives the LLM tool-loop is yours to inject (see below).
+
+A second agent, the novel → multi-event video director, is kept as a reference
+host in
+[`examples/long-form-video`](https://github.com/orchestral-media/orchestral/tree/main/examples/long-form-video)
+rather than published: it was one pipeline with one consumer, and the example's
+README says what it costs to run.
 
 ```ts
 import { PatternRegistry } from '@orchestral/core'
@@ -42,8 +44,8 @@ const runtime = new InlineRuntime({
 })
 ```
 
-A host can also register both patterns straight from the package manifest,
-without hand-written wiring:
+A host can also register it straight from the package manifest, without
+hand-written wiring:
 
 ```ts
 import pkg from '@orchestral/agent/package.json' with { type: 'json' }
@@ -68,7 +70,7 @@ the split is:
 | --- | --- |
 | `AgentPattern` type, finish envelope, `agentInputSchema` | `@orchestral/core` |
 | `dispatchAgent`, the `AgentRunImpl` interface, tool catalog + handle plumbing | `@orchestral/runtime` (inert until a runner is injected) |
-| First-party agent Patterns | **this package** |
+| First-party agent Pattern | **this package** |
 | The runner that fills the seam | **your host** — reference implementation in [`examples/agent-hello-world`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world) |
 
 ## Why no loop implementation ships here
@@ -80,8 +82,8 @@ over your own SDK.
 
 Shipping a loop would mean this package picking your agent framework (Vercel AI
 SDK? LangGraph? your own worker protocol?) and dragging its SDK into every
-install, including the installs of hosts that only want the two declarative
-patterns above. So the loop stays out, and the interface stays small:
+install, including the installs of hosts that only want the declarative
+pattern above. So the loop stays out, and the interface stays small:
 
 ```ts
 interface AgentRunImpl {
@@ -129,5 +131,4 @@ consumes it then trivially come from the same copy.
 
 ## License
 
-Apache-2.0. Some prompt text is derived from third-party work under the MIT
-license — see [`CREDITS.md`](./CREDITS.md) and [`NOTICE`](./NOTICE).
+Apache-2.0. See [LICENSE](./LICENSE) and [NOTICE](./NOTICE).

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ExecutionContext, StepOptions, PatternRef } from '@orchestral/core'
-import { createNovelToEventsMeta, type Event } from '../meta/novel-to-events'
+import { createNovelToEventsMeta, type Event } from '../patterns/novel-to-events'
 
 interface RecordedStep {
   patternId: string

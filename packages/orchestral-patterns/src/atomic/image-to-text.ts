@@ -13,7 +13,7 @@
 // a strategy branch. Primary-only.
 
 import { z } from 'zod'
-import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'
+import { boundedText, createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'
 
 // ── primary input schema ────────────────────────────────────────────────
 
@@ -84,7 +84,11 @@ export type ImageToTextInput = z.infer<typeof ImageToTextPrimaryInputSchema> & {
 // outputs.modality literal (text output).
 export const ImageToTextOutputSchema = z.object({
   modality: z.literal('text'),
-  text: z.string().describe("The VLM's textual output."),
+  // 16 KiB: a caption is a sentence, a `describe` or `judge` answer a few
+  // paragraphs, an `extract-style` sheet a page. Bounded so the registry's
+  // OUTPUTS_UNBOUNDED_FIELDS lint stays silent; the bound is tabled in the
+  // patterns README, "Conventions".
+  text: boundedText(16_384).describe("The VLM's textual output."),
   ...dispatchEnvelopeShape,
 })
 

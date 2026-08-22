@@ -24,8 +24,7 @@
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
 import { metaEnvelopeShape } from '@orchestral/core'
-import { resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
-import { textGeneration } from '../../atomic/text-generation'
+import { resolvePrompts, sumCosts, textGeneration, toJsonSchemaCached } from '@orchestral/patterns'
 import { proseChunkingMeta } from '../prose-chunking'
 import { NEXT_EVENT_EXTRACTION_PROMPT } from './prompts'
 

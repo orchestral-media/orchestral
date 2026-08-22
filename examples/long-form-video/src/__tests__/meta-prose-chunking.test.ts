@@ -4,11 +4,11 @@ import type { ExecutionContext, StepOptions, PatternRef } from '@orchestral/core
 import {
   createProseChunkingMeta,
   splitProseByTokenBudget,
-} from '../meta/prose-chunking'
+} from '../patterns/prose-chunking'
 import {
   NARRATIVE_COMPRESSION_PROMPT,
   NARRATIVE_AGGREGATION_PROMPT,
-} from '../meta/prose-chunking/prompts'
+} from '../patterns/prose-chunking/prompts'
 
 interface RecordedStep {
   patternId: string

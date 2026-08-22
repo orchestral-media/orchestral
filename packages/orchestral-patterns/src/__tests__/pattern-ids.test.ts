@@ -13,19 +13,11 @@ import {
   AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID,
   TEXT_GENERATION_PATTERN_ID,
   IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
-  // meta (9)
-  SCRIPT_PLANNING_PATTERN_ID,
-  REFERENCE_IMAGE_CASCADE_PATTERN_ID,
+  // meta (7)
   SCRIPT2VIDEO_PATTERN_ID,
-  IDEA2VIDEO_PATTERN_ID,
-  PROSE_CHUNKING_PATTERN_ID,
-  NOVEL_TO_EVENTS_PATTERN_ID,
-  EVENT_TO_SCRIPT_PATTERN_ID,
   IMAGE_BEST_OF_N_PATTERN_ID,
   STORYBOARD_PATTERN_ID,
-  // deliverable metas (5)
   EXPLAINER_SHORT_PATTERN_ID,
-  LYRICS_TO_MV_PATTERN_ID,
   PRODUCT_AD_SHORT_PATTERN_ID,
   PRODUCT_PHOTO_PACK_PATTERN_ID,
   UGC_TESTIMONIAL_PATTERN_ID,
@@ -60,40 +52,26 @@ describe('first-party Pattern ID literals', () => {
   })
 
   it('meta Pattern IDs are pinned (meta_ prefix is load-bearing)', () => {
-    expect(SCRIPT_PLANNING_PATTERN_ID).toBe('meta_script-planning')
-    expect(REFERENCE_IMAGE_CASCADE_PATTERN_ID).toBe(
-      'meta_reference-image-cascade',
-    )
     expect(SCRIPT2VIDEO_PATTERN_ID).toBe('meta_script2video')
-    expect(IDEA2VIDEO_PATTERN_ID).toBe('meta_idea2video')
-    expect(PROSE_CHUNKING_PATTERN_ID).toBe('meta_prose-chunking')
-    expect(NOVEL_TO_EVENTS_PATTERN_ID).toBe('meta_novel-to-events')
-    expect(EVENT_TO_SCRIPT_PATTERN_ID).toBe('meta_event-to-script')
     expect(IMAGE_BEST_OF_N_PATTERN_ID).toBe('meta_image-best-of-n')
     expect(STORYBOARD_PATTERN_ID).toBe('meta_storyboard')
     expect(EXPLAINER_SHORT_PATTERN_ID).toBe('meta_explainer-short')
-    expect(LYRICS_TO_MV_PATTERN_ID).toBe('meta_lyrics-to-mv')
     expect(PRODUCT_AD_SHORT_PATTERN_ID).toBe('meta_product-ad-short')
     expect(PRODUCT_PHOTO_PACK_PATTERN_ID).toBe('meta_product-photo-pack')
     expect(UGC_TESTIMONIAL_PATTERN_ID).toBe('meta_ugc-testimonial')
   })
 
-  // Agent Pattern IDs (`agent_long-form-video` / `agent_orchestrator`) are
-  // pinned by the same gate in @orchestral/agent, which now owns them.
+  // The agent Pattern ID (`agent_orchestrator`) is pinned by the same gate in
+  // @orchestral/agent, which owns it. The long-form pipeline's ids
+  // (`meta_script-planning`, `meta_idea2video`, …, `agent_long-form-video`)
+  // left this package for examples/long-form-video and are pinned there.
 
   it('every meta id carries the meta_ prefix', () => {
     const metaIds = [
-      SCRIPT_PLANNING_PATTERN_ID,
-      REFERENCE_IMAGE_CASCADE_PATTERN_ID,
       SCRIPT2VIDEO_PATTERN_ID,
-      IDEA2VIDEO_PATTERN_ID,
-      PROSE_CHUNKING_PATTERN_ID,
-      NOVEL_TO_EVENTS_PATTERN_ID,
-      EVENT_TO_SCRIPT_PATTERN_ID,
       IMAGE_BEST_OF_N_PATTERN_ID,
       STORYBOARD_PATTERN_ID,
       EXPLAINER_SHORT_PATTERN_ID,
-      LYRICS_TO_MV_PATTERN_ID,
       PRODUCT_AD_SHORT_PATTERN_ID,
       PRODUCT_PHOTO_PACK_PATTERN_ID,
       UGC_TESTIMONIAL_PATTERN_ID,

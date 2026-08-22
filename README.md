@@ -43,7 +43,8 @@ npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 ```
 
 Two optional packages sit on top: `@orchestral/discovery` (the BM25 search
-behind a `find_pattern` tool) and `@orchestral/agent` (the two agent patterns).
+behind a `find_pattern` tool) and `@orchestral/agent` (the orchestrator agent
+pattern).
 Neither pulls in a provider SDK. A third, `@orchestral/adapters-ai-sdk`, is the
 one package that does: it wraps a Vercel AI SDK model instance as a ready-made
 `ModelCapability`, so a host already on the AI SDK skips writing the call
@@ -53,7 +54,7 @@ adapter. It is a leaf — nothing in `@orchestral/*` depends on it.
 schemas on the public API, so your app and Orchestral must share one zod
 instance.
 
-Three runnable hosts live in this repo:
+Five runnable hosts live in this repo:
 
 - [`examples/atomic-hello-world`](examples/atomic-hello-world) — one atomic
   `text-to-image` dispatch, with the whole provider bridge in `src/ai-sdk-wiring.ts`.
@@ -68,6 +69,11 @@ Three runnable hosts live in this repo:
   meta re-submitted with one input changed: the unchanged steps come back from
   the `JobStore` under their original child job ids, only the changed step and
   its downstream re-run. Mock models, no key.
+- [`examples/long-form-video`](examples/long-form-video) — the reference
+  novel → multi-event video pipeline (five planning metas and a director
+  agent), kept as source in the example rather than shipped as API, registered
+  next to the full catalog. Its README states the cost profile and the
+  `concat_videos` host tool it expects. No key: the tests run on mocks.
 
 ```sh
 pnpm install
@@ -75,6 +81,7 @@ pnpm --filter atomic-hello-world start   # needs OPENAI_API_KEY
 pnpm --filter atomic-hello-world test    # no key: same wiring, mock model
 pnpm --filter consented-fallback start   # no key: the fallback narrative on mocks
 pnpm --filter incremental-rerun start    # no key: content-addressed re-run, mock models
+pnpm --filter long-form-video start      # no key: registers the long-form catalog and prints it
 ```
 
 ## Minimal example
@@ -157,12 +164,15 @@ The annotated version of the same wiring is in
 
 ## What's in the box
 
-`@orchestral/patterns` ships **25 patterns**: 10 atomic ones (one per capability
+`@orchestral/patterns` ships **18 patterns**: 10 atomic ones (one per capability
 — `text-to-image`, `image-to-video`, `text-to-speech`,
-`automatic-speech-recognition`, …) and 15 meta pipelines with their prompts
-inlined (storyboarding, script planning, idea-to-video, best-of-N image
-selection, …). The 2 agent patterns (an orchestrator and a long-form-video
-director) live in the optional `@orchestral/agent` package.
+`automatic-speech-recognition`, …) and 8 meta pipelines with their prompts
+inlined (best-of-N image selection, storyboarding, script-to-video, a product
+ad, a UGC testimonial, an explainer short, a product photo pack, and the
+caption → re-render image-edit fallback). The agent pattern (an orchestrator)
+lives in the optional `@orchestral/agent` package. The long-form novel → video
+pipeline is in neither: it is kept runnable in
+[`examples/long-form-video`](examples/long-form-video).
 
 The full table — kind, input slots, outputs, and the host operations each
 pattern expects you to supply — is generated from the built package:
@@ -190,10 +200,10 @@ lines — copy it and swap in whatever loop you already run.
 | Package | What it is |
 | --- | --- |
 | [`@orchestral/core`](packages/orchestral-core) | The vocabulary and contracts: `Pattern` / `ModelCapability` / `Alternative`, `Job` / `JobStore` / `Runtime`, the default capability router, and the pattern registry. No execution engine, no provider SDK. |
-| [`@orchestral/patterns`](packages/orchestral-patterns) | The first-party pattern catalog: one atomic pattern per capability, plus meta pipelines (storyboarding, script planning, idea-to-video, best-of-N selection, …) with their prompts inlined. |
+| [`@orchestral/patterns`](packages/orchestral-patterns) | The first-party pattern catalog: one atomic pattern per capability, plus meta pipelines (storyboarding, script-to-video, best-of-N selection, the short-form deliverables, …) with their prompts inlined. |
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
 | [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex` and the `find_pattern` tool handler. Core keeps the input contract; this package owns the searching. |
-| [`@orchestral/agent`](packages/orchestral-agent) | Optional. The two agent patterns (an orchestrator and a long-form-video director). Declarations only — the tool loop that runs them is the `AgentRunImpl` you inject. |
+| [`@orchestral/agent`](packages/orchestral-agent) | Optional. The orchestrator agent pattern. A declaration only — the tool loop that runs it is the `AgentRunImpl` you inject. |
 | [`@orchestral/adapters-ai-sdk`](packages/orchestral-adapters-ai-sdk) | Optional. Ready-made `ModelCapability` envelopes over a Vercel AI SDK model instance — `fromImageModel` / `fromSpeechModel` / `fromTranscriptionModel` — for hosts already on the AI SDK. A leaf package: it depends on core and `ai`, and nothing depends on it. |
 | [`@orchestral/dsh-plugin`](packages/orchestral-dsh-plugin) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |
 

@@ -25,16 +25,28 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   `text-generation` — one pattern per capability, each a thin typed envelope
   over the resolved model call.
 
-- **Fifteen meta pipelines.** Composed deliverables (explainer short, product ad
-  short, product photo pack, UGC testimonial, lyrics-to-MV, idea-to-video)
-  alongside the planning and utility pipelines they and your own metas build on
-  (storyboard, script planning, script-to-video, novel-to-events,
-  event-to-script, prose chunking, reference-image cascade, best-of-N image
-  selection, and the `via-caption` image-edit fallback).
+- **Eight meta pipelines.** Four composed deliverables (explainer short,
+  product ad short, product photo pack, UGC testimonial) alongside the
+  planning and utility pipelines they and your own metas build on
+  (storyboard, script-to-video, best-of-N image selection, and the
+  `via-caption` image-edit fallback — the only `Alternative` target in the
+  catalog).
+
+- **The catalog is these eight, on purpose.** The long-form novel → video
+  pipeline — `meta_script-planning`, `meta_prose-chunking`,
+  `meta_novel-to-events`, `meta_event-to-script`, `meta_idea2video`, and the
+  `agent_long-form-video` director that was their only consumer — is not in
+  the package. It lives, unchanged and with its tests, in
+  `examples/long-form-video`: a host that registers the six from its own
+  source next to this catalog. Two more metas (`meta_lyrics-to-mv`,
+  `meta_reference-image-cascade`) were dropped outright. The reason is surface
+  area: every inlined prompt on a published API is a maintenance liability and
+  a PR magnet, and those six were one pipeline with one consumer. What ships is
+  what a host composes.
 
 - **Typed pattern functions.** `textGeneration`, `textToImage`, `imageToText`,
   `textToSpeech`, `textToAudio`, `imageToVideo`, `imageToImage`,
-  `automaticSpeechRecognition`, `proseChunkingMeta`, `imageBestOfNMeta`, and
+  `automaticSpeechRecognition`, `imageBestOfNMeta`, and
   `script2videoMeta` give compile-time-checked meta composition; every
   first-party meta dispatches its sub-patterns through them rather than through
   stringly-typed `ctx.step` refs. `ImageGenerationParams` and
@@ -54,26 +66,35 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   fields on any dispatch.
 
 - **Uniform `assets[]` + `label` envelope on every media-producing meta.**
-  The eight metas that handed their media back as bare id fields
-  (`videoAssetId`, `musicAssetId`, `clipAssetIds`, `scenes[].imageAssetId`,
-  `winningAssetId` / `allCandidates`, `imageAssetIds`, `heroAssetId`, …) now
-  return one flat top-level `assets[]` — the same `{ assetId, modality, url?,
-  cost? }` element the atomics produce, plus a required `label` naming the role
-  the asset played: `final-video` on every pipeline that ends in a video,
-  `music`, `clip-<i>`, `hero`, `voiceover`, `shot-<i>`, `scene-<i>-image` /
-  `scene-<i>-vo`, and `winner` / `candidate` (best-of-n keeps submission
-  order, so `assets[i]` is still candidate `i`). No other output field carries
-  an asset id, nested or not. The reason is the model-facing projection:
-  `projectToolOutputForModel` in `@orchestral/core` rebuilds `assets[]` from
-  the handle whitelist and deletes the legacy top-level `assetId`, but passes
-  every other field through untouched — so a `videoAssetId` reached the model
-  as a raw id on every dispatch of these metas. `label` is on that whitelist,
-  which is why the role rides on the element rather than in a field name; a
-  consumer (`meta_idea2video` reading `meta_script2video`, `meta_storyboard`
-  reading `meta_image-best-of-n`) finds an asset by label. `meta_storyboard`
-  already used this shape and is unchanged. `meta_explainer-short`'s
-  `scenes[]` now carries only `{ type, narration }`; its media is in
-  `assets[]` by scene label.
+  Every meta that produces media returns one flat top-level `assets[]` — the
+  same `{ assetId, modality, url?, cost? }` element the atomics produce, plus
+  a required `label` naming the role the asset played: `final-video` on every
+  pipeline that ends in a video, `music`, `hero`, `voiceover`, `shot-<i>`,
+  `scene-<i>-image` / `scene-<i>-vo`, `panel-<i>`, and `winner` / `candidate`
+  (best-of-n keeps submission order, so `assets[i]` is still candidate `i`).
+  No other output field carries an asset id, nested or not. The reason is the
+  model-facing projection: `projectToolOutputForModel` in `@orchestral/core`
+  rebuilds `assets[]` from the handle whitelist and deletes the legacy
+  top-level `assetId`, but passes every other field through untouched — so a
+  `videoAssetId`, or a `panels[].assetIds`, reaches the model as a raw id on
+  every dispatch. `label` is on that whitelist, which is why the role rides on
+  the element rather than in a field name; a consumer (`meta_storyboard`
+  reading `meta_image-best-of-n`'s `winner`) finds an asset by label.
+  `meta_storyboard`'s `panels[]` carries only the shot's non-asset fields and
+  its images are the `panel-<shotIndex>` elements of `assets[]`;
+  `meta_explainer-short`'s `scenes[]` carries only `{ type, narration }` and
+  its media is in `assets[]` by scene label.
+
+- **Every string in every outputs schema is bounded.** The registry's
+  registration-time lint (`OUTPUTS_UNBOUNDED_FIELDS`) audits each pattern's
+  outputs for a bare `z.string()`; the shipped catalog — ten atomics,
+  `via-caption`, and the seven metas — now registers with zero warnings, and
+  a test (`registry-outputs-bounded.test.ts`) keeps it that way. The bounds
+  are generous and fit the field (`text-generation.text` 64 KiB, an ASR
+  transcript 256 KiB, a judge rationale 2 KiB, …) and are tabled in one place
+  — the README's *Conventions* — so they can be retuned together. Array
+  lengths the audit cannot bound (`segments[]`, `panels[]`, `assets[]`) are
+  documented on the field.
 
 - **Meta authoring surface.** `MetaCommonDeps` (the host-op contract every
   deliverable meta `Pick`s from), plus `firstAsset`, `firstAssetId`,
@@ -85,23 +106,22 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   treat the result as immutable; the `-Cached` suffix keeps it distinct from
   `@orchestral/core`'s uncached `toJsonSchema`.)
 
-- **Cost gates on the deliverable metas.** Six metas — `meta_explainer-short`,
-  `meta_idea2video`, `meta_lyrics-to-mv`, `meta_product-ad-short`,
-  `meta_product-photo-pack`, and `meta_ugc-testimonial` — put their paid
-  multi-generation steps behind a `ctx.askUser` checkpoint. The pipeline metas
-  do not; see *Known limitations*.
+- **Cost gates on the deliverable metas.** The four deliverable metas —
+  `meta_explainer-short`, `meta_product-ad-short`, `meta_product-photo-pack`,
+  and `meta_ugc-testimonial` — put their paid multi-generation steps behind a
+  `ctx.askUser` checkpoint. The pipeline metas do not; see *Known
+  limitations*.
 
 - **Ships an `"orchestral"` manifest in package.json** — the pattern-package
-  convention core defines (`OrchestralManifestSchema`). It declares all 25
+  convention core defines (`OrchestralManifestSchema`). It declares all 18
   patterns as `{ id, kind, export }`, and `requiredOps` is declared *per
-  pattern*: only six metas name host operations
+  pattern*: only four metas name host operations
   (`meta_explainer-short` → `concatVideos` + `stillToVideo`,
-  `meta_ugc-testimonial` → four, `meta_lyrics-to-mv` → two,
-  `meta_product-ad-short` → two, `meta_script2video` and `meta_idea2video` →
-  `concatVideos`). The other nineteen declare none, so a host with no
-  multimedia backend still loads them:
+  `meta_ugc-testimonial` → four, `meta_product-ad-short` → two,
+  `meta_script2video` → `concatVideos`). The other fourteen declare none, so a
+  host with no multimedia backend still loads them:
   `registry.addFromManifest(pkg.orchestral, patterns, undefined, { missingOps: 'skip' })`
-  registers those nineteen and reports the six it left out. With the ops in
+  registers those fourteen and reports the four it left out. With the ops in
   hand, `registry.addFromManifest(pkg.orchestral, patterns, ops)` takes the lot.
   `npm view @orchestral/patterns orchestral` prints all of it without
   installing; the `orchestral-pattern` npm keyword is there for the same reason.

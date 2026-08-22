@@ -4,29 +4,11 @@
 
 ```ts
 
-import { AgentPattern } from '@orchestral/core';
+import type { AgentPattern } from '@orchestral/core';
 import { z } from 'zod';
 
 // @public (undocumented)
-export const AGENT_LONG_FORM_VIDEO_PATTERN_ID = "agent_long-form-video";
-
-// @public (undocumented)
 export const AGENT_ORCHESTRATOR_PATTERN_ID = "agent_orchestrator";
-
-// @public (undocumented)
-export type AgentLongFormVideoInput = z.infer<typeof AgentLongFormVideoInputSchema>;
-
-// @public (undocumented)
-export const AgentLongFormVideoInputSchema: z.ZodObject<{
-    description: z.ZodString;
-    prompt: z.ZodString;
-    references: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
-    style: z.ZodOptional<z.ZodString>;
-    maxEvents: z.ZodOptional<z.ZodNumber>;
-}, z.core.$strip>;
-
-// @alpha (undocumented)
-export function createLongFormVideoAgent(): AgentPattern<AgentLongFormVideoInput>;
 
 // @alpha (undocumented)
 export function createOrchestratorAgent(): AgentPattern<OrchestratorInput>;

@@ -123,28 +123,6 @@ export {
 // Agent-kind patterns are NOT here: they live in the optional @orchestral/agent
 // package. This catalog is atomic + meta only.
 export {
-  SCRIPT_PLANNING_PATTERN_ID,
-  ScriptPlanningInputSchema,
-  ScriptPlanningOutputSchema,
-  createScriptPlanningMeta,
-  type ScriptPlanningInput,
-  type ScriptPlanningOutput,
-  type ScriptPlanningMetaInit,
-  type ScriptPlanningPromptOverrides,
-} from './meta/script-planning'
-
-export {
-  REFERENCE_IMAGE_CASCADE_PATTERN_ID,
-  ReferenceImageCascadeInputSchema,
-  ReferenceImageCascadeOutputSchema,
-  createReferenceImageCascadeMeta,
-  type ReferenceImageCascadeInput,
-  type ReferenceImageCascadeOutput,
-  type ReferenceImageCascadeMetaInit,
-  type ReferenceImageCascadePromptOverrides,
-} from './meta/reference-image-cascade'
-
-export {
   SCRIPT2VIDEO_PATTERN_ID,
   ScriptToVideoInputSchema,
   ScriptToVideoOutputSchema,
@@ -157,59 +135,6 @@ export {
   type ScriptToVideoPromptOverrides,
   type CharacterInScene,
 } from './meta/script2video'
-
-export {
-  IDEA2VIDEO_PATTERN_ID,
-  IdeaToVideoInputSchema,
-  IdeaToVideoOutputSchema,
-  createIdea2VideoMeta,
-  type IdeaToVideoInput,
-  type IdeaToVideoOutput,
-  type IdeaToVideoMetaDeps,
-  type IdeaToVideoPromptOverrides,
-} from './meta/idea2video'
-
-export {
-  PROSE_CHUNKING_PATTERN_ID,
-  ProseChunkingInputSchema,
-  ProseChunkingOutputSchema,
-  createProseChunkingMeta,
-  proseChunkingMeta,
-  type ProseChunkingInput,
-  type ProseChunkingOutput,
-  type ProseChunkingMetaInit,
-  type ProseChunkingPromptOverrides,
-} from './meta/prose-chunking'
-
-export {
-  NOVEL_TO_EVENTS_PATTERN_ID,
-  NovelToEventsInputSchema,
-  NovelToEventsOutputSchema,
-  EventResponseSchema,
-  createNovelToEventsMeta,
-  type NovelToEventsInput,
-  type NovelToEventsOutput,
-  type NovelToEventsMetaInit,
-  type NovelToEventsPromptOverrides,
-  type Event,
-} from './meta/novel-to-events'
-
-export {
-  EVENT_TO_SCRIPT_PATTERN_ID,
-  EventToScriptInputSchema,
-  EventToScriptOutputSchema,
-  SceneSchema,
-  PolishedSceneSchema,
-  createEventToScriptMeta,
-  CharacterInEventSchema,
-  type EventToScriptInput,
-  type EventToScriptOutput,
-  type EventToScriptMetaInit,
-  type EventToScriptPromptOverrides,
-  type Scene,
-  type PolishedScene,
-  type CharacterInEvent,
-} from './meta/event-to-script'
 
 export {
   IMAGE_BEST_OF_N_PATTERN_ID,
@@ -282,46 +207,30 @@ export {
   type ExplainerShortPromptOverrides,
 } from './meta/explainer-short'
 
-export {
-  LYRICS_TO_MV_PATTERN_ID,
-  LyricsToMvInputSchema,
-  LyricsToMvOutputSchema,
-  createLyricsToMvMeta,
-  type LyricsToMvInput,
-  type LyricsToMvOutput,
-  type LyricsToMvMetaDeps,
-  type LyricsToMvPromptOverrides,
-} from './meta/lyrics-to-mv'
-
 // ── Meta prompt-override defaults ─────────────────────────────────────────
 // Each meta inlines its system prompts as module constants. These frozen
 // `*_DEFAULT_PROMPTS` objects expose those defaults keyed by the same names a
 // consumer passes to the factory's `prompts` override map — so a consumer can
 // tweak tone / house style / localization for one step while spreading the
 // rest of the defaults, without forking the package. The raw prompt constants
-// stay internal (available to test code via the `./testing` subpath only).
-export { IDEA2VIDEO_DEFAULT_PROMPTS } from './meta/idea2video'
+// stay internal — tests import them by relative path.
 export { SCRIPT2VIDEO_DEFAULT_PROMPTS } from './meta/script2video'
-export { SCRIPT_PLANNING_DEFAULT_PROMPTS } from './meta/script-planning'
 export { STORYBOARD_DEFAULT_PROMPTS } from './meta/storyboard'
 export { EXPLAINER_SHORT_DEFAULT_PROMPTS } from './meta/explainer-short'
-export { EVENT_TO_SCRIPT_DEFAULT_PROMPTS } from './meta/event-to-script'
-export { NOVEL_TO_EVENTS_DEFAULT_PROMPTS } from './meta/novel-to-events'
-export { PROSE_CHUNKING_DEFAULT_PROMPTS } from './meta/prose-chunking'
-export { LYRICS_TO_MV_DEFAULT_PROMPTS } from './meta/lyrics-to-mv'
 export { UGC_TESTIMONIAL_DEFAULT_PROMPTS } from './meta/ugc-testimonial'
 export { PRODUCT_AD_SHORT_DEFAULT_PROMPTS } from './meta/product-ad-short'
 export { PRODUCT_PHOTO_PACK_DEFAULT_PROMPTS } from './meta/product-photo-pack'
 export { IMAGE_BEST_OF_N_DEFAULT_PROMPTS } from './meta/image-best-of-n'
-export { REFERENCE_IMAGE_CASCADE_DEFAULT_PROMPTS } from './meta/reference-image-cascade'
 
 // ── Shared meta authoring surface ────────────────────────────────────────
 // The host-op contract every deliverable meta Picks from, plus every helper
 // the shipped metas use in their compose(). This is the full set an author
 // needs to copy one of the exemplar metas into their own package and have it
 // compile against `@orchestral/patterns` alone — the exemplars import exactly
-// these names. Exported so a consumer can also build one shared deps object
-// typed against the full op set.
+// these names, and examples/long-form-video is the proof: six metas and an
+// agent that used to live in this repo's packages compile there against this
+// barrel and nothing else. Exported so a consumer can also build one shared
+// deps object typed against the full op set.
 //
 // Stability: these follow the package's 0.x policy (see CHANGELOG) — the
 // signatures are settled and covered by the frozen public-surface snapshot,

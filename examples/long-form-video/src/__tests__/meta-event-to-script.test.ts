@@ -5,12 +5,12 @@ import {
   createEventToScriptMeta,
   type Scene,
   type CharacterInEvent,
-} from '../meta/event-to-script'
+} from '../patterns/event-to-script'
 import {
   NEXT_SCENE_EXTRACTION_PROMPT,
   CHARACTER_MERGE_SCENE_TO_EVENT_PROMPT,
   SCRIPT_ENHANCEMENT_PROMPT,
-} from '../meta/event-to-script/prompts'
+} from '../patterns/event-to-script/prompts'
 
 interface RecordedStep {
   patternId: string

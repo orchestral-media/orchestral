@@ -86,45 +86,12 @@
         "export": "createImageToImageViaCaptionPattern"
       },
       {
-        "id": "meta_script-planning",
-        "kind": "meta",
-        "export": "createScriptPlanningMeta"
-      },
-      {
-        "id": "meta_reference-image-cascade",
-        "kind": "meta",
-        "export": "createReferenceImageCascadeMeta"
-      },
-      {
         "id": "meta_script2video",
         "kind": "meta",
         "export": "createScript2VideoMeta",
         "requiredOps": [
           "concatVideos"
         ]
-      },
-      {
-        "id": "meta_idea2video",
-        "kind": "meta",
-        "export": "createIdea2VideoMeta",
-        "requiredOps": [
-          "concatVideos"
-        ]
-      },
-      {
-        "id": "meta_prose-chunking",
-        "kind": "meta",
-        "export": "createProseChunkingMeta"
-      },
-      {
-        "id": "meta_novel-to-events",
-        "kind": "meta",
-        "export": "createNovelToEventsMeta"
-      },
-      {
-        "id": "meta_event-to-script",
-        "kind": "meta",
-        "export": "createEventToScriptMeta"
       },
       {
         "id": "meta_image-best-of-n",
@@ -169,15 +136,6 @@
           "concatVideos",
           "stillToVideo"
         ]
-      },
-      {
-        "id": "meta_lyrics-to-mv",
-        "kind": "meta",
-        "export": "createLyricsToMvMeta",
-        "requiredOps": [
-          "concatVideos",
-          "addBackgroundAudio"
-        ]
       }
     ]
   },
@@ -186,8 +144,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./testing": "./src/testing.ts"
+    ".": "./src/index.ts"
   },
   "files": [
     "dist",

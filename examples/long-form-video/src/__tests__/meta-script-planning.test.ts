@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ExecutionContext, PatternRef } from '@orchestral/core'
-import { createScriptPlanningMeta } from '../meta/script-planning'
+import { createScriptPlanningMeta } from '../patterns/script-planning'
 import {
   SCRIPT_INTENT_ROUTING_PROMPT,
   NARRATIVE_SCRIPT_PLANNING_PROMPT,
-} from '../meta/script-planning/prompts'
+} from '../patterns/script-planning/prompts'
 
 // NOTE: the happy-path routing case (router → step 1, branch → step 2,
 // cost/latency math) is already covered by `script-planning-wiring.test.ts`

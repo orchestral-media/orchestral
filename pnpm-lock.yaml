@@ -163,6 +163,34 @@ importers:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
 
+  examples/long-form-video:
+    dependencies:
+      '@orchestral/core':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-core
+      '@orchestral/patterns':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-patterns
+      '@orchestral/runtime':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-runtime
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
+
   packages/orchestral-adapters-ai-sdk:
     dependencies:
       '@orchestral/core':

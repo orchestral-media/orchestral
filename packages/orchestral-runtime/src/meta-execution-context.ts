@@ -27,8 +27,8 @@ import { buildAskUserFacade } from '@orchestral/core'
  * Upper bound on a single run's ctx.compute cache. The cache is per dispatch
  * tree (a top-level meta and everything it fans out share one map), so it
  * normally holds a handful of entries — but a meta that fans a sub-meta out per
- * item (meta_idea2video dispatching meta_script2video once per scene) can mint
- * hundreds. Cap
+ * item (meta_storyboard dispatching meta_image-best-of-n once per panel) can
+ * mint hundreds. Cap
  * it so one pathological run can't grow the map unbounded; evicting the oldest
  * entry on overflow is safe because a compute id is only re-hit from later in
  * the same compose, which keeps the live ones recent.
@@ -531,8 +531,8 @@ export function buildMetaExecutionContext(
     options?: StepOptions,
   ): Promise<T> => {
     // Namespace the cache key exactly like ctx.step does. A
-    // nested meta dispatched more than once in one tree (e.g. meta_idea2video
-    // fans out meta_script2video per scene, each calling
+    // nested meta dispatched more than once in one tree (e.g. meta_storyboard
+    // fans out meta_image-best-of-n per panel, each calling
     // ctx.compute('merge-final', …))
     // shares this run's stepCache. Without the prefix every item's compute
     // collides on the bare `merge-final` key → items 1..N return item 0's

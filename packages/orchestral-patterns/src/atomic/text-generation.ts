@@ -9,7 +9,7 @@
 // host's agent loop (not a Pattern).
 
 import { z } from 'zod'
-import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative } from '@orchestral/core'
+import { boundedText, createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, type AtomicPattern, type Alternative } from '@orchestral/core'
 
 // ── primary input schema ────────────────────────────────────────────────
 // Sampling / decoding fields follow ai-sdk v5+ `generateText` naming, so an
@@ -85,7 +85,12 @@ export type TextGenerationInput = z.infer<
 // outputs.modality literal.
 export const TextGenerationOutputSchema = z.object({
   modality: z.literal('text'),
-  text: z.string().describe('Generated text body.'),
+  // 64 KiB: ~16k tokens of output, the ceiling of a single completion on the
+  // models this pattern routes to. A meta wanting more chunks its work (the
+  // long-form example's prose-chunking does). Bounded so the registry's
+  // OUTPUTS_UNBOUNDED_FIELDS lint stays silent; tabled in the patterns README,
+  // "Conventions".
+  text: boundedText(65_536).describe('Generated text body.'),
   ...dispatchEnvelopeShape,
   usage: z
     .object({

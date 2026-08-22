@@ -30,15 +30,22 @@
 // the ledger the calling context belongs to. A runtime that only resolves
 // references at the outermost call cannot run this meta.
 //
-// This meta has no assetNeeds of its own (like reference-image-cascade):
+// This meta has no assetNeeds of its own:
 // character refs are handles that arrive in input.characters[].refs and are
 // forwarded to the i2i sub-step's references.source, resolved at the sub-step
 // boundary.
 
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
-import { assetIdByLabel, resolvePrompts, sumCosts, toJsonSchemaCached } from '../_shared/meta-utils'
-import { metaEnvelopeShape, parallel } from '@orchestral/core'
+import {
+  labelAsset,
+  labelledAssetShape,
+  resolvePrompts,
+  sumCosts,
+  toJsonSchemaCached,
+  type LabelledAsset,
+} from '../_shared/meta-utils'
+import { boundedText, metaEnvelopeShape, parallel } from '@orchestral/core'
 import { textGeneration } from '../../atomic/text-generation'
 import { imageToImage } from '../../atomic/image-to-image'
 import { imageBestOfNMeta } from '../image-best-of-n'
@@ -96,53 +103,54 @@ export const StoryboardInputSchema = z.object({
 })
 export type StoryboardInput = z.infer<typeof StoryboardInputSchema>
 
+// A panel carries the shot's non-asset fields only. Its image rides in the
+// output's top-level `assets[]` under the label `panel-<shotIndex>` — the
+// model-facing projection passes nested fields through untouched, so an
+// `assetIds` here would hand the model a raw id (see labelledAssetShape).
+// String bounds follow the bounded output-field vocabulary; the patterns
+// README, "Conventions", tables every one of them.
 export const PanelSchema = z.object({
   shotIndex: z.number().int().min(0).describe('0-based panel order index.'),
-  visualDesc: z
-    .string()
-    .describe('The shot\'s visual description (storyboard-design visual_desc).'),
-  audioDesc: z
-    .string()
-    .describe(
-      'The shot\'s audio cue / dialogue (storyboard-design audio_desc; may be empty).',
-    ),
+  // 4 KiB: one shot's composition, not a shot list.
+  visualDesc: boundedText(4_096).describe(
+    'The shot\'s visual description (storyboard-design visual_desc).',
+  ),
+  // 2 KiB: a cue line or a few lines of dialogue.
+  audioDesc: boundedText(2_048).describe(
+    'The shot\'s audio cue / dialogue (storyboard-design audio_desc; may be empty).',
+  ),
   camIdx: z
     .number()
     .int()
     .describe(
       'Shared camera-position index from storyboard-design — panels reusing a camera share this index.',
     ),
+  // 128 per name: the registry's own `name` is what these are copied from.
+  // The array's length is the shot's cast, which the audit cannot bound; it is
+  // at most the input registry's size, since an unknown name fails closed.
   characterNames: z
-    .array(z.string())
+    .array(boundedText(128))
     .describe(
       'Names of the on-screen characters extracted from this shot\'s visual_desc <Name> tags and rendered into the panel.',
-    ),
-  assetIds: z
-    .array(z.string())
-    .describe(
-      'Asset ids of the image(s) produced for this panel (one per render; bestOfN keeps only the winner).',
     ),
 })
 /** @alpha */
 export type StoryboardPanel = z.infer<typeof PanelSchema>
 
-// Output mirrors the produced-asset return convention of the image patterns:
-// the flat `assets[]` (assetId + modality) is the channel a consumer reads to
-// surface produced media as first-class output. `panels[]` is the structured
-// storyboard the LLM reads back to reason about the sequence.
+// Produced media rides in `assets[]` with a role `label` and nowhere else —
+// see labelledAssetShape for why the projection needs it that way. `panels[]`
+// is the structured storyboard the LLM reads back to reason about the
+// sequence; a panel's image is the `panel-<shotIndex>` element of assets[].
 export const StoryboardOutputSchema = z.object({
   panels: z
     .array(PanelSchema)
-    .describe('The storyboard panels, in narrative order.'),
-  assets: z
-    .array(
-      z.object({
-        assetId: z.string(),
-        modality: z.literal('image'),
-      }),
-    )
     .describe(
-      'Every produced panel image, flattened in panel order — the host records these as the run\'s deliverables.',
+      'The storyboard panels, in narrative order. Panel i\'s image is the `panel-<i>` element of assets[].',
+    ),
+  assets: z
+    .array(z.object(labelledAssetShape('image')))
+    .describe(
+      'Every produced panel image in panel order, labelled `panel-<shotIndex>` — one element per panel (a render that returned several images contributes several elements under the same label; bestOfN keeps only the winner). The host records these as the run\'s deliverables.',
     ),
   ...metaEnvelopeShape,
 })
@@ -284,16 +292,12 @@ export function createStoryboardMeta(
           renderPanel(ctx, input, shot, idx, refsByName),
         ),
       )
-      const panels = rendered.map((r) => r.panel)
 
       return {
-        panels,
-        assets: panels.flatMap((p) =>
-          p.assetIds.map((assetId) => ({
-            assetId,
-            modality: 'image' as const,
-          })),
-        ),
+        panels: rendered.map((r) => r.panel),
+        // Panel order is preserved: `parallel` keeps submission order, and
+        // each panel's elements are already stamped `panel-<idx>`.
+        assets: rendered.flatMap((r) => r.assets),
         cost: sumCosts([designCost, ...rendered.map((r) => r.cost)]),
         latencyMs: Date.now() - startedAt,
       }
@@ -416,7 +420,11 @@ async function renderPanel(
   shot: ShotBrief,
   idx: number,
   refsByName: ReadonlyMap<string, readonly string[]>,
-): Promise<{ panel: StoryboardPanel; cost: number | null }> {
+): Promise<{
+  panel: StoryboardPanel
+  assets: LabelledAsset<'image'>[]
+  cost: number | null
+}> {
   const characterNames = extractCharacterNames(shot.visual_desc)
 
   // Collect refs for every on-screen character, tracking which handle belongs
@@ -462,7 +470,7 @@ async function renderPanel(
     )
   }
 
-  const { assetIds, cost } =
+  const { assets, cost } =
     input.bestOfN !== undefined
       ? await renderBestOfN(ctx, prompt, sourceRefs, refNames, input.bestOfN, idx)
       : await renderSingle(ctx, prompt, sourceRefs, idx)
@@ -474,33 +482,38 @@ async function renderPanel(
       audioDesc: shot.audio_desc,
       camIdx: shot.cam_idx,
       characterNames,
-      assetIds,
     },
+    assets,
     cost,
   }
 }
 
-/** Single image-to-image render — returns the produced asset id(s) + cost. */
+/** The label a panel's image(s) carry in the output's assets[]. */
+const panelLabel = (idx: number) => `panel-${idx}`
+
+/** Single image-to-image render — returns the produced asset(s), labelled, + cost. */
 async function renderSingle(
   ctx: Ctx,
   prompt: string,
   sourceRefs: readonly string[],
   idx: number,
-): Promise<{ assetIds: string[]; cost: number | null }> {
+): Promise<{ assets: LabelledAsset<'image'>[]; cost: number | null }> {
   const out = await imageToImage(
     ctx,
     { prompt, references: { source: [...sourceRefs] } },
     { stepId: `panel-${idx}` },
   )
-  const assetIds = out.assets.map((a) => a.assetId)
-  // Symmetric with the best-of-n path's firstAssetId guard: an i2i that returns
+  // Symmetric with the best-of-n path's winner guard: an i2i that returns
   // zero assets would silently leave this panel image-less rather than fail.
-  if (assetIds.length === 0) {
+  if (out.assets.length === 0) {
     throw new Error(
       `STORYBOARD_EMPTY_PANEL: panel ${idx} image-to-image returned no asset`,
     )
   }
-  return { assetIds, cost: out.cost }
+  return {
+    assets: out.assets.map((a) => labelAsset(a, 'image', panelLabel(idx))),
+    cost: out.cost,
+  }
 }
 
 /** Best-of-N quality gate — N i2i candidates, VLM picks the winner. */
@@ -511,7 +524,7 @@ async function renderBestOfN(
   refNames: readonly string[],
   n: number,
   idx: number,
-): Promise<{ assetIds: string[]; cost: number | null }> {
+): Promise<{ assets: LabelledAsset<'image'>[]; cost: number | null }> {
   // Hand the SAME character reference handles to the judge as ground truth, so
   // it scores each candidate on character consistency (this meta's whole point)
   // rather than description-fidelity alone. referenceHandles ride the same
@@ -532,9 +545,16 @@ async function renderBestOfN(
     },
     { stepId: `panel-${idx}` },
   )
-  // The pick is the `winner`-labelled element of best-of-n's assets[].
+  // The pick is the `winner`-labelled element of best-of-n's assets[]; it is
+  // re-labelled for this panel, the losing candidates are not forwarded.
+  const winner = out.assets.find((a) => a.label === 'winner')
+  if (winner === undefined) {
+    throw new Error(
+      'storyboard: meta_image-best-of-n produced no asset labelled "winner"',
+    )
+  }
   return {
-    assetIds: [assetIdByLabel(out, 'winner', 'storyboard: meta_image-best-of-n')],
+    assets: [labelAsset(winner, 'image', panelLabel(idx))],
     cost: out.cost,
   }
 }

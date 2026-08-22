@@ -215,8 +215,8 @@ describe('nested same-type meta — explicit stepId namespace', () => {
   })
 
   it('namespaces ctx.compute cache keys too — a fixed compute id does not cross-contaminate across panels', async () => {
-    // The idea2video × meta_script2video bug: each nested meta calls
-    // ctx.compute('concat-final-video', …) with a FIXED id. Sharing one
+    // The nested-meta bug (a storyboard fanning meta_image-best-of-n out per
+    // panel): each nested meta calls ctx.compute('…', …) with a FIXED id. Sharing one
     // stepCache across panels, panel-1's `concat` would short-circuit on
     // panel-0's cached value (compute, unlike step, has no dedup-set guard to
     // even surface the collision) → panel-1 silently returns panel-0's concat.

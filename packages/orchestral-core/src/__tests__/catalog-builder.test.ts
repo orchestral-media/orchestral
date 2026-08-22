@@ -24,17 +24,17 @@ describe('buildAlwaysLoadDescriptors', () => {
 
   it('inlines a meta with exposureMode:always-load (taking tool.description/tool.inputs)', () => {
     const meta = {
-      id: 'meta_idea2video',
+      id: 'meta_storyboard',
       kind: 'meta',
       exposureMode: 'always-load',
-      tool: { description: 'idea to multi-scene video', inputs: z.object({ idea: z.string() }) },
+      tool: { description: 'scene to multi-panel storyboard', inputs: z.object({ scene: z.string() }) },
       outputs: z.object({}),
       compose: async () => ({}),
     } as unknown as Pattern
     const out = buildAlwaysLoadDescriptors([meta])
     expect(out).toHaveLength(1)
-    expect(out[0].name).toBe('meta_idea2video')
-    expect(out[0].description).toBe('idea to multi-scene video')
+    expect(out[0].name).toBe('meta_storyboard')
+    expect(out[0].description).toBe('scene to multi-panel storyboard')
     expect(out[0].inputSchema).toBeTruthy()
   })
 
