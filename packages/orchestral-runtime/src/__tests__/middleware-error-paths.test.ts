@@ -29,6 +29,7 @@ import type {
   ModelCapability,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   type DiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   PatternRegistry,
@@ -74,7 +75,7 @@ function makeRuntime(
   middleware: readonly DispatchMiddleware[],
   logger?: DiagnosticsLogger,
 ): InlineRuntime {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(makeInstantPattern() as never)
   return new InlineRuntime({
     router: makeInstantRouter(),

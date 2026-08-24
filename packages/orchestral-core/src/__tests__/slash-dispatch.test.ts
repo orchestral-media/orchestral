@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Pattern, PatternExposure } from '../pattern'
 import { PatternRegistry } from '../registry'
 import { resolveSlashDispatch } from '../slash-dispatch'
+import { silentDiagnosticsLogger } from '../logger'
 
 // Slash by-id dispatch resolution. Gate is
 // resolveExposure(pattern.exposure).slash; default first-party exposure
@@ -30,7 +31,7 @@ function atomic(
 }
 
 function buildRegistry(patterns: Pattern[]): PatternRegistry {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of patterns) registry.register(p)
   return registry
 }

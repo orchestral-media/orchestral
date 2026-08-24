@@ -16,6 +16,7 @@ import type {
   ModelCapability,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   MODEL_SPEC_VERSION,
   PatternRegistry,
@@ -67,7 +68,7 @@ function harness(specificationVersion: string | undefined) {
     checkSatisfiable: () => ({ ok: true, candidates: [cap] }),
     resolve: () => cap,
   }
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(atomic('text_cap'))
   const jobIds: string[] = []
   const rt = new InlineRuntime({

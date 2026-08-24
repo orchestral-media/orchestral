@@ -27,7 +27,7 @@ import type {
   ModelCapability,
   Modality,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 import type { AgentRunImpl } from '../agent-run'
@@ -131,7 +131,7 @@ describe('inline-core dispatch routing', () => {
       // dispatch_pattern wrapper (that's the whole point of inline core).
       script: [{ name: 'inline_atomic', input: { prompt: 'go' }, callId: 'tc-1' }],
     })
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(inlineAtomic())
     registry.register(agentWithInlineCore())
     const rt = new InlineRuntime({
@@ -215,7 +215,7 @@ describe('agent depth gate counts agent ancestors only', () => {
 
   it('does not trip AGENT_DEPTH_EXCEEDED at 2 meta + 1 agent ancestors (maxAgentDepth=2)', async () => {
     const leafRan = { value: false }
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(agentRoot())
     registry.register(makeStepMeta('meta_x', 'meta_y'))
     registry.register(makeStepMeta('meta_y', 'agent_leaf'))

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import {
+  silentDiagnosticsLogger,
   defineAtomicPattern,
   PatternRegistry,
   type ZodSchema,
@@ -26,7 +27,7 @@ import {
 } from '../index'
 
 function freshRegistry(patterns: readonly Pattern[]): PatternRegistry {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of patterns) {
     // PatternRegistry.add expands variants/alternatives into getEntry attachments.
     // factories return PatternBase subclasses that satisfy it.

@@ -22,6 +22,7 @@ import type {
   SystemPromptContext,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   mintHandle,
   PatternRegistry,
@@ -288,7 +289,7 @@ function buildRuntime(opts: {
   runImpl: AgentRunImpl
   bridge?: AgentAssetBridge
 }): InlineRuntime {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(imageGen())
   registry.register(opts.pattern)
   return new InlineRuntime({
@@ -523,7 +524,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
       updatedAt: Date.now(),
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(imageGen())
     registry.register(agentTest())
     // Store whose dedup gate returns the pre-seeded errored child ONLY for the
@@ -639,7 +640,7 @@ describe('agent→meta sub-step asset context', () => {
         { name: 'dispatch_pattern', input: { pattern_id: 'meta_step', input: { prompt: 'go' } }, callId: 'tc-2' },
       ],
     })
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(imageGen())
     registry.register(metaStep())
     registry.register(agentWithMeta())
@@ -678,7 +679,7 @@ describe('agent→meta sub-step asset context', () => {
         { name: 'dispatch_pattern', input: { pattern_id: 'meta_step_dual', input: { prompt: 'go' } }, callId: 'tc-2' },
       ],
     })
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(imageGen())
     registry.register(metaStepDualSource())
     registry.register({

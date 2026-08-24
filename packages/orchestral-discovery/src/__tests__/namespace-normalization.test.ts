@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import type { Pattern } from '@orchestral/core'
-import { PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
 import { handleFindPattern } from '../find-pattern'
 import { PatternSearchIndex } from '../pattern-search-index'
 
@@ -28,7 +28,7 @@ function atomic(id: string, namespace?: string): Pattern {
 }
 
 function buildIndex(patterns: Pattern[]): PatternSearchIndex {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of patterns) registry.register(p)
   return new PatternSearchIndex(registry)
 }

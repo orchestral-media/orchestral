@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { PatternRegistry, type Pattern } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry, type Pattern } from '@orchestral/core'
 import {
   createImageToImagePattern,
   createImageToImageViaCaptionPattern,
@@ -18,7 +18,7 @@ describe('PatternRegistry.getEntry', () => {
     // silently dropping a factory's declared fallbacks (while the return
     // type hides the field from tsc) would leave dispatch with no
     // degradation chain and zero warnings.
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(
       createImageToImagePattern({
         alternatives: [
@@ -51,7 +51,7 @@ describe('PatternRegistry.getEntry', () => {
   })
 
   it('returns alternatives declared through add()', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(
       createImageToImagePattern({
         alternatives: [

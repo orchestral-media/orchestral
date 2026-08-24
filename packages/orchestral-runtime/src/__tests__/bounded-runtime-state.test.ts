@@ -12,7 +12,7 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -57,7 +57,7 @@ function sizeOf(rt: InlineRuntime, field: string): number {
 
 describe('bounded runtime state', () => {
   it('releases a job’s subscribers once it reaches a terminal event', async () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const seen: JobEvent[] = []
     const rt = new InlineRuntime({
@@ -82,7 +82,7 @@ describe('bounded runtime state', () => {
   })
 
   it('keeps an Unsubscribe returned before the terminal event safe to call', async () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     let unsubscribe: (() => void) | undefined
     const rt = new InlineRuntime({
@@ -103,7 +103,7 @@ describe('bounded runtime state', () => {
   it('evicts the oldest agent envelope instead of growing without bound', () => {
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
-      registry: new PatternRegistry(),
+      registry: new PatternRegistry({ logger: silentDiagnosticsLogger }),
       router: okRouter(),
     })
     // Drive the recorder the agent dispatch uses, without running 200 agents.
@@ -125,7 +125,7 @@ describe('bounded runtime state', () => {
   it('refreshes an envelope re-recorded for the same job rather than ageing it', () => {
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
-      registry: new PatternRegistry(),
+      registry: new PatternRegistry({ logger: silentDiagnosticsLogger }),
       router: okRouter(),
     })
     const record = (

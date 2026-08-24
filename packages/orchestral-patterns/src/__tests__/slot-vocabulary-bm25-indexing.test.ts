@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { PatternRegistry, type Pattern } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry, type Pattern } from '@orchestral/core'
 import { PatternSearchIndex } from '@orchestral/discovery'
 import {
   createTextToImagePattern,
@@ -21,7 +21,7 @@ import {
 } from '../index'
 
 function freshIndex(patterns: readonly Pattern[]): PatternSearchIndex {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of patterns) registry.add(p as never)
   return new PatternSearchIndex(registry)
 }

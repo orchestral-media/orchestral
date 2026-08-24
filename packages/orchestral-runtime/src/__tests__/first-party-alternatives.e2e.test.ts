@@ -27,6 +27,7 @@ import type {
   ResolvedAssetRef,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore,
   PatternRegistry,
   buildAssetIndex,
@@ -111,7 +112,7 @@ function makeRouter(calls: Call[]) {
 }
 
 function makeRegistry() {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(createImageToImagePattern() as unknown as Pattern)
   registry.register(createImageToImageViaCaptionPattern() as unknown as Pattern)
   registry.register(createImageToTextPattern() as unknown as Pattern)
@@ -387,7 +388,7 @@ function allAtomics(): readonly Pattern[] {
 }
 
 function makeFullRegistry() {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of allAtomics()) registry.register(p)
   registry.register(createImageToImageViaCaptionPattern() as unknown as Pattern)
   return registry

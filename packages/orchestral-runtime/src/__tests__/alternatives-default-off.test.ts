@@ -19,7 +19,7 @@ import type {
   ModelCapability,
   PatternRegistry as PatternRegistryType,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -74,7 +74,7 @@ function makeRouter(model: ModelCapability): CapabilityRouter {
 
 /** parent_cap with one matching alternative → fallback_cap. */
 function makeRegistry(): PatternRegistryType {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add({
     ...atomic('parent_cap'),
     alternatives: [
@@ -172,7 +172,7 @@ describe('alternatives default to off', () => {
   )
 
   it('enumerates every applicable alternative, not just the first, and skips non-matching ones', async () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add({
       ...atomic('parent_cap'),
       alternatives: [
@@ -234,7 +234,7 @@ describe('alternatives default to off', () => {
   it('leaves the no-alternative failure exactly as it was', async () => {
     // Nothing declared → nothing to report; the router error is still the
     // whole story, and the new code never appears.
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('parent_cap'))
     registry.register(atomic('fallback_cap'))
 

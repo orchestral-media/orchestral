@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { defineAtomicPattern } from '../atomic-pattern'
 import { ManifestError, OrchestralManifestSchema } from '../manifest'
 import { PatternRegistry } from '../registry'
+import { silentDiagnosticsLogger } from '../logger'
 
 // @orchestral/patterns is the first package to follow the convention, so it is
 // also the only honest test of it — a hand-written fixture would prove the
@@ -47,7 +48,7 @@ describe('@orchestral/patterns manifest', () => {
 
   it('registers every declared pattern from the real manifest + module', () => {
     const manifest = OrchestralManifestSchema.parse(pkg.orchestral)
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
 
     const result = registry.addFromManifest(pkg.orchestral, patternsModule, OPS)
 
@@ -74,7 +75,7 @@ describe('@orchestral/patterns manifest', () => {
       }
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     const result = registry.addFromManifest(
       pkg.orchestral,
       patternsModule,
@@ -95,7 +96,7 @@ describe('@orchestral/patterns manifest', () => {
   })
 
   it('loads just the patterns a host asks for with { only }', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
 
     const result = registry.addFromManifest(
       pkg.orchestral,
@@ -109,7 +110,7 @@ describe('@orchestral/patterns manifest', () => {
   })
 
   it('rejects an { only } id the manifest does not declare', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     let thrown: unknown
     try {
       registry.addFromManifest(pkg.orchestral, patternsModule, OPS, {
@@ -137,7 +138,7 @@ describe('@orchestral/patterns manifest', () => {
   })
 
   it('refuses to load when a declared host op is missing', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     const { concatVideos: _dropped, ...partial } = OPS
     let thrown: unknown
     try {
@@ -195,7 +196,7 @@ function expectManifestError(fn: () => unknown, code: string): ManifestError {
 
 describe('addFromManifest validation', () => {
   it('rejects a manifest that does not parse', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expectManifestError(
       () => registry.addFromManifest({ patterns: [] }, MODULE),
       'MANIFEST_INVALID',
@@ -222,7 +223,7 @@ describe('addFromManifest validation', () => {
   })
 
   it('rejects duplicate pattern ids inside one manifest', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expectManifestError(
       () =>
         registry.addFromManifest(
@@ -239,7 +240,7 @@ describe('addFromManifest validation', () => {
   })
 
   it('names the export when the module has no such factory', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     const err = expectManifestError(
       () =>
         registry.addFromManifest(
@@ -256,7 +257,7 @@ describe('addFromManifest validation', () => {
   })
 
   it('rejects an export that is not callable', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expectManifestError(
       () =>
         registry.addFromManifest(
@@ -272,7 +273,7 @@ describe('addFromManifest validation', () => {
   })
 
   it('rejects a factory whose pattern contradicts the declaration', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     const err = expectManifestError(
       () =>
         registry.addFromManifest(
@@ -290,7 +291,7 @@ describe('addFromManifest validation', () => {
   })
 
   it('registers nothing when a later entry fails', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expectManifestError(
       () =>
         registry.addFromManifest(
@@ -308,7 +309,7 @@ describe('addFromManifest validation', () => {
   })
 
   it('loads a manifest that declares no host ops without an ops argument', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     const result = registry.addFromManifest(
       {
         patterns: [
@@ -326,7 +327,7 @@ describe('addFromManifest validation', () => {
   it('rejects a package-level requiredOps instead of ignoring it', () => {
     // The field moved to the entries. Ignoring it would drop a fail-closed op
     // declaration on the floor — the one outcome worse than refusing to load.
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expectManifestError(
       () =>
         registry.addFromManifest(
@@ -344,7 +345,7 @@ describe('addFromManifest validation', () => {
   })
 
   it("skips only the entries whose ops are missing under missingOps: 'skip'", () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     const result = registry.addFromManifest(
       {
         patterns: [

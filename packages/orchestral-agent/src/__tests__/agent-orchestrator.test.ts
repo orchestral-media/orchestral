@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  silentDiagnosticsLogger,
   buildAssetIndex,
   resolveAssetReferences,
   PatternRegistry,
@@ -214,7 +215,7 @@ describe('agent_orchestrator', () => {
     expect(agent.outputs).toBeUndefined()
     expect(agent.finish).toBeUndefined()
 
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     reg.register(agent)
     const stored = reg.get(AGENT_ORCHESTRATOR_PATTERN_ID) as AgentPattern
     // Reference identity: the backfill installs the shared canonical defaults,

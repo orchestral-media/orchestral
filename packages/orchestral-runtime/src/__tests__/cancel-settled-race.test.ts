@@ -17,7 +17,7 @@ import type {
   JobStatus,
   ModelCapability,
 } from '@orchestral/core'
-import { PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -60,7 +60,7 @@ function makeJob(status: JobStatus): Job {
 function makeRuntime(store: unknown): InlineRuntime {
   return new InlineRuntime({
     router: makeNoopRouter(),
-    registry: new PatternRegistry(),
+    registry: new PatternRegistry({ logger: silentDiagnosticsLogger }),
     store: store as never,
   })
 }

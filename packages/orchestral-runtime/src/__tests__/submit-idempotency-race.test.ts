@@ -14,7 +14,7 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -42,7 +42,7 @@ function makeRouter(onCall: () => void): CapabilityRouter {
 }
 
 function makeRuntime(store: InMemoryJobStore, onCall: () => void): InlineRuntime {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   const atomic = {
     id: 'text_to_image',
     kind: 'atomic',

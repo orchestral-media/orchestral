@@ -38,6 +38,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import {
+  silentDiagnosticsLogger,
   deriveLlmFacingInputSchema,
   resolveDispatchTarget,
   isDispatchError,
@@ -52,7 +53,7 @@ function freshIndex(): {
   index: PatternSearchIndex
   registry: PatternRegistry
 } {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(createTextToVideoPattern() as unknown as Pattern)
   return { index: new PatternSearchIndex(registry), registry }
 }

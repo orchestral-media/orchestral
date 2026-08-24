@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import {
+  silentDiagnosticsLogger,
   PatternRegistry,
   defineAtomicPattern,
   type Job,
@@ -119,7 +120,7 @@ function atomic(
  * at the boundary is the same thing the registry does internally.
  */
 function registryOf(...patterns: readonly unknown[]): PatternRegistry {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of patterns) registry.register(p as Pattern)
   return registry
 }

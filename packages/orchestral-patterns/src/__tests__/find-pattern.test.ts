@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import {
+  silentDiagnosticsLogger,
   deriveLlmFacingInputSchema,
   LIFT_MARKER,
   PatternRegistry,
@@ -30,7 +31,7 @@ import {
 } from '../index'
 
 function freshIndex(patterns: readonly Pattern[]): PatternSearchIndex {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of patterns) registry.add(p as never)
   return new PatternSearchIndex(registry)
 }
@@ -378,7 +379,7 @@ describe('handleFindPattern', () => {
         loop: { toolPatternIds: [] },
         // primary intentionally absent
       } as never
-      const registry = new PatternRegistry()
+      const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
       registry.register(hostOnlyAgent as never)
       const index = new PatternSearchIndex(registry)
       const result = handleFindPattern(index, { query: 'agent host-only' })

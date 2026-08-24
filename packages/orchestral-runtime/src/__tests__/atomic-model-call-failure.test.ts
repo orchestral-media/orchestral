@@ -34,6 +34,7 @@ import type {
   ResolveContext,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   ModelExcludedError,
   PatternRegistry,
@@ -105,7 +106,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
@@ -141,7 +142,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
@@ -166,7 +167,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
@@ -201,7 +202,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       resolve: () => (hop++ === 0 ? modelA : modelB),
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
@@ -237,7 +238,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       resolve: () => (resolves++ === 0 ? modelA : modelB),
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const store = new MemoryJobStore()
     let jobId: string | undefined
@@ -283,7 +284,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const store = new MemoryJobStore()
     let jobId: string | undefined
@@ -327,7 +328,7 @@ describe('dispatchAtomic fallback walk — error paths', () => {
       },
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('cap'))
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,

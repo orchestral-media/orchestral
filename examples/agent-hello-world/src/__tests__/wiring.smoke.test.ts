@@ -15,6 +15,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockImageModelV3, MockLanguageModelV3 } from 'ai/test'
 import {
+  silentDiagnosticsLogger,
   type Artifact,
   createDefaultCapabilityRouter,
   InMemoryJobStore,
@@ -102,7 +103,7 @@ function scriptedLlm(): MockLanguageModelV3 {
 describe('agent hello-world wiring', () => {
   it('runs the agent loop end to end with a mock LLM (no API key)', async () => {
     // Identical wiring to src/main.ts, swapping only the model instances.
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(createAgentHelloWorldPattern())
     registry.add(createTextToImagePattern())
 
@@ -164,7 +165,7 @@ describe('agent hello-world wiring', () => {
   })
 
   it('recurses through onToolCall into the runtime for the tool dispatch', async () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(createAgentHelloWorldPattern())
     registry.add(createTextToImagePattern())
 

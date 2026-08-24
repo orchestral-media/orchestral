@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore,
   PatternRegistry,
   type AgentPattern,
@@ -74,7 +75,7 @@ describe('checkPermissions — every kind', () => {
       checkPermissions: spy.hook,
     } as unknown as AtomicPattern
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(atomic)
     // A denied dispatch settles as a failed Job whose JobError carries the
     // hook's reason — identical for all three kinds here.
@@ -103,7 +104,7 @@ describe('checkPermissions — every kind', () => {
       },
     } as unknown as MetaPattern
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(meta)
     const job = await makeRuntime(registry).submitJob({
       patternId: 'meta_gated' as PatternId,
@@ -127,7 +128,7 @@ describe('checkPermissions — every kind', () => {
       checkPermissions: spy.hook,
     } as unknown as AgentPattern
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(agent)
     const runtime = new InlineRuntime({
       store: new InMemoryJobStore(),
@@ -165,7 +166,7 @@ describe('checkPermissions — every kind', () => {
       },
     } as unknown as MetaPattern
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(meta)
     const job = await makeRuntime(registry).submitJob({
       patternId: 'meta_allowed' as PatternId,
@@ -197,7 +198,7 @@ describe('checkPermissions — every kind', () => {
       },
     } as unknown as MetaPattern
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(meta)
     const job = await makeRuntime(registry).submitJob({
       patternId: 'meta_ungated' as PatternId,

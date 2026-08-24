@@ -23,7 +23,7 @@ import type {
   MetaPattern,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
@@ -199,7 +199,7 @@ interface StepRecord {
 // inserted during a run is the root meta.
 function makeHost() {
   const prompts: string[] = []
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(createFakeGenPattern() as never)
   registry.add(createSeqMeta() as never)
   registry.add(createUnnamedMeta() as never)

@@ -14,6 +14,7 @@ import { PatternRegistry } from '../registry'
 import { DEFAULT_SUBAGENT_BLOCKLIST } from '../catalog'
 import type { AgentPattern, AtomicPattern, MetaPattern } from '../pattern'
 import type { PatternId } from '../foundational'
+import { silentDiagnosticsLogger } from '../logger'
 
 const inputs = z.object({})
 const outputs = z.object({ ok: z.boolean() })
@@ -51,7 +52,7 @@ function atomicPattern(id: string): AtomicPattern {
 
 describe('register() — id carries kind', () => {
   it('refuses an agent Pattern whose id lacks the agent_ prefix', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() => registry.register(agentPattern('helper'))).toThrow(
       /PATTERN_ID_KIND_MISMATCH/,
     )
@@ -59,14 +60,14 @@ describe('register() — id carries kind', () => {
   })
 
   it('refuses a meta Pattern whose id lacks the meta_ prefix', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() => registry.register(metaPattern('storyboard'))).toThrow(
       /PATTERN_ID_KIND_MISMATCH/,
     )
   })
 
   it('refuses an atomic Pattern whose id carries another kind prefix', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() => registry.register(atomicPattern('meta_text-generation'))).toThrow(
       /PATTERN_ID_KIND_MISMATCH/,
     )
@@ -76,7 +77,7 @@ describe('register() — id carries kind', () => {
   })
 
   it('accepts correctly prefixed ids of every kind', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(agentPattern('agent_helper'))
     registry.register(metaPattern('meta_storyboard'))
     registry.register(atomicPattern('text-generation'))
@@ -95,7 +96,7 @@ describe('register() — id carries kind', () => {
     expect(
       DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(unprefixed as PatternId),
     ).toBe(false)
-    expect(() => new PatternRegistry().register(agentPattern(unprefixed))).toThrow(
+    expect(() => new PatternRegistry({ logger: silentDiagnosticsLogger }).register(agentPattern(unprefixed))).toThrow(
       /PATTERN_ID_KIND_MISMATCH/,
     )
   })

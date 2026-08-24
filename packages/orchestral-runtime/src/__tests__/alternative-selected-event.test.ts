@@ -14,7 +14,7 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -62,7 +62,7 @@ describe('job:alternative-selected event', () => {
       },
     }
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add({
       ...atomic('parent_cap'),
       alternatives: [
@@ -146,7 +146,7 @@ describe('job:alternative-selected event', () => {
         return model
       },
     }
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add({
       ...atomic('parent_cap'),
       alternatives: [
@@ -198,7 +198,7 @@ describe('job:alternative-selected event', () => {
       checkSatisfiable: () => ({ ok: true, candidates: [model] }),
       resolve: () => model,
     }
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic('some_cap'))
 
     const events: JobEvent[] = []

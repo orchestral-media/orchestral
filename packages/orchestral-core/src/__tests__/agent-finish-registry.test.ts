@@ -7,6 +7,7 @@ import {
 } from '../agent-finish'
 import { boundedText } from '../output-fields'
 import type { AgentPattern } from '../pattern'
+import { silentDiagnosticsLogger } from '../logger'
 
 function makeAgent(over: Partial<AgentPattern>): AgentPattern {
   return {
@@ -20,14 +21,14 @@ function makeAgent(over: Partial<AgentPattern>): AgentPattern {
 
 describe('agent finish registration rules', () => {
   it('backfills default finish trio when finish/outputs/extractor all absent', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     reg.register(makeAgent({}))
     const stored = reg.get('agent_t') as AgentPattern
     expect(stored.outputs).toBe(defaultAgentFinishOutputs)
     expect(stored.finish).toBe(DEFAULT_AGENT_FINISH_SPEC)
   })
   it('rejects finish + outputExtractor together', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() =>
       reg.register(
         makeAgent({
@@ -42,13 +43,13 @@ describe('agent finish registration rules', () => {
     ).toThrow(/AGENT_FINISH_EXTRACTOR_CONFLICT/)
   })
   it('rejects finish without outputs', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() =>
       reg.register(makeAgent({ finish: DEFAULT_AGENT_FINISH_SPEC })),
     ).toThrow(/AGENT_FINISH_REQUIRES_OUTPUTS/)
   })
   it('rejects outputExtractor without outputs', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() =>
       reg.register(
         makeAgent({
@@ -61,13 +62,13 @@ describe('agent finish registration rules', () => {
     ).toThrow(/AGENT_EXTRACTOR_REQUIRES_OUTPUTS/)
   })
   it('rejects custom outputs without finish (no way to produce them)', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() =>
       reg.register(makeAgent({ outputs: z.object({ x: z.string() }) })),
     ).toThrow(/AGENT_OUTPUTS_REQUIRES_FINISH/)
   })
   it('accepts finish declared together with outputs', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() =>
       reg.register(
         makeAgent({
@@ -78,7 +79,7 @@ describe('agent finish registration rules', () => {
     ).not.toThrow()
   })
   it('accepts outputExtractor declared together with outputs', () => {
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     expect(() =>
       reg.register(
         makeAgent({
@@ -94,6 +95,10 @@ describe('agent finish registration rules', () => {
 })
 
 describe('outputs schema unbounded-field warning (non-fatal)', () => {
+  // Deliberately BARE registries in this block: these tests assert the lint
+  // reaches the DEFAULT logger (the console), and the vi.spyOn above each one
+  // already keeps the output out of stderr. Injecting silentDiagnosticsLogger
+  // here would silence the very thing under test.
   let warn: ReturnType<typeof vi.spyOn>
   afterEach(() => {
     warn.mockRestore()

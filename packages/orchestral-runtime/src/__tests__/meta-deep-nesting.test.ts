@@ -26,7 +26,7 @@ import type {
   MetaPattern,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
@@ -146,7 +146,7 @@ function createParentMeta(): MetaPattern<
 }
 
 function makeRuntime(calls: Array<{ prompt: string }>): InlineRuntime {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(createFakeImagePattern() as never)
   registry.add(createGrandchildMeta() as never)
   registry.add(createChildMeta() as never)

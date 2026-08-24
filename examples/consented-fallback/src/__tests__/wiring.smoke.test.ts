@@ -13,6 +13,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import {
+  silentDiagnosticsLogger,
   createDefaultCapabilityRouter,
   InMemoryJobStore,
   PatternRegistry,
@@ -64,7 +65,7 @@ function harness(init: { alternatives?: 'auto' | 'off'; askUser?: AskUserHandler
   const image = mockImageModel()
   image.doGenerate = imageGen
 
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(createTextToImagePattern())
   registry.add(createImageToTextPattern())
   registry.add(createImageToImagePattern())

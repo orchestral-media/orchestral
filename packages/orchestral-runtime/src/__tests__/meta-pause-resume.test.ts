@@ -24,6 +24,7 @@ import type {
   ExecutionContext,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   parallel,
   PatternRegistry,
@@ -91,7 +92,7 @@ let onCall: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   onCall = vi.fn()
-  registry = new PatternRegistry()
+  registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(
     createTextGenerationPattern() as unknown as Parameters<typeof registry.add>[0],
   )

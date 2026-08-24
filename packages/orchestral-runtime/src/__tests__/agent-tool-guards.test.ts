@@ -42,7 +42,7 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 import type { AgentRunImpl } from '../agent-run'
@@ -190,7 +190,7 @@ function makeHarness(opts: {
   scripts: Record<string, ToolStep[]>
   maxAgentDepth?: number
 }): Harness {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of opts.patterns) registry.register(p as never)
   const results: Record<string, unknown[]> = {}
   const calls = { count: 0 }

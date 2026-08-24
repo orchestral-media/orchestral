@@ -13,6 +13,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import {
+  silentDiagnosticsLogger,
   createDefaultCapabilityRouter,
   InMemoryJobStore,
   PatternRegistry,
@@ -39,7 +40,7 @@ const RED_BIKE: ShortClipInput = { prompt: 'a red bicycle', motion: 'slow pan' }
 // Identical wiring to src/main.ts, minus the latency. `store` is injectable so
 // two hosts can share one (the restart case).
 function makeHost(store = new InMemoryJobStore()) {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add(createTextGenerationPattern())
   registry.add(createTextToImagePattern())
   registry.add(createImageToVideoPattern())

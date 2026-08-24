@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { OrchestralManifestSchema, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, OrchestralManifestSchema, PatternRegistry } from '@orchestral/core'
 
 import * as agent from '../index'
 
@@ -19,7 +19,7 @@ describe('@orchestral/agent manifest', () => {
 
   it('registers the agent pattern from the real manifest + module', () => {
     const manifest = OrchestralManifestSchema.parse(pkg.orchestral)
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
 
     // No ops argument: the agent takes no host operations, so the manifest
     // declares no `requiredOps`.

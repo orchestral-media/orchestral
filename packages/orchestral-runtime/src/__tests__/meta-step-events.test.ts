@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Job, JobSpec, PatternId } from '@orchestral/core'
 
-import { InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
 import type {
   AtomicPattern,
   CapabilityRouter,
@@ -182,7 +182,7 @@ describe('job:step — end to end through InlineRuntime', () => {
       },
     } as unknown as MetaPattern
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(atomic)
     registry.register(meta)
 

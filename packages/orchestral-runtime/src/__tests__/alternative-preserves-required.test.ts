@@ -26,6 +26,7 @@ import type {
   PatternRegistry as PatternRegistryType,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   PatternRegistry,
   whenPreservesRequired,
@@ -126,7 +127,7 @@ function makeRouter(calls: string[], primary: PrimaryState): CapabilityRouter {
  * overlap tests below check that requesting only one of them is enough.
  */
 function makeRegistry(): PatternRegistryType {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.add({
     ...atomic('parent_cap'),
     alternatives: [

@@ -29,6 +29,7 @@ import type {
   Pattern,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   boundedText,
   dispatchEnvelopeShape,
   InMemoryJobStore,
@@ -109,7 +110,7 @@ function harness(opts: {
     checkSatisfiable: () => ({ ok: true, candidates: [model] }),
     resolve: () => model,
   }
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(atomic('cap'))
   for (const p of opts.patterns ?? []) registry.register(p)
   const store = new InMemoryJobStore()

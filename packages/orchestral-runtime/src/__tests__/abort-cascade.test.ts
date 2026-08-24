@@ -31,7 +31,7 @@ import type {
   MetaPattern,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
@@ -130,7 +130,7 @@ describe('abort cascade', () => {
     const runtime = new InlineRuntime({
       router: makeGatedRouter(entered.resolve, gate.promise),
       registry: (() => {
-        const r = new PatternRegistry()
+        const r = new PatternRegistry({ logger: silentDiagnosticsLogger })
         r.add(fakeAtomic('gated') as never)
         return r
       })(),
@@ -163,7 +163,7 @@ describe('abort cascade', () => {
     const runtime = new InlineRuntime({
       router: makeInstantRouter(),
       registry: (() => {
-        const r = new PatternRegistry()
+        const r = new PatternRegistry({ logger: silentDiagnosticsLogger })
         r.add(fakeAtomic('instant') as never)
         return r
       })(),
@@ -176,7 +176,7 @@ describe('abort cascade', () => {
     const runtime = new InlineRuntime({
       router: makeInstantRouter(),
       registry: (() => {
-        const r = new PatternRegistry()
+        const r = new PatternRegistry({ logger: silentDiagnosticsLogger })
         r.add(fakeAtomic('instant') as never)
         return r
       })(),
@@ -192,7 +192,7 @@ describe('abort cascade', () => {
     const entered = deferred()
     const gate = deferred()
     const ids: string[] = []
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(fakeAtomic('gated') as never)
     registry.add(cascadeParent('gated') as never)
     const runtime = new InlineRuntime({
@@ -253,7 +253,7 @@ describe('abort cascade', () => {
       },
     } as unknown as AgentRunImpl
 
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(independentAgent as never)
     registry.add(cascadeParent('agent_independent') as never)
     const runtime = new InlineRuntime({

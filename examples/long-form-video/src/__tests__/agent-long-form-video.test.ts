@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import {
+  silentDiagnosticsLogger,
   PatternRegistry,
   DEFAULT_AGENT_FINISH_SPEC,
   defaultAgentFinishOutputs,
@@ -242,7 +243,7 @@ describe('agent_long-form-video', () => {
     expect(agent.outputs).toBeUndefined()
     expect(agent.finish).toBeUndefined()
 
-    const reg = new PatternRegistry()
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
     reg.register(agent)
     const stored = reg.get(AGENT_LONG_FORM_VIDEO_PATTERN_ID) as AgentPattern
     // Reference identity: the backfill installs the shared canonical defaults,

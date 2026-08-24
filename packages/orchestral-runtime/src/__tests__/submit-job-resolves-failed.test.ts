@@ -23,7 +23,7 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -63,7 +63,7 @@ function harness(init: { middleware?: readonly DispatchMiddleware[] } = {}) {
     checkSatisfiable: () => ({ ok: true, candidates: [model] }),
     resolve: () => model,
   }
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(atomic('cap'))
   const store = new InMemoryJobStore()
   const events: JobEvent[] = []

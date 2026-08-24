@@ -20,6 +20,7 @@ import type {
   Modality,
 } from '@orchestral/core'
 import {
+  silentDiagnosticsLogger,
   InMemoryJobStore as MemoryJobStore,
   InMemoryTranscriptStore,
   mintHandle,
@@ -134,7 +135,7 @@ function makeStampingBridge(seen: { stamped?: unknown }): AgentAssetBridge {
 }
 
 async function runAgent(opts: { childOutput: unknown; bridge?: AgentAssetBridge }): Promise<unknown> {
-  const registry = new PatternRegistry()
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(childPattern())
   registry.register(agentPattern())
   const capture: { result?: unknown } = {}
@@ -257,7 +258,7 @@ describe('dispatchAgent tool-result projection', () => {
 // projection at the return site.
 describe('dispatchAgent tool-result transcript', () => {
   async function runWithTranscript(opts: { childOutput: unknown; bridge?: AgentAssetBridge }) {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(childPattern())
     registry.register(agentPattern())
     const capture: { result?: unknown } = {}

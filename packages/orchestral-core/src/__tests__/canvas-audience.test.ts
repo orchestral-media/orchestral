@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Pattern, PatternExposure } from '../pattern'
 import { resolveDispatchTarget } from '../dispatch-pattern'
 import { PatternRegistry } from '../registry'
+import { silentDiagnosticsLogger } from '../logger'
 
 // Canvas-node dispatch resolution. Gate is
 // resolveExposure(pattern.exposure).canvas; default first-party exposure
@@ -25,7 +26,7 @@ function makePattern(exposure?: PatternExposure): Pattern {
 
 describe('canvas dispatch audience', () => {
   it('allows dispatch when exposure.canvas is true', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(makePattern({ chatTurn: true, agentLoop: true, canvas: true }))
     const target = resolveDispatchTarget(
       registry,
@@ -37,7 +38,7 @@ describe('canvas dispatch audience', () => {
 
   it('rejects with PATTERN_NOT_DISPATCHABLE when canvas surface is closed (default & shorthand)', () => {
     for (const exposure of [undefined, 'tool' as const, { chatTurn: true }]) {
-      const registry = new PatternRegistry()
+      const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
       registry.register(makePattern(exposure))
       const target = resolveDispatchTarget(
         registry,
@@ -49,7 +50,7 @@ describe('canvas dispatch audience', () => {
   })
 
   it('still validates input for canvas audience', () => {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.register(makePattern({ canvas: true }))
     const target = resolveDispatchTarget(
       registry,

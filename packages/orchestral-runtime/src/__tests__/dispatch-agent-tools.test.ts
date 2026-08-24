@@ -22,7 +22,7 @@ import type {
   ModelCapability,
   Modality,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntimeAdapter, type AgentAssetBridge } from '../inline'
 import type { AgentRunImpl } from '../agent-run'
@@ -85,7 +85,7 @@ describe('dispatchAgent tool catalog', () => {
   it('emits find_pattern + dispatch_pattern + complete_task and forwards pattern.id', async () => {
     let capturedTools: string[] = []
     let capturedPatternId: string | undefined
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(makeAgent())
     const runImpl: AgentRunImpl = {
       async run(args) {
@@ -113,7 +113,7 @@ describe('dispatchAgent tool catalog', () => {
 // overrides. Locks the spec.sessionId → run-args wire.
 describe('dispatchAgent sessionId wiring', () => {
   function makeRuntime(capture: { args?: RunArgs }): InlineRuntimeAdapter {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(makeAgent())
     const runImpl: AgentRunImpl = {
       async run(args) {
@@ -263,7 +263,7 @@ describe('dispatchAgent finish broker', () => {
     drive: (args: RunArgs) => Promise<{ text: string; usage?: { totalTokens?: number } }>
     bridge?: AgentAssetBridge
   }): InlineRuntimeAdapter {
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(opts.pattern)
     const runImpl: AgentRunImpl = { run: (args) => opts.drive(args) }
     return new InlineRuntimeAdapter({
@@ -530,7 +530,7 @@ describe('dispatchAgent finish broker', () => {
     const unsub = store.subscribe((ev) => {
       jobId ??= ev.job.id
     })
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(makeSalvageComposeThrowsAgent())
     const bridge = makeBridge({ recordedAssetIds: () => ['salvage-produced-1'] })
     const runImpl: AgentRunImpl = {
@@ -598,7 +598,7 @@ describe('dispatchAgent finish broker', () => {
     const unsub = store.subscribe((ev) => {
       jobId ??= ev.job.id
     })
-    const registry = new PatternRegistry()
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
     registry.add(makeDefaultAgent())
     let runtime!: InlineRuntimeAdapter
     const runImpl: AgentRunImpl = {

@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Job, JobEvent } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
 import { InlineRuntime } from '../inline'
 
@@ -18,7 +18,7 @@ function makeRuntime(store: MemoryJobStore): InlineRuntime {
   return new InlineRuntime({
     // abandonOrphanedJobs only touches the store; router/registry are never reached.
     router: {} as never,
-    registry: new PatternRegistry(),
+    registry: new PatternRegistry({ logger: silentDiagnosticsLogger }),
     store: store as never,
   })
 }
