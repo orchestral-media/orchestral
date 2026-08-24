@@ -17,6 +17,10 @@ export interface DeriveIdempotencyKeyInput {
   sessionId?: string
   /** Position in a MetaPattern step list — disambiguates same input across steps. */
   stepIndex?: number
+  /** The namespaced stepId, set only by a `ctx.step` that opted out of
+   *  positional identity (`identity: 'id'`). Present ⇒ the step is keyed by
+   *  its name; absent ⇒ the payload is byte-identical to a pre-stepKey one. */
+  stepKey?: string
 }
 
 /**
@@ -36,6 +40,9 @@ export interface DeriveIdempotencyKeyInput {
  *   • `sessionId` — dedup never crosses a session boundary
  *   • `stepIndex` — the same input at two positions of a MetaPattern step
  *     list is two units of work, not one
+ *   • `stepKey` — the same identity question answered by NAME instead of by
+ *     position, for a step that asked for it (`StepOptions.identity: 'id'`).
+ *     Only ever present on such a step; see the spread below
  *
  * Everything else on JobSpec is **routing metadata** and is excluded on
  * purpose. An alternative Runtime implementation must keep it excluded:
@@ -53,7 +60,11 @@ export interface DeriveIdempotencyKeyInput {
  *     bypasses this function entirely
  *
  * Adding a field here changes dedup behaviour for every existing job row:
- * previously-deduping dispatches start executing twice.
+ * previously-deduping dispatches start executing twice. A field spread in
+ * CONDITIONALLY does not, and that is the point of writing one that way: when
+ * no caller sets it, the stringified payload has the same keys in the same
+ * order with the same values as before it existed, so every stored key is
+ * still derivable. Only callers that opt in move, and they have no rows yet.
  */
 export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string {
   const canonical = JSON.stringify({
@@ -61,7 +72,15 @@ export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string {
     input: canonicalise(args.input),
     assets: args.assets !== undefined ? canonicalise(args.assets) : null,
     sessionId: args.sessionId ?? null,
+    // stepIndex keeps its `?? 0` default rather than becoming conditional
+    // too, so the absent case stays byte-identical to the pre-stepKey payload.
+    // The consequence is that an identity:'id' step — which sends stepKey and
+    // no stepIndex — still hashes `stepIndex: 0`. That is harmless precisely
+    // BECAUSE it is constant: the two fields must never both vary, or the name
+    // would be qualified by the position it was meant to replace and the step
+    // would re-key on exactly the insert it opted in to survive.
     stepIndex: args.stepIndex ?? 0,
+    ...(args.stepKey !== undefined ? { stepKey: args.stepKey } : {}),
   })
   return createHash('sha256').update(canonical).digest('hex')
 }

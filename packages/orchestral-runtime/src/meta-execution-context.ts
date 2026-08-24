@@ -354,6 +354,26 @@ export function buildMetaExecutionContext(
         ref: PatternRef,
         options?: StepOptions,
       ): Promise<StepResult<T>> => {
+        // Identity mode, checked before the shared counter is touched: this is
+        // a malformed call, not a failed step. `identity: 'id'` asks for the
+        // row to be keyed by the step's NAME instead of its position, which
+        // only means something if the author supplied the name — the default
+        // id is `${patternId}#${idx}`, so deriving one here would smuggle the
+        // counter straight back into the key and silently deliver the opposite
+        // of what was asked for. Refuse instead.
+        const byId = options?.identity === 'id'
+        if (byId && options?.stepId === undefined) {
+          throw Object.assign(
+            new Error(
+              `STEP_IDENTITY_REQUIRES_STEP_ID: ${metaId} called ctx.step with ` +
+                `identity:'id' and no options.stepId — the auto-generated id ` +
+                `embeds the step counter, so keying on it would reintroduce ` +
+                `the positional identity this option exists to escape. Pass an ` +
+                `explicit stepId that is stable across runs.`,
+            ),
+            { code: 'STEP_IDENTITY_REQUIRES_STEP_ID' },
+          )
+        }
         // Default stepId is a sequential counter — a deliberately simple form:
         // production Patterns are write-once, so the author owns the fact that
         // reordering code invalidates resume. Both default-generated and
@@ -475,7 +495,24 @@ export function buildMetaExecutionContext(
               // deterministic across replays (the effective id is itself
               // deterministic), and never collides with a sibling subtree.
               stepIdNamespace: effectiveStepId,
-              stepIndex: idx,
+              // Exactly one identity field reaches the child. By default it is
+              // the counter position, which is why inserting a step ahead of
+              // this one re-keys it. Under `identity: 'id'` it is the
+              // NAMESPACED effective id instead, and `stepIndex` is omitted so
+              // the position cannot qualify the name — a step keyed by name
+              // then survives an edit anywhere else in the list.
+              //
+              // Namespaced rather than the author-facing id for the same
+              // reason `stepIdNamespace` exists: two subtrees running the same
+              // inner meta both call their step `candidate-0`, and if that
+              // meta ever opts in they must not collide. (The stated rationale
+              // for keeping the namespace OUT of the hash — that an identical
+              // sub-step in two subtrees would fail to dedupe — is already
+              // moot here: the tree-shared counter makes their stepIndex
+              // differ today, so they never deduped onto each other anyway.)
+              ...(byId
+                ? { stepKey: effectiveStepId }
+                : { stepIndex: idx }),
             },
             [...visited],
             sharedState,
