@@ -222,6 +222,29 @@ export interface AvailableAlternative {
   losses?: readonly Semantics[]
 }
 
+/**
+ * `Alternative` → {@link AvailableAlternative}, the one projection every
+ * "paths not taken" surface reports. Two of them exist — the
+ * ALTERNATIVES_NOT_ENABLED diagnostic below and `preflightPlan` — and they must
+ * not drift: a preflight that advertised a path with different metadata than
+ * the failure would carry is a report about a different system.
+ *
+ * `preserves` / `losses` are spread conditionally so an alternative that
+ * declares neither produces neither key, rather than two `undefined`s a host
+ * has to filter out of a rendered trade-off.
+ */
+export function toAvailableAlternative(
+  alt: Alternative<unknown, unknown>,
+): AvailableAlternative {
+  return {
+    id: alt.id,
+    description: alt.description,
+    targetPatternId: alt.via.patternId,
+    ...(alt.preserves ? { preserves: alt.preserves } : {}),
+    ...(alt.losses ? { losses: alt.losses } : {}),
+  }
+}
+
 /** One sentence, both in the message and on the structured diagnostic. */
 export const ALTERNATIVES_HINT =
   "Construct InlineRuntime with `alternatives: 'auto'` to let it redirect through declared alternatives automatically, or submit one of the listed targetPatternId values yourself."
@@ -251,15 +274,8 @@ export class AlternativesNotEnabledError extends Error {
     reason: UnavailabilityReason,
     applicable: readonly Alternative<unknown, unknown>[],
   ) {
-    const alternatives: readonly AvailableAlternative[] = applicable.map(
-      (alt) => ({
-        id: alt.id,
-        description: alt.description,
-        targetPatternId: alt.via.patternId,
-        ...(alt.preserves ? { preserves: alt.preserves } : {}),
-        ...(alt.losses ? { losses: alt.losses } : {}),
-      }),
-    )
+    const alternatives: readonly AvailableAlternative[] =
+      applicable.map(toAvailableAlternative)
     super(
       `ALTERNATIVES_NOT_ENABLED: ${capability} cannot be served (reason=${reason}) and automatic alternatives are off; ${alternatives.length} declared path(s) would have applied: ${alternatives
         .map((a) => `${a.id} → ${a.targetPatternId}`)

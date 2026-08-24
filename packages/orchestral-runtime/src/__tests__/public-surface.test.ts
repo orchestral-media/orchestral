@@ -16,6 +16,8 @@ describe('@orchestral/runtime public surface', () => {
         "InlineRuntimeAdapter",
         "deriveIdempotencyKey",
         "forkExecutionContext",
+        "formatPlanPreflight",
+        "preflightPlan",
         "resolveAssets",
       ]
     `)
