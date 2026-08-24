@@ -46,4 +46,78 @@ describe('deriveIdempotencyKey stability', () => {
       deriveIdempotencyKey(canonical),
     )
   })
+
+  // The second pinned hash. `stepKey` is the name-based identity a step opts
+  // into with StepOptions.identity:'id'; it is spread in conditionally, so it
+  // gets its own freeze gate rather than perturbing the one above.
+  it('hash is stable for a fixed input carrying a stepKey', () => {
+    const key = deriveIdempotencyKey({
+      patternId: 'text-to-image',
+      input: { prompt: 'a red bicycle' },
+      sessionId: 'sess-1',
+      stepIndex: 0,
+      stepKey: 'render',
+    })
+    expect(key).toMatchInlineSnapshot(`"8996641afd40ff90e2b4f05d73cda57370225e1435d658df532e471fb35bb4bd"`)
+  })
+
+  // The whole point of the conditional spread. An explicit `undefined` must be
+  // indistinguishable from the field never having been written, or every
+  // caller that threads `spec.stepKey` straight through — which is what the
+  // runtime does — would move every key it touches.
+  it('an absent stepKey and an explicit undefined hash identically', () => {
+    const absent: DeriveIdempotencyKeyInput = {
+      patternId: 'text-to-image',
+      input: { prompt: 'a red bicycle' },
+      sessionId: 'sess-1',
+      stepIndex: 0,
+    }
+    const explicitUndefined: DeriveIdempotencyKeyInput = {
+      ...absent,
+      stepKey: undefined,
+    }
+    expect(deriveIdempotencyKey(explicitUndefined)).toBe(
+      deriveIdempotencyKey(absent),
+    )
+    // And it is still the pre-stepKey digest — no stored row moved.
+    expect(deriveIdempotencyKey(absent)).toBe(
+      '4aaca9602308759a19fa826fc60c3488830dd2ab6269833f2095b52042fb788a',
+    )
+  })
+
+  it('a present stepKey changes the key, and two stepKeys differ from each other', () => {
+    const base: DeriveIdempotencyKeyInput = {
+      patternId: 'text-to-image',
+      input: { prompt: 'a red bicycle' },
+      sessionId: 'sess-1',
+      stepIndex: 0,
+    }
+    const withoutKey = deriveIdempotencyKey(base)
+    const render = deriveIdempotencyKey({ ...base, stepKey: 'render' })
+    const upscale = deriveIdempotencyKey({ ...base, stepKey: 'upscale' })
+
+    // Opting in is itself a different unit of work: a positional row and a
+    // name-keyed row for the same call must not dedupe onto each other.
+    expect(render).not.toBe(withoutKey)
+    // Two named steps with identical inputs are two steps — which is exactly
+    // what lets a plan write three identical `take-*` steps.
+    expect(render).not.toBe(upscale)
+  })
+
+  // The insert-a-step property, at the level of the hash: a name-keyed step
+  // does not move when the positional index around it does. `stepIndex` is
+  // still in the payload (as the constant 0) — the two must never both vary.
+  it('a stepKey-carrying input is unaffected by the step index it replaced', () => {
+    const named = (stepIndex: number | undefined) =>
+      deriveIdempotencyKey({
+        patternId: 'text-to-image',
+        input: { prompt: 'a red bicycle' },
+        sessionId: 'sess-1',
+        stepIndex,
+        stepKey: 'render',
+      })
+    // ctx.step omits stepIndex under identity:'id', so this is the real call;
+    // the derivation's `?? 0` makes it the same key as an explicit 0.
+    expect(named(undefined)).toBe(named(0))
+  })
 })

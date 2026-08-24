@@ -36,6 +36,42 @@ export interface StepOptions {
    * order is needed for resume.
    */
   stepId?: string
+  /**
+   * What keys this step's durable JobStore row — which decides what a re-run
+   * dedupes onto.
+   *
+   * - `'index'` (default): the tree-wide counter position keys the row. The
+   *   step's ordinal within the compose run is hashed into the idempotency
+   *   key, so inserting or reordering a step re-keys it and everything after
+   *   it, even when nothing those steps read has changed.
+   * - `'id'`: the namespaced stepId keys the row instead, and the position
+   *   drops out. Steps then survive an edit elsewhere in the list. **Requires
+   *   an explicit `stepId`** — the default id embeds the counter, so leaving
+   *   it to the framework would put the position straight back into the key.
+   *   `ctx.step` throws `STEP_IDENTITY_REQUIRES_STEP_ID` rather than key a row
+   *   on `text-to-image#3`.
+   *
+   * Positional is the default because a shipped meta is write-once: its author
+   * owns the step order the same way they own the code, and a reorder is a
+   * code change they make deliberately and once (DESIGN.md's "we don't
+   * content-hash step ids"). Under that model the counter is the cheaper
+   * identity — nothing to name, nothing to keep unique, and the tree-shared
+   * counter already tells two subtrees apart for free.
+   *
+   * The population that should opt in is the one whose step list is edited
+   * *between runs by a model* rather than by a commit: an LLM-authored
+   * pipeline, re-emitted with a step inserted after the user asked for one
+   * more thing. There, reordering is routine rather than exceptional, and
+   * paying to re-run every downstream step on each revision is the whole cost
+   * of the feature. Naming the steps is also already free for such a caller —
+   * it wrote the ids into the plan.
+   *
+   * Opting in changes nothing else: the counter still advances (so default
+   * ids, nested namespaces and `job:step` events are untouched), the
+   * duplicate-id guard still applies, and a step that does not set `identity`
+   * hashes byte-identically to how it did before this option existed.
+   */
+  identity?: 'index' | 'id'
 }
 
 export interface StepMeta {

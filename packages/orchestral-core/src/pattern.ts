@@ -153,6 +153,26 @@ export interface PatternBase<I = unknown, O = unknown> {
   namespace?: NamespaceId
 
   /**
+   * Where this Pattern came from. Absent — the overwhelming default — means
+   * authored code: someone wrote the `compose` / adapter by hand. `'plan'`
+   * means it was interpreted from data, a step list rather than a function
+   * body.
+   *
+   * Provenance, and nothing more. The registry stores it, `addFromManifest`
+   * does not check it, and no runtime path branches on it: dispatch selects an
+   * engine on `kind`, trust decisions are made by the allowlist and
+   * `plannedDispatches`, and a data-authored meta is dispatched by exactly the
+   * same code as a hand-written one. It exists so a catalog UI can say where a
+   * pattern came from and a preflight can know there is a step list worth
+   * recursing into — readable, never a gate.
+   *
+   * Deliberately not a `kind`: adding a kind would touch PATTERN_KINDS, the
+   * sub-agent blocklist and every kind filter, for no change in how the thing
+   * executes.
+   */
+  origin?: 'plan'
+
+  /**
    * Whether third parties may attach extensions via
    * registry.attachAlternative. Default false (closed).
    *
@@ -428,6 +448,34 @@ export interface MetaPattern<I = unknown, O = unknown>
     params: { input: I },
     ctx: ExecutionContext,
   ): Promise<O>
+
+  /**
+   * The pattern ids this meta will dispatch for a given input, when knowable
+   * before `compose` runs. An agent loop checks them against its allowlist
+   * before submitting; undeclared means "not knowable", which is the status
+   * quo for every hand-written meta.
+   *
+   * The gap it closes: a meta dispatched by an agent inherits no allowlist
+   * today — the dispatch path checks only that the pattern is registered — so
+   * any meta an agent may call can step into patterns the agent itself was
+   * never granted. That is tolerable for a hand-written meta, whose step list
+   * a human reviewed when they put it in `toolPatternIds`. It is not tolerable
+   * for a meta whose step list is written by a model at call time.
+   *
+   * So the mechanism is a declaration, not a branch on a pattern id: a meta
+   * that can name its dispatches ahead of time says so here, and the agent
+   * guard holds every returned id to the same allowlist, blocklist and
+   * ancestor chain as a direct tool call — refusing before anything is
+   * dispatched. A meta that cannot name them (a width the model chooses, a
+   * branch on a sub-step's output) simply omits it and is treated exactly as
+   * it is today.
+   *
+   * Must be pure and cheap: it runs on the dispatch path, before any spend,
+   * and is called with the same input `compose` would receive. Return every id
+   * the meta *may* dispatch — over-declaring costs a caller nothing but
+   * permission, while under-declaring is a hole in the check.
+   */
+  plannedDispatches?: (input: I) => readonly PatternId[]
 }
 
 /**

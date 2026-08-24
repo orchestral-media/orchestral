@@ -715,6 +715,10 @@ export class InlineRuntime implements Runtime {
         assets: spec.assets,
         sessionId: spec.sessionId,
         stepIndex: spec.stepIndex,
+        // Absent on every spec whose step did not opt out of positional
+        // identity, and conditionally spread inside the derivation, so this
+        // forwarding leaves existing keys untouched.
+        stepKey: spec.stepKey,
       })
 
     // ── Insert queued row + emit event

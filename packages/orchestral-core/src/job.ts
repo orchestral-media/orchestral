@@ -82,8 +82,9 @@ export interface Job<TInput = unknown, TOutput = unknown> {
  *   IDENTITY — folded into the derived idempotency key, so changing one makes
  *   this a different job: `patternId`, `input`, `assets` (the resolution-pass
  *   output — the same literal input over different resolved source assets is
- *   different work), `sessionId`, `stepIndex`. (`idempotencyKey` itself, when
- *   supplied, replaces the derivation.)
+ *   different work), `sessionId`, `stepIndex`, and `stepKey` (present only when
+ *   a meta step opted out of positional identity — see its own doc below).
+ *   (`idempotencyKey` itself, when supplied, replaces the derivation.)
  *
  *   ROUTING METADATA — tells the runtime and adapters *how* to execute this
  *   submission, and is deliberately excluded from the key: `providerOptions`,
@@ -139,6 +140,24 @@ export interface JobSpec<TInput = unknown> {
   idempotencyKey?: string
   /** Position in a MetaPattern step list — folded into idempotency hash. */
   stepIndex?: number
+  /**
+   * Set by `ctx.step` under `identity: 'id'`: the namespaced effective step id.
+   * Replaces `stepIndex` in the idempotency derivation when present — the step
+   * is then keyed by what it is called rather than by where it sits, so
+   * inserting a step ahead of it does not re-key it.
+   *
+   * IDENTITY, not routing: unlike `stepIdNamespace` (a prefix the child meta
+   * uses to keep its own stepId space distinct, deliberately unhashed), this
+   * field exists *to be* hashed. It carries the namespaced form for the same
+   * reason `stepIdNamespace` exists at all — two subtrees running the same
+   * inner meta must not collide on `candidate-0`.
+   *
+   * Absent on every spec whose step did not opt in, which is every spec the
+   * shipped metas produce. `deriveIdempotencyKey` spreads it in conditionally
+   * so absence is byte-identical to how the key was derived before the field
+   * existed, and no stored row moves.
+   */
+  stepKey?: string
   /**
    * stepId namespace prefix a parent meta stamps onto a child
    * meta's spec. The child meta uses it to namespace its OWN internal stepId
@@ -247,8 +266,16 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
        * Fired after the sub-dispatch settles successfully and before the next
        * step starts — exactly once per dispatched step, since `ctx.step`
        * rejects a repeated step id outright (DUPLICATE_STEP_ID) rather than
-       * serving it twice. A failing step raises META_STEP_FAILED and fails the
-       * parent instead, so this event only ever describes work that landed.
+       * serving it twice. A failing step never reaches this event: it throws
+       * out of the child dispatch carrying **its own** code — the provider's
+       * error, OUTPUT_SCHEMA_MISMATCH, NO_MODEL_FOR_CAPABILITY — and that same
+       * error object unwinds compose and fails the parent, so the parent's row
+       * reports the innermost cause rather than a wrapper. (`ctx.step` does
+       * have a META_STEP_FAILED branch for a child row that comes back in
+       * `error` status, but under InlineRuntime it is unreachable: a failed
+       * dispatch rejects, and the store's dedup only ever returns
+       * queued / running / done rows, never an errored one.) So this event
+       * only ever describes work that landed.
        *
        * `ctx.compute` is silent: it wraps a local function, so there is no
        * sub-dispatch and nothing a progress UI could correlate.
