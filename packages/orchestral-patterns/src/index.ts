@@ -207,6 +207,23 @@ export {
   type ExplainerShortPromptOverrides,
 } from './meta/explainer-short'
 
+// ── The plan interpreter ─────────────────────────────────────────────────
+// A meta whose compose is a list of steps rather than a function body. The
+// contract half — the wire schema, the three ref regexes and `validatePlan` —
+// is in @orchestral/core; this is the interpreter that walks it. `meta_plan` is
+// the shipped one-shot (its input IS the DAG); `planToMeta` is what a
+// session-scoped or persisted plan package calls on a JSON literal.
+export {
+  PLAN_PATTERN_ID,
+  PLAN_TOOL_DESCRIPTION,
+  createPlanMeta,
+  planToMeta,
+  runPlan,
+  type PlanMetaPattern,
+  type PlanToMetaOptions,
+  type RunPlanOptions,
+} from './meta/plan'
+
 // ── Meta prompt-override defaults ─────────────────────────────────────────
 // Each meta inlines its system prompts as module constants. These frozen
 // `*_DEFAULT_PROMPTS` objects expose those defaults keyed by the same names a

@@ -54,7 +54,7 @@ adapter. It is a leaf — nothing in `@orchestral/*` depends on it.
 schemas on the public API, so your app and Orchestral must share one zod
 instance.
 
-Five runnable hosts live in this repo:
+Six runnable hosts live in this repo:
 
 - [`examples/atomic-hello-world`](examples/atomic-hello-world) — one atomic
   `text-to-image` dispatch, with the whole provider bridge in `src/ai-sdk-wiring.ts`.
@@ -69,6 +69,11 @@ Five runnable hosts live in this repo:
   meta re-submitted with one input changed: the unchanged steps come back from
   the `JobStore` under their original child job ids, only the changed step and
   its downstream re-run. Mock models, no key.
+- [`examples/plan-short-clip`](examples/plan-short-clip) — the same three-step
+  pipeline written as JSON instead of as a `compose()`, loaded by `planToMeta`
+  as an ordinary meta. Re-submit with a step *inserted* and the untouched steps
+  still come back from the `JobStore`: a plan keys its rows by step name
+  (`identity: 'id'`), not by position. Mock models, no key.
 - [`examples/long-form-video`](examples/long-form-video) — the reference
   novel → multi-event video pipeline (five planning metas and a director
   agent), kept as source in the example rather than shipped as API, registered
@@ -81,6 +86,7 @@ pnpm --filter atomic-hello-world start   # needs OPENAI_API_KEY
 pnpm --filter atomic-hello-world test    # no key: same wiring, mock model
 pnpm --filter consented-fallback start   # no key: the fallback narrative on mocks
 pnpm --filter incremental-rerun start    # no key: content-addressed re-run, mock models
+pnpm --filter plan-short-clip start      # no key: the same pipeline as data, re-run after an edit
 pnpm --filter long-form-video start      # no key: registers the long-form catalog and prints it
 ```
 

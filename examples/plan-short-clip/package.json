@@ -1,0 +1,33 @@
+{
+  "name": "plan-short-clip",
+  "private": true,
+  "type": "module",
+  "description": "Minimal host: a three-step pipeline authored as JSON, loaded by planToMeta as an ordinary meta pattern. Re-submit with one input changed, then with a step inserted, and watch identity:'id' keep the untouched steps on their original JobStore rows — mock models only.",
+  "orchestral": {
+    "patterns": [
+      {
+        "id": "meta_short-clip",
+        "kind": "meta",
+        "export": "createShortClip",
+        "requiredOps": ["getPattern"]
+      }
+    ]
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orchestral/core": "workspace:*",
+    "@orchestral/runtime": "workspace:*",
+    "@orchestral/patterns": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  }
+}

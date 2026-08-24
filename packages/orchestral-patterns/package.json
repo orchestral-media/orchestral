@@ -136,6 +136,14 @@
           "concatVideos",
           "stillToVideo"
         ]
+      },
+      {
+        "id": "meta_plan",
+        "kind": "meta",
+        "export": "createPlanMeta",
+        "requiredOps": [
+          "getPattern"
+        ]
       }
     ]
   },
@@ -178,6 +186,7 @@
   },
   "devDependencies": {
     "@orchestral/discovery": "workspace:*",
+    "@orchestral/runtime": "workspace:*",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2",
     "vitest": "^3.2.6",

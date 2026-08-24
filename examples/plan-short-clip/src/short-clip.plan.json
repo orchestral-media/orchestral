@@ -1,0 +1,28 @@
+{
+  "description": "Describe, render and animate one short clip.",
+  "steps": [
+    {
+      "id": "describe",
+      "pattern": "text-generation",
+      "input": {
+        "system": "You are a cinematographer. Turn the subject into one line describing a single still shot: framing, light, lens. No preamble.",
+        "prompt": "$input.prompt"
+      }
+    },
+    {
+      "id": "render",
+      "pattern": "text-to-image",
+      "input": { "prompt": "$describe.text" }
+    },
+    {
+      "id": "animate",
+      "pattern": "image-to-video",
+      "input": { "prompt": "$input.motion" },
+      "assets": { "startFrame": "$render.assets[0]" }
+    }
+  ],
+  "output": {
+    "assets": [{ "from": "$animate.assets[0]", "label": "clip" }],
+    "values": { "description": "$describe.text" }
+  }
+}

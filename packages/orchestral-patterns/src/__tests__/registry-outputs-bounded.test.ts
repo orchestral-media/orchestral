@@ -16,7 +16,8 @@ const pkg = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 ) as { orchestral: unknown }
 
-/** Host ops the manifest declares — stubs; nothing dispatches here. */
+/** Host ops the manifest declares — stubs; nothing dispatches here.
+ *  `getPattern` is meta_plan's registry read, not media work. */
 const OPS = {
   concatVideos: async () => ({ assetId: 'v' }),
   stillToVideo: async () => ({ assetId: 'v' }),
@@ -24,6 +25,7 @@ const OPS = {
   addSubtitles: async () => ({ assetId: 'v' }),
   createSubtitleAsset: async () => ({ assetId: 's' }),
   recordSessionAsset: async () => ({ handle: 'image_1' }),
+  getPattern: () => undefined,
 }
 
 function recordingLogger() {
