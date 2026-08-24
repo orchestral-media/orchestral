@@ -33,6 +33,7 @@ import type {
   DispatchContext,
   TranscriptMessage,
   Job,
+  JobError,
   JobEvent,
   JobSpec,
   Pattern,
@@ -44,9 +45,44 @@ import type {
   TranscriptStore,
 } from '@orchestral/core'
 import { handleFindPattern, PatternSearchIndex } from '@orchestral/discovery'
+import { normaliseError } from './errors'
 import type { MetaSharedState } from './meta-execution-context'
 import type { AgentChatMessage, AgentRunImpl } from './agent-run'
 
+/**
+ * The dispatch failures that stay THROWS out of `onToolCall` instead of
+ * becoming a `SUBAGENT_TOOL_FAILED` tool result. Everything else a child
+ * dispatch can fail with is handed to the model to react to — that is the
+ * point of the failure shape — so this list is the exhaustive answer to "what
+ * must kill the loop instead".
+ *
+ * Two families, and nothing else qualifies:
+ *
+ *   • **Cancellation.** `CANCELLED` is what `_submitJobInternal` throws when
+ *     the agent's own signal aborted mid-child. An abort must end the run, not
+ *     become something the model reads and retries past — a cancelled agent
+ *     that keeps dispatching is a cancel that did not work. `dispatchAgent`'s
+ *     own catch reads the same fact off `signal.aborted`.
+ *   • **Host wiring the model cannot fix.** `ASK_USER_NOT_SUPPORTED` (a meta
+ *     called `ctx.askUser` with no handler injected),
+ *     `AGENT_RUN_IMPL_NOT_INJECTED` (a child agent with no loop
+ *     implementation) and `AGENT_ASSET_BRIDGE_MISSING` (documented fail-loud,
+ *     and already exempt from this file's own salvage path) are host-config
+ *     bugs. Returning them as tool results would hide a broken host behind a
+ *     model that politely tries something else.
+ *
+ * `AGENT_DEPTH_EXCEEDED` joins them for a third reason: it is the agent
+ * recursion budget, and a budget the model can retry past is not a budget.
+ * It is also the documented contrast case for the tool-call guards — refusals
+ * come back as tool results, the depth cap fails the job.
+ */
+const CHILD_FAILURE_RETHROWN_CODES: ReadonlySet<string> = new Set([
+  'CANCELLED',
+  'AGENT_DEPTH_EXCEEDED',
+  'ASK_USER_NOT_SUPPORTED',
+  'AGENT_RUN_IMPL_NOT_INJECTED',
+  'AGENT_ASSET_BRIDGE_MISSING',
+])
 
 /**
  * Render the agent allowlist's `exposureMode: 'always-load'` Patterns as direct
@@ -251,9 +287,11 @@ export interface AgentDispatchDeps {
   resolveCtxProvider?: (spec: JobSpec) => ResolveContext
   /**
    * The runtime's diagnostics seam (`InlineRuntimeInit.logger`). Agent
-   * dispatch reports what belongs to the job on the job stream; the only thing
-   * that reaches this is a transcript append failing off the loop's critical
-   * path, which has no event and must not block the loop.
+   * dispatch reports what belongs to the job on the job stream; what reaches
+   * this is what has no event and must not block the loop — a transcript
+   * append that failed off the loop's critical path, and a meta's
+   * `plannedDispatches` declaration that threw (treated as undeclared, so
+   * there is no refusal to fan out and nothing the model should be told).
    */
   logger: DiagnosticsLogger
   /**
@@ -959,6 +997,133 @@ deps: AgentDispatchDeps,
               hint: 'Choose a different pattern_id; agent-prefixed ids cannot be recursed into.',
             }
           }
+          // ── Declared inner dispatches — plannedDispatches ───────────────
+          //
+          // The three guards above judged the id the loop asked for. A meta
+          // that DECLARES what it will dispatch is held to the same three
+          // judgements for every id it names, before anything is submitted:
+          // a plan's inner steps inherit the allowlist of the call that
+          // dispatched the plan, rather than escaping it by being one level
+          // down. `_submitJobInternal` checks only `registry.get`, and
+          // `ctx.step` adds only DUPLICATE_STEP_ID / CIRCULAR_META_STEP, so
+          // without this a meta in `toolPatternIds` can step into anything
+          // registered.
+          //
+          // Undeclared metas are deliberately untouched — `plannedDispatches`
+          // absent means "not knowable", which is the status quo for every
+          // hand-written meta and a decision about every meta rather than a
+          // property of this guard (docs/plan.md, "We don't close the
+          // allowlist bypass for hand-written metas here").
+          //
+          // The runtime names no pattern id here. The check keys on the
+          // declaration alone, so an interpreted plan, a one-shot plan meta
+          // and a shipped meta that opts in later all reach the same code.
+          if (target.pattern.kind === 'meta' && target.pattern.plannedDispatches) {
+            let declared: readonly PatternId[] | undefined
+            try {
+              declared = target.pattern.plannedDispatches(target.parsedInput)
+            } catch (e) {
+              // A declaration that throws is treated as UNDECLARED — never as
+              // a refusal, never as a crash. `plannedDispatches` is an
+              // author's optional, pure hint evaluated on the dispatch path;
+              // a guard that can itself fail a dispatch would be a new
+              // failure mode for every meta that opts in, and refusing on a
+              // buggy declaration would be a denial of service written by the
+              // pattern author. The attempt has no job of its own to report
+              // on, so it goes to the host's diagnostics seam rather than the
+              // event stream (and never to the console — the runtime does not
+              // own the host's log).
+              deps.logger.warn(
+                `[dispatchAgent] ${fullId}.plannedDispatches threw for a call from ` +
+                  `${pattern.id}; treating the meta as undeclared, so its inner ` +
+                  `steps are NOT pre-checked against this agent's allowlist:`,
+                e,
+              )
+              declared = undefined
+            }
+            // First offender wins, in declaration order, judged in the same
+            // order of severity the direct guards use for a single id. Each
+            // refusal is that guard's existing shape — same fields, same
+            // event, same `job:tool-rejected` fan-out — plus `via`, naming
+            // the declared id that offended. `pattern_id` stays the call the
+            // loop actually made, so the model can tell WHICH of its calls
+            // was refused; `via` tells it why.
+            for (const inner of declared ?? []) {
+              if (!effectiveToolPatternIds.includes(inner)) {
+                await deps.fanoutJobEvent(jobId, (job) => ({
+                  type: 'job:tool-rejected',
+                  job,
+                  patternId: fullId,
+                  callerPatternId: pattern.id,
+                  code: 'SUBAGENT_TOOL_OUT_OF_SCOPE',
+                  allowlist: effectiveToolPatternIds,
+                }))
+                return {
+                  code: 'SUBAGENT_TOOL_OUT_OF_SCOPE',
+                  pattern_id: fullId,
+                  caller_pattern_id: pattern.id,
+                  via: inner,
+                  allowlist: effectiveToolPatternIds,
+                  message:
+                    `${fullId} declares it would dispatch ${inner}, which is not in ` +
+                    `this subagent's loop.toolPatternIds allowlist ` +
+                    `(declared: [${effectiveToolPatternIds.join(', ')}]).`,
+                  hint: 'Use find_pattern to discover which patterns are dispatchable here.',
+                }
+              }
+              const innerBlockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
+                (prefix) => inner.startsWith(prefix),
+              )
+              const innerBlockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(inner)
+              if (innerBlockedByPrefix || innerBlockedById) {
+                await deps.fanoutJobEvent(jobId, (job) => ({
+                  type: 'job:tool-rejected',
+                  job,
+                  patternId: fullId,
+                  callerPatternId: pattern.id,
+                  code: 'SUBAGENT_BLOCKED',
+                  matched: innerBlockedByPrefix ? ('prefix' as const) : ('id' as const),
+                }))
+                return {
+                  code: 'SUBAGENT_BLOCKED',
+                  pattern_id: fullId,
+                  caller_pattern_id: pattern.id,
+                  via: inner,
+                  reason: innerBlockedByPrefix ? ('prefix' as const) : ('id' as const),
+                  message:
+                    `${fullId} declares it would dispatch ${inner}, which matched ` +
+                    `DEFAULT_SUBAGENT_BLOCKLIST. Pattern authors should NOT list ` +
+                    `blocklist-prefixed ids in loop.toolPatternIds.`,
+                  hint: 'Choose a different pattern_id; agent-prefixed ids cannot be recursed into.',
+                }
+              }
+              // `visited` is the chain that reached THIS agent; the meta
+              // itself joins it only when the child is submitted, so a meta
+              // declaring itself is left to the engine's own
+              // CIRCULAR_META_STEP rather than pre-judged here.
+              if (visited.has(inner)) {
+                await deps.fanoutJobEvent(jobId, (job) => ({
+                  type: 'job:tool-rejected',
+                  job,
+                  patternId: fullId,
+                  callerPatternId: pattern.id,
+                  code: 'CIRCULAR_AGENT_TOOL',
+                  ancestors: [...visited],
+                }))
+                return {
+                  code: 'CIRCULAR_AGENT_TOOL',
+                  pattern_id: fullId,
+                  caller_pattern_id: pattern.id,
+                  via: inner,
+                  ancestors: [...visited],
+                  message:
+                    `Cycle: ${pattern.id} → ${fullId} → ${inner} ` +
+                    `(ancestors: ${[...visited].join(' → ')})`,
+                  hint: 'Choose a different pattern_id that is not already on the dispatch chain.',
+                }
+              }
+            }
+          }
           // Inner resolution — resolve the child's `input.references`
           // handles against THIS agent's context ledger before dispatch.
           // resolveForDispatch is fail-closed (throws on any resolution
@@ -988,46 +1153,49 @@ deps: AgentDispatchDeps,
               }
             }
           }
-          const child = await deps.submitChild({
-            patternId: fullId,
-            input: target.parsedInput,
-            // The child's resolved assets come from THIS agent context's
-            // ledger (store ⋈ this loop's transcript) via the host
-            // AgentAssetBridge — NOT from currentMessages (the projected
-            // message history carries no assetId).
-            ...(childAssets.length > 0 ? { assets: childAssets } : {}),
-            ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
-            // Stamp this agent's ledger context so a meta child resolves ITS
-            // sub-step references against the agent's runId ledger (where this
-            // LLM's handles live), not the caller's.
-            assetContextId: agentContextId,
-          // Pass the agent's own controller signal (closed over from
-          // dispatchAgent's `signal` param) as the child's
-          // parentSignal so `cancelJob(agentJobId)` cascades into every tool
-          // sub-dispatch. For `abortMode: 'independent'` agents this still
-          // works: the agent itself ignores its parent's signal (gated in
-          // _submitJobInternal), but its own signal still binds its children.
-          }, [...visited], undefined, signal)
-          if (child.status === 'error') {
-            // Structured tool_result so the LLM can read the inner failure
-            // and either retry with different input or pick another Pattern.
-            // Throwing would terminate the agent loop.
-            //
-            // Only the CACHED-error path lands here (the child resolved to a
-            // stored errored job, so its JobError.producedAssets is available
-            // to echo). The fresh-throw nested case (a sub-agent throwing
-            // mid-loop) propagates out through agent-run-impl's rejection
-            // handler and does NOT yet carry producedAssets — that needs a
-            // protocol-level error-shape change (out of scope here).
-            // invalid-input (HTTP 4xx, except transient 408/429) means the
-            // subagent's parameters were wrong for the resolved model —
-            // schema unchanged, fix and retry. Everything else reads as
-            // provider/transient trouble. Mirrors the chat-turn JOB_FAILED
-            // classification; the subagent path carries no next_input_schema
-            // (its find_pattern runs in degraded base-schema mode).
-            const httpStatus = (
-              child.error?.details as { httpStatus?: number } | undefined
-            )?.httpStatus
+          // One transcript record for every model-facing tool result this
+          // branch hands back — success and failure alike. The transcript is
+          // replayed straight into model context on resume
+          // (`transcriptMessageToChat` returns a 'tool-result' as a `tool`
+          // turn verbatim), so it must hold exactly what the model saw the
+          // first time, and nothing the model never saw. Skipped when no store
+          // was injected; an append failure is logged but never blocks the
+          // agent loop (the in-flight LLM call is more important than the log).
+          const recordToolResult = (output: unknown): void => {
+            if (!store) return
+            const toolResultMsg: TranscriptMessage = {
+              seq: transcriptSeq++,
+              ts: Date.now(),
+              kind: 'tool-result',
+              raw: { name, output, pattern_id: fullId },
+            }
+            void store
+              .append(runId, agentId, toolResultMsg)
+              .catch((err: unknown) => {
+                deps.logger.warn(
+                  `[dispatchAgent] transcriptStore.append (tool-result) failed for ${runId}/${agentId} seq=${toolResultMsg.seq}:`,
+                  err,
+                )
+              })
+          }
+          // The model-facing shape for a failed child dispatch, built from the
+          // child's JobError however that failure arrived — a stored errored
+          // row (the cached path) or a throw out of `submitChild` (every fresh
+          // failure). One builder, because the two are the same event to the
+          // model: the inner Pattern did not produce output, and the loop has
+          // to decide what to do next.
+          //
+          // error_class: invalid-input (HTTP 4xx, except transient 408/429)
+          // means the subagent's parameters were wrong for the resolved model —
+          // schema unchanged, fix and retry. Everything else reads as
+          // provider/transient trouble. Mirrors the chat-turn JOB_FAILED
+          // classification; the subagent path carries no next_input_schema
+          // (its find_pattern runs in degraded base-schema mode).
+          const childToolFailure = (
+            jobError: JobError | null | undefined,
+          ): Record<string, unknown> => {
+            const rawDetails = jobError?.details
+            const httpStatus = (rawDetails as { httpStatus?: number } | undefined)?.httpStatus
             const errorClass =
               httpStatus != null &&
               httpStatus >= 400 &&
@@ -1036,18 +1204,105 @@ deps: AgentDispatchDeps,
               httpStatus !== 429
                 ? 'invalid-input'
                 : 'other'
+            // `details` is the structured half of the failure and the reason
+            // this shape exists: `planStepId` names WHICH step of a plan
+            // failed, `issues` names the fields an OUTPUT_SCHEMA_MISMATCH
+            // rejected, `httpStatus` / `failedModel` explain a provider
+            // refusal. It passes through — minus `rawOutput`.
+            //
+            // `rawOutput` is the output gate's host-facing salvage: the entire
+            // value that failed the schema, unbounded and unprojected. This
+            // result goes straight into the loop's model context, where every
+            // payload is projected and bounded (the same rule the success path
+            // enforces with projectToolOutputForModel + sanitizeToolOutput), so
+            // it is dropped here and stays where it belongs — on the child's
+            // JobError, for the host.
+            let details: Record<string, unknown> | undefined
+            if (
+              typeof rawDetails === 'object' &&
+              rawDetails !== null &&
+              !Array.isArray(rawDetails)
+            ) {
+              const rest: Record<string, unknown> = { ...(rawDetails as Record<string, unknown>) }
+              delete rest.rawOutput
+              if (Object.keys(rest).length > 0) details = sanitizeToolOutput(rest)
+            }
             return {
               code: 'SUBAGENT_TOOL_FAILED',
               pattern_id: fullId,
               error_class: errorClass,
-              ...(child.error?.code ? { inner_code: child.error.code } : {}),
-              ...(child.error?.producedAssets?.length ? { produced_assets: child.error.producedAssets } : {}),
-              message: child.error?.message ?? 'inner pattern dispatch failed',
+              ...(jobError?.code ? { inner_code: jobError.code } : {}),
+              ...(jobError?.producedAssets?.length
+                ? { produced_assets: jobError.producedAssets }
+                : {}),
+              message: jobError?.message ?? 'inner pattern dispatch failed',
+              ...(details ? { details } : {}),
               hint:
                 errorClass === 'invalid-input'
                   ? 'The provider rejected these parameters (HTTP 4xx). Fix or drop the offending fields named in message, then dispatch again.'
                   : 'Try different input, or pick a different pattern_id via find_pattern.',
             }
+          }
+          let child: Job
+          try {
+            child = await deps.submitChild({
+              patternId: fullId,
+              input: target.parsedInput,
+              // The child's resolved assets come from THIS agent context's
+              // ledger (store ⋈ this loop's transcript) via the host
+              // AgentAssetBridge — NOT from currentMessages (the projected
+              // message history carries no assetId).
+              ...(childAssets.length > 0 ? { assets: childAssets } : {}),
+              ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
+              // Stamp this agent's ledger context so a meta child resolves ITS
+              // sub-step references against the agent's runId ledger (where this
+              // LLM's handles live), not the caller's.
+              assetContextId: agentContextId,
+            // Pass the agent's own controller signal (closed over from
+            // dispatchAgent's `signal` param) as the child's
+            // parentSignal so `cancelJob(agentJobId)` cascades into every tool
+            // sub-dispatch. For `abortMode: 'independent'` agents this still
+            // works: the agent itself ignores its parent's signal (gated in
+            // _submitJobInternal), but its own signal still binds its children.
+            }, [...visited], undefined, signal)
+          } catch (e) {
+            // A failed child is a tool result, not a rejection. `submitChild`
+            // is `_submitJobInternal`, which throws on every fresh dispatch
+            // failure — so before this catch existed the ONLY way a loop could
+            // read `SUBAGENT_TOOL_FAILED` was a non-conforming store handing
+            // back a cached errored row, and every real failure killed the run
+            // instead: the model never learned which of its calls failed, or
+            // why, and a Pattern's own structured error (`planStepId`,
+            // `issues`) died with it.
+            //
+            // `CHILD_FAILURE_RETHROWN_CODES` is the exhaustive list of what
+            // still kills the loop instead, and `signal.aborted` is checked
+            // first so an abort that surfaced as some other error is not fed
+            // to a model that would only try again.
+            const innerCode = (e as { code?: unknown }).code
+            if (
+              signal.aborted ||
+              (typeof innerCode === 'string' && CHILD_FAILURE_RETHROWN_CODES.has(innerCode))
+            ) {
+              throw e
+            }
+            // normaliseError is the runtime's own throw → JobError mapping: it
+            // reads `.code`, lifts `httpStatus` / `failedModel` / `diagnostic`
+            // into details alongside a structured `details` the throw already
+            // carried, and preserves `producedAssets` from a sub-agent that
+            // failed with partial work. Using it here is what makes the fresh
+            // path's payload identical to the cached path's.
+            const failure = childToolFailure(normaliseError(e))
+            recordToolResult(failure)
+            return failure
+          }
+          if (child.status === 'error') {
+            // The CACHED-error path: the child resolved to a stored errored
+            // job rather than running (a store whose dedup gate withholds
+            // errored rows never produces this).
+            const failure = childToolFailure(child.error)
+            recordToolResult(failure)
+            return failure
           }
           // Envelope: count each successful tool dispatch.
           envelopeToolCount++
@@ -1083,34 +1338,16 @@ deps: AgentDispatchDeps,
             projectToolOutputForModel(stamped ?? child.output),
           )
           // Record the tool-result kind into the transcript so resume can
-          // replay tool outputs alongside assistant text. Skipped if no store
-          // was injected. Failure to append is logged but never blocks the
-          // agent loop (the in-flight LLM call is more important than the log).
+          // replay tool outputs alongside assistant text.
           //
           // What goes in is `modelFacing`, never `child.output`: the transcript
-          // is replayed straight back into model context on resume
-          // (`transcriptMessageToChat` returns it as a `tool` turn verbatim),
-          // so it must hold exactly what the model saw the first time. Storing
-          // the raw output did two wrong things at once — persisted real
-          // assetIds and signed provider URLs in a host store, and then fed a
-          // payload the model had never seen into its context on resume,
-          // bypassing the projection above.
-          if (store) {
-            const toolResultMsg: TranscriptMessage = {
-              seq: transcriptSeq++,
-              ts: Date.now(),
-              kind: 'tool-result',
-              raw: { name, output: modelFacing, pattern_id: fullId },
-            }
-            void store
-              .append(runId, agentId, toolResultMsg)
-              .catch((err: unknown) => {
-                deps.logger.warn(
-                  `[dispatchAgent] transcriptStore.append (tool-result) failed for ${runId}/${agentId} seq=${toolResultMsg.seq}:`,
-                  err,
-                )
-              })
-          }
+          // is replayed straight back into model context on resume, so it must
+          // hold exactly what the model saw the first time. Storing the raw
+          // output did two wrong things at once — persisted real assetIds and
+          // signed provider URLs in a host store, and then fed a payload the
+          // model had never seen into its context on resume, bypassing the
+          // projection above.
+          recordToolResult(modelFacing)
           return modelFacing
         }
 

@@ -586,13 +586,17 @@ describe('agent→meta sub-step asset context', () => {
         inputs: z.object({ prompt: z.string().optional() }),
       },
       outputs: IMAGE_OUTPUT,
-      compose: async (_params: unknown, ctx: { step: (ref: unknown) => Promise<{ value: unknown }> }) => {
-        const { value } = await ctx.step({
+      // `ctx.step` resolves to the child's VALUE (`.withMeta()` is the
+      // `{ value, meta }` form), so the step's output is returned as-is and
+      // conforms to the meta's declared IMAGE_OUTPUT. Destructuring a `value`
+      // off it returned undefined and failed the dispatch-exit output gate —
+      // invisible while a failed child dispatch rejected out of the loop, and
+      // named as SUBAGENT_TOOL_FAILED the moment it became a tool result.
+      compose: async (_params: unknown, ctx: { step: (ref: unknown) => Promise<unknown> }) =>
+        await ctx.step({
           patternId: 'image-gen',
           input: { prompt: 'inner edit', references: { source: 'image_1' } },
-        })
-        return value
-      },
+        }),
     } as unknown as AgentPattern
   }
 
@@ -667,7 +671,7 @@ describe('agent→meta sub-step asset context', () => {
     expect(subStep?.contextId).not.toBe('sess-1')
   })
 
-  it('meta sub-step throws DUAL_SOURCE_SINGLE_SLOT when a caller handle and an internal asset target the same single slot', async () => {
+  it('meta sub-step DUAL_SOURCE_SINGLE_SLOT reaches the loop as SUBAGENT_TOOL_FAILED', async () => {
     const bridge = new FakeBridge()
     const capture = { results: [] as unknown[] }
     const runImpl = makeRunImpl({
@@ -695,16 +699,20 @@ describe('agent→meta sub-step asset context', () => {
     })
 
     // The throw happens inside the meta's compose (before any child submit) and
-    // propagates as a hard failure — the job settles in error, unlike a
-    // recoverable resolution error which self-corrects into a tool-result. The
-    // first dispatch still produced image_1, so the reference genuinely resolved
-    // and the guard fired on a real dual-source clash (not a HANDLE_NOT_FOUND
-    // miss).
+    // unwinds the meta's own job — but it reaches the AGENT as a tool result,
+    // not as a rejection: a failed child dispatch is data the loop reads and
+    // acts on (docs/plan.md, "Open decisions — 4"), so the agent job settles
+    // `done` and the guard's own code rides in `inner_code`. The first dispatch
+    // still produced image_1, so the reference genuinely resolved and the guard
+    // fired on a real dual-source clash (not a HANDLE_NOT_FOUND miss).
     const job = await rt.submitJob({
       patternId: 'agent_test', input: { prompt: 'go' }, sessionId: 'sess-1',
     })
-    expect(job.status).toBe('error')
-    expect(job.error?.message).toMatch(/DUAL_SOURCE_SINGLE_SLOT: slot "source"/)
+    expect(job.status).toBe('done')
+    const metaResult = capture.results[1] as { code?: string; inner_code?: string; message?: string }
+    expect(metaResult.code).toBe('SUBAGENT_TOOL_FAILED')
+    expect(metaResult.inner_code).toBe('DUAL_SOURCE_SINGLE_SLOT')
+    expect(metaResult.message).toMatch(/DUAL_SOURCE_SINGLE_SLOT: slot "source"/)
   })
 })
 
