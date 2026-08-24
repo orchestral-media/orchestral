@@ -36,11 +36,13 @@ import type {
   AgentPattern,
   AtomicPattern,
   CapabilityRouter,
+  DiagnosticsLogger,
   ExecutionContext,
   JobEvent,
   MetaPattern,
   Modality,
   ModelCapability,
+  PatternId,
 } from '@orchestral/core'
 import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
 
@@ -106,6 +108,51 @@ function hopMeta(id: string, childPatternId: string): MetaPattern {
         patternId: childPatternId,
         input: { prompt: (args.input as { prompt?: string }).prompt ?? 'x' },
       })
+      return { done: true }
+    },
+  } as unknown as MetaPattern
+}
+
+/**
+ * A meta that steps into each of `steps` in order and, unless
+ * `declares: 'nothing'`, DECLARES that step list through `plannedDispatches`.
+ * Declaration and behaviour agree by construction, which is the point: the
+ * guard judges the declaration, and the compose below is what actually spends
+ * if the guard lets the call through (each step is one fake-model call, so
+ * `calls.count` distinguishes "refused before submitChild" from "refused
+ * after").
+ *
+ * `declares: 'throws'` is the pattern-author bug case — a declaration that
+ * raises instead of returning a list.
+ */
+function declaringMeta(
+  id: string,
+  steps: readonly string[],
+  declares: 'steps' | 'nothing' | 'throws' = 'steps',
+): MetaPattern {
+  return {
+    id,
+    kind: 'meta',
+    description: `meta stepping into ${steps.join(', ')}`,
+    tool: { description: id, inputs: PROMPT_INPUT },
+    outputs: z.object({ done: z.boolean() }),
+    ...(declares === 'nothing'
+      ? {}
+      : {
+          plannedDispatches:
+            declares === 'throws'
+              ? () => {
+                  throw new Error('plannedDispatches is buggy')
+                }
+              : () => steps as readonly PatternId[],
+        }),
+    async compose(args: { input: unknown }, ctx: ExecutionContext) {
+      for (const step of steps) {
+        await ctx.step({
+          patternId: step as PatternId,
+          input: { prompt: (args.input as { prompt?: string }).prompt ?? 'x' },
+        })
+      }
       return { done: true }
     },
   } as unknown as MetaPattern
@@ -189,6 +236,8 @@ function makeHarness(opts: {
   patterns: readonly (AtomicPattern | MetaPattern | AgentPattern)[]
   scripts: Record<string, ToolStep[]>
   maxAgentDepth?: number
+  /** The runtime's diagnostics seam — injected only where a test asserts on it. */
+  logger?: DiagnosticsLogger
 }): Harness {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of opts.patterns) registry.register(p as never)
@@ -209,6 +258,7 @@ function makeHarness(opts: {
       runtime.subscribe(jobId, (ev) => events.push(ev))
     },
     ...(opts.maxAgentDepth !== undefined ? { maxAgentDepth: opts.maxAgentDepth } : {}),
+    ...(opts.logger ? { logger: opts.logger } : {}),
   })
   return {
     runtime,
@@ -255,6 +305,9 @@ interface GuardVerdict {
   code?: string
   pattern_id?: string
   caller_pattern_id?: string
+  /** Present only on a declared-dispatch refusal: the inner id that offended. */
+  via?: string
+  reason?: 'prefix' | 'id'
   allowlist?: readonly string[]
   ancestors?: readonly string[]
   message?: string
@@ -738,5 +791,250 @@ describe('job:tool-rejected', () => {
     // The successful call DID broker a tool use, so the counter moved — which
     // is what makes the 0 asserted above meaningful.
     expect(h.runtime.getAgentEnvelope(job.id)?.totalToolUseCount).toBe(1)
+  })
+})
+
+// ── plannedDispatches — the same three guards, one level down ──────────────
+//
+// The three guards above judge the id the loop asked for. A meta reached
+// THROUGH that call inherits nothing today: `_submitJobInternal` checks only
+// `registry.get`, and `ctx.step` adds only DUPLICATE_STEP_ID /
+// CIRCULAR_META_STEP — so a meta in `toolPatternIds` can step into anything
+// registered, including patterns the agent was never scoped to. When a meta
+// DECLARES its dispatch set (`MetaPattern.plannedDispatches`), every declared
+// id is put through the same three judgements before `submitChild`, and the
+// first offender refuses the whole call with nothing dispatched.
+//
+// The refusal is the direct guard's own shape plus `via`, the declared id that
+// offended. `pattern_id` stays the id the loop actually called, so the model
+// can tell WHICH of its calls was refused; `via` tells it why.
+//
+// Two negative controls carry as much weight as the refusals: an in-scope
+// declaration must still dispatch (a guard stuck on "refuse everything" would
+// break every plan), and an UNDECLARED meta must still be able to step out of
+// scope (that bypass is deliberately left open here — see below).
+describe('plannedDispatches', () => {
+  it('refuses an out-of-scope declared dispatch, naming it in `via`', async () => {
+    const h = makeHarness({
+      patterns: [
+        atomic('forbidden_atomic'),
+        declaringMeta('meta_declared', ['forbidden_atomic']),
+        agent('agent_scoped', ['meta_declared']),
+      ],
+      scripts: {
+        agent_scoped: [dispatchStep('meta_declared', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_scoped',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+    expect(job.error).toBeNull()
+
+    const verdict = h.results.agent_scoped?.[0] as GuardVerdict
+    expect(verdict.code).toBe('SUBAGENT_TOOL_OUT_OF_SCOPE')
+    // The call the model made, and the declared step that sank it.
+    expect(verdict.pattern_id).toBe('meta_declared')
+    expect(verdict.via).toBe('forbidden_atomic')
+    expect(verdict.caller_pattern_id).toBe('agent_scoped')
+    expect(verdict.allowlist).toEqual(['meta_declared'])
+    expect(verdict.message).toContain('forbidden_atomic')
+
+    // Nothing was dispatched: the meta's compose never ran, so its step never
+    // reached the fake model. A guard that refused AFTER submitChild would
+    // have paid for the call it was refusing.
+    expect(h.calls.count).toBe(0)
+    // ... and the refused call brokered no tool use.
+    expect(h.runtime.getAgentEnvelope(job.id)?.totalToolUseCount).toBe(0)
+
+    // Host-visible, on the agent's own stream, ahead of the terminal event.
+    const evs = rejections(h)
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    expect(ev.code).toBe('SUBAGENT_TOOL_OUT_OF_SCOPE')
+    expect(ev.patternId).toBe('meta_declared')
+    expect(ev.callerPatternId).toBe('agent_scoped')
+    if (ev.code !== 'SUBAGENT_TOOL_OUT_OF_SCOPE') throw new Error('unreachable')
+    expect(ev.allowlist).toEqual(['meta_declared'])
+    expect(h.events.indexOf(ev)).toBeLessThan(terminalIndex(h, job.id))
+  })
+
+  it('refuses a blocklisted declared dispatch (SUBAGENT_BLOCKED + via)', async () => {
+    // `agent_blocked` is IN the agent's allowlist (the authoring mistake the
+    // blocklist exists to catch) and NOT on the ancestor chain, so the
+    // blocklist is the only one of the three that can fire — the same setup as
+    // the direct-guard case above, one level down.
+    const h = makeHarness({
+      patterns: [
+        agent('agent_blocked', []),
+        declaringMeta('meta_declared', ['agent_blocked']),
+        agent('agent_caller', ['meta_declared', 'agent_blocked']),
+      ],
+      scripts: {
+        agent_caller: [dispatchStep('meta_declared', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_caller',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+
+    const verdict = h.results.agent_caller?.[0] as GuardVerdict
+    expect(verdict.code).toBe('SUBAGENT_BLOCKED')
+    expect(verdict.pattern_id).toBe('meta_declared')
+    expect(verdict.via).toBe('agent_blocked')
+    // `agent_` is a blocklist id PREFIX, not an exact id — and the half that
+    // matched is judged on the DECLARED id, not on the meta.
+    expect(verdict.reason).toBe('prefix')
+    expect(h.calls.count).toBe(0)
+
+    const evs = rejections(h)
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    expect(ev.code).toBe('SUBAGENT_BLOCKED')
+    if (ev.code !== 'SUBAGENT_BLOCKED') throw new Error('unreachable')
+    expect(ev.matched).toBe('prefix')
+    expect(ev.patternId).toBe('meta_declared')
+  })
+
+  it('refuses a declared dispatch of a pattern on the ancestor chain', async () => {
+    // agent_ring --tool--> meta_hop --step--> agent_leaf --tool-->
+    // meta_declared, which declares it would step back into meta_hop. At
+    // agent_leaf the visited set is {agent_ring, meta_hop, agent_leaf}, so the
+    // declaration closes the ring one level below the call the loop made.
+    // meta_hop is in agent_leaf's allowlist and carries no blocklist prefix,
+    // so the ancestor check is the only one that can fire.
+    const h = makeHarness({
+      patterns: [
+        agent('agent_ring', ['meta_hop']),
+        hopMeta('meta_hop', 'agent_leaf'),
+        declaringMeta('meta_declared', ['meta_hop']),
+        agent('agent_leaf', ['meta_declared', 'meta_hop']),
+      ],
+      scripts: {
+        agent_ring: [dispatchStep('meta_hop', 'down', 'tc-ring')],
+        agent_leaf: [dispatchStep('meta_declared', 'again', 'tc-leaf')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_ring',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+
+    const verdict = h.results.agent_leaf?.[0] as GuardVerdict
+    expect(verdict.code).toBe('CIRCULAR_AGENT_TOOL')
+    expect(verdict.pattern_id).toBe('meta_declared')
+    expect(verdict.via).toBe('meta_hop')
+    expect(verdict.caller_pattern_id).toBe('agent_leaf')
+    expect(verdict.ancestors).toEqual(['agent_ring', 'meta_hop', 'agent_leaf'])
+    expect(verdict.message).toContain('meta_declared → meta_hop')
+
+    const evs = rejections(h)
+    expect(evs).toHaveLength(1)
+    const ev = evs[0]!
+    expect(ev.code).toBe('CIRCULAR_AGENT_TOOL')
+    if (ev.code !== 'CIRCULAR_AGENT_TOOL') throw new Error('unreachable')
+    expect(ev.ancestors).toEqual(['agent_ring', 'meta_hop', 'agent_leaf'])
+    // Fired on the nested agent's job, not the root's.
+    expect(ev.job.id).not.toBe(job.id)
+  })
+
+  it('lets a fully in-scope declaration through (positive control)', async () => {
+    const h = makeHarness({
+      patterns: [
+        atomic('allowed_atomic'),
+        declaringMeta('meta_declared', ['allowed_atomic']),
+        agent('agent_scoped', ['meta_declared', 'allowed_atomic']),
+      ],
+      scripts: {
+        agent_scoped: [dispatchStep('meta_declared', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_scoped',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+    // The meta ran: its declared step reached the fake model and its own
+    // declared output came back to the loop, with no guard code in sight.
+    expect(h.results.agent_scoped?.[0]).toEqual({ done: true })
+    expect(h.calls.count).toBe(1)
+    expect(rejections(h)).toEqual([])
+    expect(h.runtime.getAgentEnvelope(job.id)?.totalToolUseCount).toBe(1)
+  })
+
+  it('leaves an UNDECLARED meta free to step outside the allowlist (status quo, pinned)', async () => {
+    // The bypass this guard deliberately does NOT close: docs/plan.md, "We
+    // don't close the allowlist bypass for hand-written metas here" — it
+    // predates plans, this suite's own A → B → A ring depends on a meta
+    // stepping into a pattern the agent never listed, and closing it is a
+    // decision about every meta rather than a property of plannedDispatches.
+    // `plannedDispatches` absent means "not knowable", so the call proceeds
+    // exactly as it did before this guard existed.
+    const h = makeHarness({
+      patterns: [
+        atomic('forbidden_atomic'),
+        declaringMeta('meta_silent', ['forbidden_atomic'], 'nothing'),
+        agent('agent_scoped', ['meta_silent']),
+      ],
+      scripts: {
+        agent_scoped: [dispatchStep('meta_silent', 'go', 'tc-1')],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_scoped',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+    expect(h.results.agent_scoped?.[0]).toEqual({ done: true })
+    // forbidden_atomic is nowhere in agent_scoped's allowlist, and it ran.
+    expect(h.calls.count).toBe(1)
+    expect(rejections(h)).toEqual([])
+  })
+
+  it('treats a THROWING declaration as undeclared, reporting it on the diagnostics seam', async () => {
+    // A declaration is an author's optional hint evaluated on the dispatch
+    // path. If it throws, the guard must add no crash path and no refusal: a
+    // buggy `plannedDispatches` would otherwise be a denial of service written
+    // by the pattern author, and a fail-closed guard here would make opting in
+    // strictly riskier than staying silent. The attempt has no job of its own
+    // to report on, so it goes to the injected DiagnosticsLogger — never the
+    // console, which the runtime does not own.
+    const warns: Array<{ message: string; detail?: unknown }> = []
+    const logger: DiagnosticsLogger = {
+      warn: (message, detail) => warns.push({ message, detail }),
+      error: () => undefined,
+    }
+    const h = makeHarness({
+      patterns: [
+        atomic('forbidden_atomic'),
+        declaringMeta('meta_buggy', ['forbidden_atomic'], 'throws'),
+        agent('agent_scoped', ['meta_buggy']),
+      ],
+      scripts: {
+        agent_scoped: [dispatchStep('meta_buggy', 'go', 'tc-1')],
+      },
+      logger,
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_scoped',
+      input: { prompt: 'start' },
+    })
+    // Dispatch proceeded, exactly as for an undeclared meta.
+    expect(job.status).toBe('done')
+    expect(job.error).toBeNull()
+    expect(h.results.agent_scoped?.[0]).toEqual({ done: true })
+    expect(h.calls.count).toBe(1)
+    expect(rejections(h)).toEqual([])
+
+    // ... and the host was told, by name, that this meta's steps went
+    // unchecked.
+    const noted = warns.filter((w) => w.message.includes('plannedDispatches'))
+    expect(noted).toHaveLength(1)
+    expect(noted[0]!.message).toContain('meta_buggy')
+    expect((noted[0]!.detail as Error).message).toBe('plannedDispatches is buggy')
   })
 })
