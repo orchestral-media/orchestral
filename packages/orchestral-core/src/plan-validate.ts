@@ -341,7 +341,7 @@ class PlanWalk {
     const target = this.ruleTargetPattern(step)
     // The grammar rules run whatever the target is: they are about the shape of
     // the graph, and an unresolvable pattern must not hide a forward reference.
-    this.walkInputStrings(step)
+    this.walkInputStrings(step, target)
     this.ruleSerialisable(step)
     this.walkStepAssets(step, target)
     if (target === undefined) return
@@ -426,7 +426,28 @@ class PlanWalk {
   }
 
   /** Deep-walk `step.input`, applying rules 4 and 7 to 9 to every string. */
-  private walkInputStrings(step: StepView): void {
+  private walkInputStrings(step: StepView, target: Pattern | undefined): void {
+    // A step whose target is itself a plan does not get the grammar rules.
+    // `origin: 'plan'` means the pattern was interpreted from a step list, and
+    // for the one-shot (`meta_plan`) the step's whole `input` IS another DAG:
+    // its `$refs` name the INNER plan's steps, so walking them against THIS
+    // plan's ids reports refusals that are simply false — `$take-0.assets[0]`
+    // inside a nested DAG is not this plan's `PLAN_REF_INTO_ASSETS`, and
+    // `$input.prompt` there binds the inner plan's parameters, not ours.
+    //
+    // The field cannot tell that case apart from a PERSISTED plan, whose input
+    // is ordinary parameters that a `$ref` may legitimately fill. So the rule
+    // fails open for both rather than accusing the first: an outer ref into a
+    // nested plan's parameters goes unchecked here and is caught by layer 2 at
+    // the step, which is the trade this walk makes everywhere it cannot read a
+    // shape (a false refusal blocks a legal plan; a missed typo costs one step).
+    //
+    // The heads still count as reads, or rule 22 would call a step nothing
+    // reads unused purely because its only reader is a nested plan.
+    if (target?.origin === 'plan') {
+      collectRefHeads(step.input, this.referenced)
+      return
+    }
     const visit = (
       value: unknown,
       path: (string | number)[],
@@ -446,14 +467,6 @@ class PlanWalk {
         return
       }
       if (isRecord(value)) {
-        // TODO(plan-fields): when the target is itself a plan meta, this
-        // subtree IS another DAG, and its `$refs` name the INNER plan's steps —
-        // walking them against this plan's ids reports refusals that are simply
-        // false, and rule 21's ref-suppression then swallows the nested
-        // `planRefine`'s real ones. Skipping the descent needs to know which
-        // patterns are plans, which is `PatternBase.origin === 'plan'` — a
-        // field landing in the sibling change. Until then, do not nest a plan
-        // meta as a plan step.
         for (const [k, v] of Object.entries(value)) visit(v, [...path, k], depth + 1)
       }
     }
@@ -1038,6 +1051,31 @@ function parseAssetRef(value: string): ParsedAssetRef | null {
   return selector.startsWith('label=')
     ? { head: m[1], label: selector.slice('label='.length) }
     : { head: m[1], index: Number(selector) }
+}
+
+/**
+ * Add the head of every whole-string reference in `value` to `into`, reporting
+ * nothing. Used for a subtree the grammar rules deliberately skip (a nested
+ * plan's own DAG): the refusals would be false, but a head that names one of
+ * THIS plan's steps is still a read, and rule 22 has to see it or an
+ * only-consumed-by-a-nested-plan step reads as unused.
+ */
+function collectRefHeads(value: unknown, into: Set<string>, depth = 0): void {
+  // Same cap the reporting walk uses: `validatePlan` promises never to throw,
+  // and a cyclic host-constructed input is rule 24's problem, not a RangeError.
+  if (depth > MAX_INPUT_DEPTH) return
+  if (typeof value === 'string') {
+    const head = parseValueRef(value)?.head ?? parseAssetRef(value)?.head
+    if (head !== undefined && head !== 'input') into.add(head)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectRefHeads(entry, into, depth + 1)
+    return
+  }
+  if (isRecord(value)) {
+    for (const v of Object.values(value)) collectRefHeads(v, into, depth + 1)
+  }
 }
 
 /** The first `$<known>.…` run inside `value`, or null. Rule 9's needle. */

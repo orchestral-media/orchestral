@@ -31,7 +31,15 @@ beforeAll(async () => {
   )) as Readonly<Record<string, unknown>>
 })
 
-/** Host ops @orchestral/patterns declares — stubs; nothing dispatches here. */
+/**
+ * Host ops @orchestral/patterns declares — stubs; nothing dispatches here.
+ *
+ * `getPattern` is not media work: `meta_plan` interprets a step list and has to
+ * read the registry to do it, and `requiredOps` is the one channel a
+ * manifest-loaded factory has for a host function (`compose` receives no
+ * registry, a factory receives only `ops`). A real host passes
+ * `(id) => registry.get(id)`.
+ */
 const OPS = {
   concatVideos: async () => ({ assetId: 'v' }),
   stillToVideo: async () => ({ assetId: 'v' }),
@@ -39,6 +47,7 @@ const OPS = {
   addSubtitles: async () => ({ assetId: 'v' }),
   createSubtitleAsset: async () => ({ assetId: 's' }),
   recordSessionAsset: async () => ({ handle: 'image_1' }),
+  getPattern: () => undefined,
 }
 
 describe('@orchestral/patterns manifest', () => {

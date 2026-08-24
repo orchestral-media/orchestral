@@ -791,6 +791,101 @@ describe('validatePlan — the walk fails open when it cannot introspect', () =>
   })
 })
 
+describe('validatePlan — a step whose target is itself a plan', () => {
+  /**
+   * `origin: 'plan'` means the pattern was interpreted from a step list, and
+   * for the one-shot the step's whole `input` IS another DAG. Its `$refs` name
+   * the INNER plan's steps, so the outer walk must not read them as its own.
+   */
+  const nestedPlanStub: MetaPattern = {
+    id: 'meta_nested-plan',
+    kind: 'meta',
+    origin: 'plan',
+    description: 'A plan, called as a step of another plan.',
+    tool: { description: 'Run a nested plan.', inputs: PlanDagSchema },
+    outputs: PlanOutputSchema,
+    compose: async () => {
+      throw new Error('stub compose is never executed')
+    },
+  }
+  const nestedLookup = makeLookup([...ALL_STUBS, nestedPlanStub as unknown as Pattern])
+
+  /** An inner DAG whose refs would every one of them be wrong out here. */
+  const innerDag = {
+    steps: [
+      { id: 'take', pattern: 'text-to-image', input: { prompt: '$input.subject' } },
+      {
+        id: 'clip',
+        pattern: 'image-to-video',
+        input: { prompt: 'slow pan' },
+        assets: { startFrame: '$take.assets[0]' },
+      },
+    ],
+    output: { assets: [{ from: '$clip.assets[0]', label: 'clip' }] },
+  }
+
+  it("the inner plan's own $refs produce no outer-plan problems", () => {
+    const dag: PlanDag = {
+      steps: [{ id: 'inner', pattern: 'meta_nested-plan', input: innerDag }],
+      output: { assets: [{ from: '$inner.assets[label=clip]', label: 'clip' }] },
+    }
+    // Without the origin check the outer walk reports, at minimum:
+    // PLAN_REF_INPUT_NOT_ALLOWED for `$input.subject` (this plan takes no
+    // parameters), PLAN_REF_UNKNOWN_STEP for `$take.assets[0]` (no step named
+    // `take` out here), and PLAN_REF_INTO_ASSETS on top of it.
+    expect(validatePlan(dag, nestedLookup, {})).toEqual([])
+  })
+
+  it('a ref into the nested plan still counts as reading the step it names', () => {
+    // The outer `describe` step is read ONLY from inside the nested DAG. Rule
+    // 22 must still see that read, or skipping the descent would trade a false
+    // PLAN_REF_* for a false PLAN_STEP_UNUSED.
+    const dag: PlanDag = {
+      steps: [
+        {
+          id: 'describe',
+          pattern: 'text-generation',
+          input: { prompt: 'a red bicycle' },
+        },
+        {
+          id: 'inner',
+          pattern: 'meta_nested-plan',
+          input: {
+            ...innerDag,
+            steps: [
+              { id: 'take', pattern: 'text-to-image', input: { prompt: '$describe.text' } },
+              innerDag.steps[1],
+            ],
+          },
+        },
+      ],
+      output: { assets: [{ from: '$inner.assets[label=clip]', label: 'clip' }] },
+    }
+    expect(validatePlan(dag, nestedLookup, {})).toEqual([])
+  })
+
+  it('an ordinary meta step is still walked — the skip is keyed on origin alone', () => {
+    const dag: PlanDag = {
+      steps: [
+        {
+          id: 'hero',
+          pattern: 'meta_image-best-of-n',
+          input: {
+            innerPatternId: 'text-to-image',
+            innerInput: { prompt: '$nowhere.text' },
+            n: 3,
+            targetDescription: 'a red bicycle',
+          },
+        },
+      ],
+      output: { assets: [{ from: '$hero.assets[label=winner]', label: 'hero' }] },
+    }
+    expect(codesOf(validatePlan(dag, nestedLookup, {}))).toEqual([
+      'PLAN_REF_UNKNOWN_STEP',
+    ])
+  })
+})
+
 describe('validatePlan — rule 14, PLAN_PATTERN_NOT_ALLOWED', () => {
   it('refuses a pattern outside the allowlist an agent loop inherits', () => {
     const problems = validatePlan(bicycle(), lookup, {

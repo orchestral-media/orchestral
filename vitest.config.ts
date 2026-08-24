@@ -16,6 +16,7 @@ export default defineConfig({
       './examples/atomic-hello-world/vitest.config.ts',
       './examples/agent-hello-world/vitest.config.ts',
       './examples/incremental-rerun/vitest.config.ts',
+      './examples/plan-short-clip/vitest.config.ts',
       './examples/consented-fallback/vitest.config.ts',
       './examples/long-form-video/vitest.config.ts',
     ],
