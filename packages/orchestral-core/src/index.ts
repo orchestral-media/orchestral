@@ -101,6 +101,36 @@ export {
   type SlashDispatchResolution,
 } from './slash-dispatch'
 
+// ── Plan ─────────────────────────────────────────────────────────────────
+// The wire schema for a pipeline authored as data — a meta whose compose is a
+// list of `$`-referencing steps — plus the walk that lists everything wrong
+// with one before any of it is dispatched. Core carries the contract only: the
+// interpreter that executes a DAG (`planToMeta`) lives in
+// `@orchestral/patterns`, where the label and cost conventions it needs are.
+export {
+  PLAN_ASSET_REF_RE,
+  PLAN_STEP_ID_RE,
+  PLAN_VALUE_REF_RE,
+  PlanDagSchema,
+  PlanOutputSchema,
+  PlanRetrySchema,
+  PlanStepSchema,
+  type PlanDag,
+  type PlanOutput,
+  type PlanRetry,
+  type PlanStep,
+} from './plan'
+export {
+  assertPlanValid,
+  planRefine,
+  PlanInvalidError,
+  validatePlan,
+  type PlanPatternLookup,
+  type PlanProblem,
+  type PlanProblemCode,
+  type PlanValidateOptions,
+} from './plan-validate'
+
 // ── Tool-output sanitizer (defense-in-depth) ─────────────────────────────
 export { sanitizeToolOutput } from './sanitize'
 export type {
@@ -229,6 +259,7 @@ export { PatternRegistry } from './registry'
 export type {
   AddFromManifestOptions,
   AddFromManifestResult,
+  PatternScope,
   RegistryEntry,
   SkippedManifestPattern,
 } from './registry'

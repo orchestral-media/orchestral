@@ -257,6 +257,52 @@ export class PatternRegistry {
   }
 
   /**
+   * A disposable group of registrations — the shape a session-scoped Pattern
+   * needs, most obviously a plan a model authored for one job.
+   *
+   *     const scope = registry.scope()
+   *     scope.add(planToMeta(dag, { id: `meta_plan-${slug}`, lookup: registry }))
+   *     try { await runtime.submitJob({ patternId: `meta_plan-${slug}`, ... }) }
+   *     finally { scope.dispose() }
+   *
+   * **This is not a lifecycle: nothing fires it, the host calls it.** There is
+   * no revision counter, no listener, no activation step — dispatch re-reads
+   * this Map on every step, so a registration is live the moment `add` returns
+   * and gone the moment `dispose` does.
+   *
+   * Two rules the shape does not enforce, both of which cost a running job:
+   *
+   *   • **Dispose only after the job is terminal.** A meta's constituent
+   *     patterns are re-read at every step, not resolved once at submit, so
+   *     disposing mid-run makes step 3 fail with PATTERN_NOT_REGISTERED after
+   *     steps 1 and 2 were paid for. (The scoped Pattern itself is held by
+   *     `submitJob`, so disposing *it* mid-run is harmless — its dependencies
+   *     are not.)
+   *   • **Register temporary patterns `exposure: 'no-tool'`.** A sub-agent's
+   *     `find_pattern` indexes the registry at each dispatch, so anything
+   *     registered under a default exposure becomes another loop's tool for as
+   *     long as the scope lives.
+   */
+  scope(): PatternScope {
+    const ids: PatternId[] = []
+    return {
+      add: (spec) => {
+        // `this.add` is the sugar-expanding entry point; remember the id only
+        // once it has actually taken, so a duplicate throw leaves nothing
+        // half-owned in the scope.
+        this.add(spec)
+        ids.push(spec.id)
+      },
+      dispose: () => {
+        // splice() empties the list, so a second dispose is a no-op rather than
+        // a second round of unregister calls; unregister itself returns false
+        // for an id a host already removed by hand.
+        for (const id of ids.splice(0)) this.unregister(id)
+      },
+    }
+  }
+
+  /**
    * Register everything a pattern package declares in its package.json
    * `"orchestral"` field (see [manifest.ts](./manifest.ts)).
    *
@@ -549,6 +595,20 @@ export class PatternRegistry {
 export interface RegistryEntry {
   pattern: Pattern
   alternatives: readonly Alternative<unknown, unknown>[]
+}
+
+/**
+ * A disposable group of registrations, returned by
+ * {@link PatternRegistry.scope}. See that method for the two rules that come
+ * with it — and for why it is not a lifecycle.
+ */
+export interface PatternScope {
+  /** `registry.add`, plus remembering the id for `dispose`. */
+  add<I = unknown, O = unknown>(
+    spec: Pattern<I, O> & { alternatives?: readonly Alternative<I, O>[] },
+  ): void
+  /** Unregister everything this scope added. Idempotent. */
+  dispose(): void
 }
 
 /**

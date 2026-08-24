@@ -129,6 +129,7 @@ export interface DeriveIdempotencyKeyInput {
     // (undocumented)
     sessionId?: string;
     stepIndex?: number;
+    stepKey?: string;
 }
 
 // @alpha (undocumented)

@@ -305,6 +305,9 @@ export interface AskUserRequest<TPayload = unknown> {
 }
 
 // @public
+export function assertPlanValid(dag: PlanDag, lookup: PlanPatternLookup, opts?: PlanValidateOptions): void;
+
+// @public
 export function assertSupportedModelSpecVersion(model: {
     readonly specificationVersion?: ModelSpecVersion;
     readonly provider: string;
@@ -950,6 +953,7 @@ export interface JobSpec<TInput = unknown> {
     sessionId?: string;
     stepIdNamespace?: string;
     stepIndex?: number;
+    stepKey?: string;
 }
 
 // @public (undocumented)
@@ -1067,6 +1071,7 @@ export interface MetaPattern<I = unknown, O = unknown> extends PatternBase<I, O>
     }, ctx: ExecutionContext): Promise<O>;
     // (undocumented)
     kind: 'meta';
+    plannedDispatches?: (input: I) => readonly PatternId[];
     tool: ToolDescriptor<I>;
 }
 
@@ -1287,6 +1292,7 @@ export interface PatternBase<I = unknown, O = unknown> {
     // (undocumented)
     id: PatternId;
     namespace?: NamespaceId;
+    origin?: 'plan';
     outputs: ZodSchema<O>;
     primary?: PrimaryPath<I>;
     searchHint?: string;
@@ -1370,12 +1376,21 @@ export class PatternRegistry {
         alternatives?: readonly Alternative<I, O>[];
     }): void;
     resolveShortName(short: string): PatternId | undefined;
+    scope(): PatternScope;
     // (undocumented)
     size(): number;
     // (undocumented)
     unregister(id: PatternId): boolean;
     // (undocumented)
     values(): IterableIterator<Pattern>;
+}
+
+// @public
+export interface PatternScope {
+    add<I = unknown, O = unknown>(spec: Pattern<I, O> & {
+        alternatives?: readonly Alternative<I, O>[];
+    }): void;
+    dispose(): void;
 }
 
 // @public
@@ -1386,6 +1401,152 @@ export type PermissionResult = {
     reason: string;
     remedy?: 'reauthorize' | 'reduce-scope' | 'manual';
 };
+
+// @public (undocumented)
+export const PLAN_ASSET_REF_RE: RegExp;
+
+// @public (undocumented)
+export const PLAN_STEP_ID_RE: RegExp;
+
+// @public (undocumented)
+export const PLAN_VALUE_REF_RE: RegExp;
+
+// @public (undocumented)
+export type PlanDag = z.infer<typeof PlanDagSchema>;
+
+// @public (undocumented)
+export const PlanDagSchema: z.ZodObject<{
+    description: z.ZodOptional<z.ZodString>;
+    steps: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        pattern: z.ZodString;
+        input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
+        retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            kind: z.ZodLiteral<"none">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"exponential">;
+            maxAttempts: z.ZodNumber;
+            baseMs: z.ZodNumber;
+            maxMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"fixed">;
+            maxAttempts: z.ZodNumber;
+            delayMs: z.ZodNumber;
+        }, z.core.$strict>], "kind">>;
+    }, z.core.$strict>>;
+    output: z.ZodObject<{
+        assets: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            label: z.ZodString;
+        }, z.core.$strict>>>;
+        values: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }, z.core.$strict>;
+}, z.core.$strict>;
+
+// @public
+export class PlanInvalidError extends Error {
+    constructor(problems: readonly PlanProblem[]);
+    // (undocumented)
+    readonly code = "PLAN_INVALID";
+    // (undocumented)
+    readonly details: {
+        problems: readonly PlanProblem[];
+    };
+}
+
+// @public (undocumented)
+export type PlanOutput = z.infer<typeof PlanOutputSchema>;
+
+// @public
+export const PlanOutputSchema: z.ZodObject<{
+    assets: z.ZodArray<z.ZodObject<{
+        assetId: z.ZodString;
+        modality: z.ZodEnum<{
+            image: "image";
+            audio: "audio";
+            video: "video";
+        }>;
+        url: z.ZodOptional<z.ZodString>;
+        label: z.ZodString;
+    }, z.core.$strict>>;
+    values: z.ZodRecord<z.ZodString, z.ZodString>;
+    steps: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        pattern: z.ZodString;
+        cost: z.ZodNullable<z.ZodNumber>;
+    }, z.core.$strict>>;
+    cost: z.ZodNullable<z.ZodNumber>;
+    latencyMs: z.ZodNumber;
+}, z.core.$strict>;
+
+// @public
+export type PlanPatternLookup = Pick<PatternRegistry, 'get' | 'getEntry'>;
+
+// @public
+export interface PlanProblem {
+    // (undocumented)
+    code: PlanProblemCode;
+    details?: Record<string, unknown>;
+    // (undocumented)
+    message: string;
+    path: (string | number)[];
+    stepId?: string;
+}
+
+// @public
+export type PlanProblemCode = 'PLAN_SCHEMA' | 'PLAN_STEP_ID_DUPLICATE' | 'PLAN_STEP_ID_RESERVED' | 'PLAN_REF_SYNTAX' | 'PLAN_REF_UNKNOWN_STEP' | 'PLAN_REF_FORWARD' | 'PLAN_REF_PATH_UNKNOWN' | 'PLAN_REF_INTO_ASSETS' | 'PLAN_REF_INPUT_NOT_ALLOWED' | 'PLAN_PARAM_UNKNOWN' | 'PLAN_REF_IN_LITERAL' | 'PLAN_PATTERN_NOT_FOUND' | 'PLAN_PATTERN_KIND_AGENT' | 'PLAN_PATTERN_SELF' | 'PLAN_PATTERN_NOT_EXPOSED' | 'PLAN_PATTERN_NOT_ALLOWED' | 'PLAN_ASSET_PRODUCER_NONE' | 'PLAN_ASSET_LABEL_UNSUPPORTED' | 'PLAN_SLOT_UNKNOWN' | 'PLAN_SLOT_MODALITY' | 'PLAN_SLOT_CARDINALITY' | 'PLAN_SLOT_DUAL_SOURCE' | 'PLAN_SLOT_REQUIRED_UNBOUND' | 'PLAN_STEP_INPUT_INVALID' | 'PLAN_STEP_UNUSED' | 'PLAN_OUTPUT_LABEL_DUPLICATE' | 'PLAN_INPUT_NOT_SERIALISABLE';
+
+// @public
+export function planRefine(lookup: PlanPatternLookup, opts?: PlanValidateOptions): (dag: PlanDag, ctx: z.core.$RefinementCtx<PlanDag>) => void;
+
+// @public (undocumented)
+export type PlanRetry = z.infer<typeof PlanRetrySchema>;
+
+// @public (undocumented)
+export const PlanRetrySchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+    kind: z.ZodLiteral<"none">;
+}, z.core.$strict>, z.ZodObject<{
+    kind: z.ZodLiteral<"exponential">;
+    maxAttempts: z.ZodNumber;
+    baseMs: z.ZodNumber;
+    maxMs: z.ZodOptional<z.ZodNumber>;
+}, z.core.$strict>, z.ZodObject<{
+    kind: z.ZodLiteral<"fixed">;
+    maxAttempts: z.ZodNumber;
+    delayMs: z.ZodNumber;
+}, z.core.$strict>], "kind">;
+
+// @public (undocumented)
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+
+// @public (undocumented)
+export const PlanStepSchema: z.ZodObject<{
+    id: z.ZodString;
+    pattern: z.ZodString;
+    input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
+    retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+        kind: z.ZodLiteral<"none">;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"exponential">;
+        maxAttempts: z.ZodNumber;
+        baseMs: z.ZodNumber;
+        maxMs: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>, z.ZodObject<{
+        kind: z.ZodLiteral<"fixed">;
+        maxAttempts: z.ZodNumber;
+        delayMs: z.ZodNumber;
+    }, z.core.$strict>], "kind">>;
+}, z.core.$strict>;
+
+// @public
+export interface PlanValidateOptions {
+    allow?: readonly PatternId[];
+    audience?: DispatchAudience;
+    inputs?: z.ZodObject;
+    selfId?: PatternId;
+}
 
 // @public
 export interface PrimaryPath<I = unknown> {
@@ -1664,6 +1825,7 @@ export interface StepMeta {
 
 // @public (undocumented)
 export interface StepOptions {
+    identity?: 'index' | 'id';
     metadata?: Record<string, unknown>;
     retry?: RetryPolicy;
     stepId?: string;
@@ -1754,6 +1916,9 @@ export type Unsubscribe = () => void;
 
 // @public
 export function urlField(max?: number): z.ZodString;
+
+// @public
+export function validatePlan(dag: PlanDag, lookup: PlanPatternLookup, opts?: PlanValidateOptions): PlanProblem[];
 
 // @public
 export const whenAlways: AlternativeAppliesWhen;
