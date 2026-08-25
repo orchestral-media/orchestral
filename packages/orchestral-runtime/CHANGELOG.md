@@ -8,7 +8,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [0.1.0] - 2026-08-21 — Initial public release
+## [0.1.0] - 2026-08-25 — Initial public release
 
 First public release. `@orchestral/runtime` is `InlineRuntime`, the in-process
 reference implementation of `@orchestral/core`'s `Runtime` contract: it submits

@@ -19,10 +19,6 @@ your own model bridge (a ~15-line `call` adapter over the provider SDK you use).
 
 ## Install
 
-> **Not on npm yet** — 0.1.0 publishes shortly. Until then, clone
-> [the repo](https://github.com/orchestral-media/orchestral) and run the
-> examples.
-
 ```sh
 npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 ```

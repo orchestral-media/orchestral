@@ -35,9 +35,6 @@ Different layers, and Orchestral expects you to keep using the others:
 
 ## Quickstart
 
-> **Not on npm yet** — 0.1.0 publishes shortly. Until then, clone this repo and
-> run the examples.
-
 ```sh
 npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 ```
