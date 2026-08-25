@@ -153,7 +153,9 @@ matches, the job fails with a structured `JobError`:
         {
           "id": "via-caption",
           "description": "No image-to-image model is available: caption the source image, then re-render it from that caption plus the edit instruction. …",
-          "targetPatternId": "meta_image-to-image-via-caption"
+          "targetPatternId": "meta_image-to-image-via-caption",
+          "preserves": ["style"],
+          "losses": ["subject-identity", "composition", "mask-guidance"]
         }
       ],
       "hint": "Construct InlineRuntime with `alternatives: 'auto'` …"
@@ -164,14 +166,16 @@ matches, the job fails with a structured `JobError`:
 
 `code` is stable and `details.diagnostic` is machine-readable, so a subscriber
 can offer the degraded path as a choice, and an LLM reading the failed tool
-result can dispatch `targetPatternId` itself. With **no** applicable
-alternative the failure is unchanged: the router's own
-`NO_MODEL_FOR_CAPABILITY`.
+result can dispatch `targetPatternId` itself. Each entry carries the
+alternative's declared `preserves` / `losses` verbatim, so the trade-off can
+be put to a user straight off the refusal, without a lookup back into the
+registry. With **no** applicable alternative the failure is unchanged: the
+router's own `NO_MODEL_FOR_CAPABILITY`.
 
 With `alternatives: 'auto'`, a redirect announces itself with
-`job:alternative-selected` (carrying the alternative's `preserves` / `losses`)
-before the target dispatches, so a degraded completion is still distinguishable
-from a primary one.
+`job:alternative-selected` (carrying that same `preserves` / `losses`) before
+the target dispatches, so a degraded completion is still distinguishable from a
+primary one.
 
 Two boundaries worth knowing:
 
