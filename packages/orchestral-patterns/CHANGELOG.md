@@ -195,6 +195,18 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
 
 ### Known limitations
 
+- **Resubmit does not protect the internals of a nested positional meta.** A
+  plan's own steps are keyed by name (`identity: 'id'`) and come back from the
+  `JobStore` on resubmit. The INTERNAL steps of a shipped meta called as a
+  plan step stay positional on the tree-shared counter, and a plan step that
+  dedupes to a cached row skips its compose — and its subtree's counter
+  consumption. Resubmitting a partly-failed plan that contains two or more
+  such metas can therefore shift the later one's inner indices and re-run
+  (re-pay) inner steps that had completed. This is the engine's documented
+  cost of positional identity (DESIGN.md, "We don't content-hash step ids"),
+  not a plan behavior: the plan neither adds nor removes identity for other
+  metas' internals.
+
 - **`via-caption` image editing is lossy by construction.** When a host has
   opted into automatic alternatives and no image-to-image model is available,
   the job redirects to `meta_image-to-image-via-caption`, which captions the

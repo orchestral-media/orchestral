@@ -461,6 +461,16 @@ export async function runPlan(
   //    provider latency, and the dedup a plan exists for would fail for exactly
   //    the nested metas the grammar tells an author to reach for.
   //
+  //    "The same indices run after run" holds while every earlier step's
+  //    compose actually RUNS. A plan step that dedupes to a cached row skips
+  //    its compose — and its subtree's counter consumption — so resubmitting a
+  //    partly-failed plan that contains two or more nested positional metas
+  //    can shift, and thereby re-pay, the completed inner rows of the later
+  //    one. That is the engine's documented cost of positional identity
+  //    (DESIGN.md, "We don't content-hash step ids"), inherited here, not
+  //    introduced: the plan's OWN steps are immune (`identity: 'id'`), and a
+  //    plan adds no new identity for other metas' internals.
+  //
   //    `parallel` is `Promise.all`: the first rejection rejects the level, no
   //    further level starts, and siblings already in flight complete and
   //    persist — which is what "completed steps stay in the JobStore" means.

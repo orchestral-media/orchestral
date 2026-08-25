@@ -146,9 +146,10 @@ adapter over whichever provider SDK you use.
   It returns `{ registered, skipped }` rather than a bare id list, so a partial
   load is legible.
 
-  `requiredOps` is declared per pattern, not per package: of the 18 patterns in
-  `@orchestral/patterns` only four need the ffmpeg-shaped host operations, and a
-  package-wide list would have made those four enough to render the other
+  `requiredOps` is declared per pattern, not per package: of the 19 patterns in
+  `@orchestral/patterns` only five declare host operations — four the
+  ffmpeg-shaped media ops, `meta_plan` a `getPattern` registry read — and a
+  package-wide list would have made those five enough to render the other
   fourteen unloadable for a host with no ffmpeg. `options.only` loads a subset
   by id (an undeclared id is an error, not a no-op) and `options.missingOps`
   chooses between refusing the load (`'throw'`, the default — fail-closed,
@@ -268,10 +269,12 @@ adapter over whichever provider SDK you use.
   to pre-`stepKey` rows.
 
 - **`registry.scope()`.** A disposable registration scope for session-lived
-  patterns: `scope.add()` registers (exposure defaults to `no-tool`),
-  `scope.dispose()` unregisters what the scope added and nothing else. This is
-  the temporary-plan channel — register an interpreted plan for one session,
-  dispose after the job settles.
+  patterns: `scope.add()` registers, `scope.dispose()` unregisters what the
+  scope added and nothing else. This is the temporary-plan channel — register
+  an interpreted plan for one session, dispose after the job settles. The
+  scope does not touch `exposure`: a bare `add` gets the ordinary `'tool'`
+  default; it is `planToMeta` that defaults its product to `'no-tool'`, which
+  is what keeps a session plan out of other loops' catalogs.
 
 - **`job:tool-rejected` gains `via?`.** When a refusal was judged one level
   down — against a declared inner dispatch of the called meta rather than the

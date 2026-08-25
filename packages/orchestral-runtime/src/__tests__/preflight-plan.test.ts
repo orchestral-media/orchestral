@@ -774,6 +774,63 @@ describe('preflightPlan — meta steps', () => {
     expect(report.ok).toBe(true)
   })
 
+  it('does not forward audience into the nested walk — the outer gate already passed', () => {
+    // A packaged plan whose inner step targets a host-only helper. The runtime
+    // runs it: `runPlan` validates the inner DAG with no audience ("the
+    // surface was checked at the boundary") and `ctx.step` has no exposure
+    // gate. A preflight that forwarded `audience` would stamp
+    // PLAN_PATTERN_NOT_EXPOSED on the inner step and render a runnable
+    // packaged plan INVALID, with none of the per-step routing the report
+    // exists to show.
+    const registry = makeRegistry()
+    registry.register({
+      ...atomic({
+        id: 'internal-caption',
+        inputs: z.object({ prompt: z.string().max(4_000) }),
+        outputs: TEXT_OUTPUT,
+      }),
+      exposure: 'no-tool',
+    } as never)
+    registry.register(
+      planMeta('meta_host-only-clip', {
+        steps: [
+          {
+            id: 'work',
+            pattern: 'internal-caption',
+            input: { prompt: '$input.prompt' },
+          },
+        ],
+        output: { values: { line: '$work.text' } },
+      } as PlanDag),
+    )
+
+    // Serve the helper too, so the only variable under test is the audience:
+    // an unserved step would flip `nested.ok` for routing reasons of its own.
+    const router = createDefaultCapabilityRouter({
+      getModels: (cap) =>
+        cap === 'internal-caption'
+          ? [record('internal-caption', { provider: 'openai', modelId: 'gpt-4.1' })]
+          : (CATALOG[cap] ?? []).map((m) => record(cap, m)),
+    })
+    const report = preflightPlan(
+      metaDag('meta_host-only-clip', { prompt: 'a red bicycle' }),
+      deps({ registry, router, audience: 'agent-loop' }),
+    )
+
+    // The OUTER walk still applies the audience — meta_host-only-clip is
+    // 'agent-tool'-exposed, so the step is legal for this surface...
+    expect(report.problems).toEqual([])
+    const routing = stepById(report, 'step').routing
+    if (routing.kind !== 'opaque') throw new Error('unreachable')
+    const nested = routing.nested
+    expect(nested).toBeDefined()
+    if (!nested) throw new Error('unreachable')
+    // ...and the INNER walk does not: no PLAN_PATTERN_NOT_EXPOSED on a step
+    // the runtime would happily dispatch.
+    expect(nested.problems).toEqual([])
+    expect(nested.ok).toBe(true)
+  })
+
   it("a nested plan's own verdict does not sink the plan that steps into it", () => {
     // Scoped on purpose. A meta is opaque and preflight never claimed one would
     // succeed; folding the nested verdict in would make a plan's `ok` depend on

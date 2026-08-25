@@ -21,7 +21,7 @@ LLM loop never installs it.
 - **One first-party `AgentPattern`.** `agent_orchestrator` —
   `createOrchestratorAgent`, the general open-ended media orchestrator. No
   embedded SKILL and no domain workflow: it plans a multi-step media task as it
-  goes, over the 18 patterns in `@orchestral/patterns`. It declares three
+  goes, over the 19 patterns in `@orchestral/patterns`. It declares three
   per-modality `references` asset slots (`images`, `videos`, `audios`), which
   are the only way a caller hands it assets — it deliberately does not inherit
   the parent's, so a subagent sees exactly what it was given.

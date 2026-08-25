@@ -417,7 +417,22 @@ function routeMeta(
       // of the inner plan may not name the INNER plan, and `$input` there binds
       // to the inner factory's `inputs` — which is that meta's `tool.inputs`,
       // when it is a plain object schema.
-      const { inputs: _outerInputs, selfId: _outerSelfId, ...rest } = deps
+      //
+      // `audience` stays OUT of the nested walk on purpose. The outer step
+      // already passed the exposure gate for this surface, and the runtime
+      // checks nothing further down: `runPlan` validates its DAG with no
+      // audience ("the surface was checked at the boundary") and `ctx.step`
+      // has no exposure gate at all. Forwarding it would predict a
+      // PLAN_PATTERN_NOT_EXPOSED the runtime never raises and render a
+      // runnable packaged plan as INVALID. `allow` DOES ride along — the
+      // plannedDispatches guard really does hold a persisted plan's inner ids
+      // to the caller's allowlist.
+      const {
+        inputs: _outerInputs,
+        selfId: _outerSelfId,
+        audience: _outerAudience,
+        ...rest
+      } = deps
       routing.nested = preflight(
         nested,
         {
