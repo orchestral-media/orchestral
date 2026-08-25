@@ -1,6 +1,6 @@
 {
   "name": "@orchestral/agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Orchestral agent support — the first-party AgentPattern (the media orchestrator). Ships no agent loop and no provider SDK: the AgentRunImpl driving the loop is injected by the host. Optional extension; nothing in core/runtime/patterns depends on it.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",

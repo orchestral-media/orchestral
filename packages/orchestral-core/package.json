@@ -1,6 +1,6 @@
 {
   "name": "@orchestral/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Orchestral core — substrate-agnostic Pattern / ModelCapability / Alternative vocabulary, Job / JobStore / CapabilityRouter / Runtime contracts, and in-memory defaults. No provider SDK, no execution engine.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [b30b58b]
+  - @orchestral/patterns@0.2.0
+  - @orchestral/runtime@0.2.0
+  - @orchestral/core@0.2.0
+
 ## [0.1.0] - 2026-08-25 — Initial public release
 
 First public release. `@orchestral/agent` is the optional agent extension: one

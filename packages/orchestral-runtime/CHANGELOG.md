@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+### Patch Changes
+
+- @orchestral/core@0.2.0
+  - @orchestral/discovery@0.2.0
+
 ## [0.1.0] - 2026-08-25 — Initial public release
 
 First public release. `@orchestral/runtime` is `InlineRuntime`, the in-process
