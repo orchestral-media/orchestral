@@ -31,12 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # pnpm version comes from the root package.json `packageManager` field
+      # (action-setup errors if a `version:` is also set here).
       - uses: pnpm/action-setup@v6
-        # package.json has no `packageManager` field, so pin pnpm here. If a
-        # `packageManager` field is added later, drop this `version:` —
-        # action-setup errors when both are set.
-        with:
-          version: 10
 
       - uses: actions/setup-node@v6
         with:

@@ -1,7 +1,60 @@
 # Publishing Orchestral
 
-Maintainer handbook for releasing to npm. Everything here is manual on purpose
-— there is no release automation and no publish workflow in CI.
+Maintainer handbook for releasing to npm. Since 0.1.0 (which went out by
+hand, §4–§6), releases ride **changesets** through
+`.github/workflows/release.yml`:
+
+1. A PR that changes a published package includes a changeset
+   (`pnpm changeset` — pick packages, pick the bump, write the consumer-facing
+   sentence). The six `@orchestral/*` packages are a fixed group: any bump
+   moves the whole line.
+2. Merging to main makes the release workflow open (or refresh) a
+   **"Version Packages" PR** — versions bumped, changeset summaries prepended
+   to each CHANGELOG, lockfile refreshed. Edit that PR like any other:
+   the generated CHANGELOG bullets are raw material, rewrite them into the
+   house style there.
+3. Merging the Version Packages PR publishes: the workflow re-runs the full
+   verification wall (build / typecheck / tests / lint / api:check /
+   smoke-dist), then `pnpm -r publish` in topological order, skipping
+   versions already on the registry, then tags `v<version>`.
+
+One-time setup the automation needs:
+
+- An npm **granular automation token** (packages + scopes: `@orchestral`,
+  publish permission, 2FA-bypassing) stored as the `NPM_TOKEN` repository
+  secret.
+- The repository setting **Settings → Actions → General → Workflow
+  permissions → "Allow GitHub Actions to create and approve pull requests"**
+  — without it the action cannot open the Version Packages PR, whatever the
+  workflow's `permissions:` block says.
+- Later, to drop the token entirely: configure **trusted publishing** for
+  each of the six packages on npmjs.com (package Settings → Trusted
+  publisher → this repo + `release.yml`), add `id-token: write` under the
+  workflow's `permissions:`, and delete the two token lines from its `env:`.
+
+Two behaviours to know about, both accepted on purpose:
+
+- **The Version Packages PR carries no CI checks.** GitHub does not trigger
+  workflows for pushes made with `GITHUB_TOKEN`, and that PR is one. The
+  defence is that `ci:publish` re-runs the entire verification wall before
+  anything reaches the registry; if PR-level checks are ever wanted, hand the
+  action a PAT via `github-token`.
+- **A version number edited by hand on main publishes on that push.** With no
+  changesets pending, the workflow always runs the publish script, and
+  `pnpm -r publish` publishes whatever versions the registry does not have.
+  Version changes go through changesets, never by hand.
+
+`@orchestral/dsh-plugin` is excluded from the automation on both ends
+(changesets `ignore`, publish `--filter`) — it versions against its
+dev-preview host and goes out by hand (§7). Because it is ignored, it never
+gets a changeset: bump it directly in its package.json. In particular a
+single changeset must never name it TOGETHER with any of the six —
+changesets hard-errors on a changeset that mixes ignored and released
+packages, and the error surfaces as a red release workflow on main.
+
+The sections below are the manual path: what the automation executes, kept
+current both as its documentation and as the fallback when you need to
+publish by hand.
 
 Two version lines ship from this repo:
 
@@ -258,8 +311,10 @@ decision, not something CI or the tests need.
 
 ## Not set up (deliberate)
 
-- **npm provenance.** `--provenance` requires publishing from a CI workflow
-  with `id-token: write`; releases are manual, so there is no attestation.
-- **Automated releases.** No changesets, no release-please, no publish job.
+- **npm provenance.** Attestation needs either trusted publishing or
+  `--provenance` with `id-token: write` in the release workflow. The workflow
+  exists now; flipping the six packages to trusted publishing on npmjs.com is
+  the intended way to get provenance, and removes the `NPM_TOKEN` secret in
+  the same move.
 - **Prereleases / dist-tags.** Everything goes to `latest`. If that changes,
-  `--tag next` on all six at once.
+  changesets pre-mode (`changeset pre enter next`) is the mechanism.

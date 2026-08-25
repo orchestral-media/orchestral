@@ -38,6 +38,10 @@ same order, interleaved with `pnpm docs:catalog` and
   in review.
 - **New behaviour needs a test.** The packages have no I/O and no provider SDK,
   so almost everything is directly unit-testable.
+- **Changing a published package? Add a changeset.** Run `pnpm changeset`,
+  pick the bump, and write the one or two sentences a consumer should read in
+  the CHANGELOG. Releases are cut from accumulated changesets
+  (`.changeset/README.md`); a PR without one ships no release note.
 - **Adding or changing a pattern?** The catalog table in
   `packages/orchestral-patterns/README.md` is generated. Run `pnpm build &&
   pnpm docs:catalog` and commit the regenerated table.

@@ -1,0 +1,109 @@
+# Releases ride changesets; this workflow is the whole release automation.
+#
+# The shape: every push to main lands here. If there are pending changesets,
+# changesets/action opens (or refreshes) a "Version Packages" PR — versions
+# bumped across the fixed six-package line, CHANGELOG sections prepended.
+# Nothing publishes on that path. When that PR merges, main has no pending
+# changesets, so the action runs `ci:publish` instead: the FULL verification
+# wall (build, catalog drift, typecheck, tests, lint, api:check, smoke-dist —
+# the same wall ci.yml runs, re-run here on purpose so a publish can never
+# race a red main), then `pnpm -r publish`, which resolves workspace: ranges,
+# publishes in topological order, and skips any version already on the
+# registry — a rerun after a partial failure publishes only what is missing.
+#
+# Two consequences of that shape, accepted deliberately:
+#   - The gate re-runs on every push to main even when there is nothing to
+#     publish. Wasted minutes, bought safety.
+#   - The Version Packages PR is pushed with GITHUB_TOKEN, and GitHub does
+#     not trigger workflows for GITHUB_TOKEN pushes — so that PR shows no CI
+#     checks. The publish gate re-verifying everything is the defence; a
+#     RELEASE_PAT in `github-token` is the upgrade if PR checks are wanted.
+#
+# Deliberate exclusions:
+#   - @orchestral/dsh-plugin never publishes from here (the --filter in
+#     ci:publish, plus changesets `ignore`): it versions against its
+#     dev-preview host and goes out by hand, PUBLISH.md §7.
+#   - Examples are private and skipped by pnpm publish on their own.
+#   - `create-github-releases: false`: the action detects releases by parsing
+#     its own `changeset publish` output, which `pnpm -r publish` does not
+#     emit — better no releases than releases keyed on a parse that cannot
+#     match. The v<version> git tag below is the release marker.
+#
+# Auth: NPM_TOKEN repository secret (granular automation token, publish
+# scope for @orchestral). Swapping to npm trusted publishing (OIDC, no
+# secret) later means configuring each package on npmjs.com, adding
+# `id-token: write` under `permissions:`, and deleting the token env lines —
+# PUBLISH.md records the steps.
+#
+# Node 22 is the release floor on purpose: it is what ci.yml tests, and a
+# publish artifact should never be built by an older toolchain than CI runs.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: release-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # pnpm version comes from the root package.json `packageManager` field.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create the Version Packages PR, or publish
+        uses: changesets/action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version-script: pnpm ci:version
+          publish-script: pnpm ci:publish
+          commit-message: 'release: version packages'
+          pr-title: 'release: version packages'
+          create-github-releases: false
+        env:
+          # setup-node's npmrc reads NODE_AUTH_TOKEN; NPM_TOKEN rides along
+          # for any tooling that looks for it under that name.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # One human-readable tag per release of the line (v0.1.0 set the
+      # convention), cut from core's version — the six move together, so any
+      # of them names the line. Self-computed against the REGISTRY rather
+      # than read off the action's `published` output: that output is derived
+      # from the publish script's stdout, which `pnpm -r publish` does not
+      # format the way the action parses, and the registry is the ground
+      # truth anyway. Idempotent: an ordinary push finds the tag already
+      # present; a failed publish finds the version absent; only the push
+      # where the publish actually landed cuts a tag.
+      - name: Tag the released line
+        run: |
+          V=$(node -p "require('./packages/orchestral-core/package.json').version")
+          if ! npm view "@orchestral/core@$V" version >/dev/null 2>&1; then
+            echo "@orchestral/core@$V is not on the registry — nothing to tag"
+            exit 0
+          fi
+          if git rev-parse "v$V" >/dev/null 2>&1; then
+            echo "tag v$V already exists"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$V" -m "$V — the @orchestral six-package line"
+          git push origin "v$V"

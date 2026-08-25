@@ -466,19 +466,6 @@ composes the same two calls in the same order (the dsh plugin does).
 
 ## Packaging & release
 
-### We don't automate releases
-**Why.** "Everything here is manual on purpose — there is no release automation
-and no publish workflow in CI." The "Not set up (deliberate)" list names what
-that forgoes: npm provenance ("`--provenance` requires publishing from a CI
-workflow with `id-token: write`; releases are manual, so there is no
-attestation"), changesets / release-please / a publish job, prereleases and
-dist-tags. One maintainer, five packages on one version line, and a
-`pnpm publish` that refuses a dirty tree is the whole process.
-**Instead.** Follow `PUBLISH.md` top to bottom, including
-`scripts/smoke-dist.mjs` — "the one check that exercises what npm actually
-ships".
-**Where.** `PUBLISH.md:3-4, 239-245`.
-
 ### We don't let core know about dsh — or any particular host
 **Why.** "**Nothing in orchestral depends on this package, and nothing ever
 will.**" The bridge "depends on them, and on dsh, and the arrow never
