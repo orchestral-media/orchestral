@@ -95,4 +95,16 @@ describe('meta_image-to-image-via-caption', () => {
     expect(Number.isFinite(out.cost)).toBe(true)
     expect(out.cost).toBeCloseTo(0.2)
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    // The chain is fixed — caption, then render — so the tier makes no
+    // difference to what an agent must be granted.
+    const meta = createImageToImageViaCaptionPattern()
+    expect(
+      meta.plannedDispatches?.({ editPrompt: 'make it night', tier: 'preview' }),
+    ).toEqual(['image-to-text', 'text-to-image'])
+    expect(
+      meta.plannedDispatches?.({ editPrompt: 'make it night', tier: 'final' }),
+    ).toEqual(['image-to-text', 'text-to-image'])
+  })
 })

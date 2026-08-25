@@ -1010,10 +1010,12 @@ deps: AgentDispatchDeps,
           // registered.
           //
           // Undeclared metas are deliberately untouched — `plannedDispatches`
-          // absent means "not knowable", which is the status quo for every
-          // hand-written meta and a decision about every meta rather than a
-          // property of this guard (docs/plan.md, "We don't close the
-          // allowlist bypass for hand-written metas here").
+          // absent means "not knowable", which stays the status quo for any
+          // meta that does not declare (the shipped catalog does; a
+          // third-party one need not), and requiring it is a decision about
+          // every meta rather than a property of this guard (docs/plan.md,
+          // "We don't close the allowlist bypass for hand-written metas
+          // here").
           //
           // The runtime names no pattern id here. The check keys on the
           // declaration alone, so an interpreted plan, a one-shot plan meta

@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { textToImage } from '../../atomic/text-to-image'
-import { imageToVideo } from '../../atomic/image-to-video'
-import { textToAudio } from '../../atomic/text-to-audio'
+import { TEXT_GENERATION_PATTERN_ID, textGeneration } from '../../atomic/text-generation'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from '../../atomic/text-to-image'
+import { IMAGE_TO_VIDEO_PATTERN_ID, imageToVideo } from '../../atomic/image-to-video'
+import { TEXT_TO_AUDIO_PATTERN_ID, textToAudio } from '../../atomic/text-to-audio'
 import {
   firstAsset,
   firstAssetId,
@@ -85,6 +85,16 @@ export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPatt
     searchHint: 'product ad video commercial promo hero clip advertisement',
     tool: { description: 'Generate a short product ad clip via a pick-then-animate flow.', inputs: ProductAdShortInputSchema },
     outputs: ProductAdShortOutputSchema,
+    // The whole set, the `withMusic`-only text-to-audio included: this is what
+    // compose MAY dispatch on some call, and over-declaring costs a caller
+    // permission, never spend. `addBackgroundAudio` is a host op, not a
+    // dispatch.
+    plannedDispatches: () => [
+      TEXT_GENERATION_PATTERN_ID,
+      TEXT_TO_IMAGE_PATTERN_ID,
+      IMAGE_TO_VIDEO_PATTERN_ID,
+      TEXT_TO_AUDIO_PATTERN_ID,
+    ],
     async compose({ input }, ctx: ExecutionContext): Promise<ProductAdShortOutput> {
       const startedAt = Date.now()
 

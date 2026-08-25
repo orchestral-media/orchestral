@@ -867,8 +867,11 @@ differently from every meta step with the same prompt.
 **Why.** It predates plans, the guards suite depends on it
 (`agent-tool-guards.test.ts:91-113`), and changing it is a decision about
 every meta, not a plan feature.
-**Instead.** `plannedDispatches` is an opt-in any meta can declare; a
-follow-up can make the shipped metas declare it.
+**Instead.** `plannedDispatches` is an opt-in any meta can declare; the
+shipped catalog took it up afterwards and now declares end to end, so the
+bypass is only as wide as the metas that stay silent. Requiring the
+declaration is refused on its own terms (DESIGN.md, "We don't require a meta
+to declare what it dispatches").
 **Where.** `agent-dispatch.ts` guard, "Trust".
 
 ### We don't namespace `job:step` ids or mint handles for inner steps
@@ -918,7 +921,11 @@ without replay.
    agent allowlist to `meta_storyboard`'s and `meta_image-best-of-n`'s inner
    steps uniformly (best-of-n's `innerPatternId` is an input value, so it can
    return it). Recommendation: yes, as a follow-up with its own test changes
-   in `agent-tool-guards.test.ts`.
+   in `agent-tool-guards.test.ts`. **Decided: yes**, and shipped — all nine
+   registered metas declare, pinned per meta and swept in
+   `packages/orchestral-patterns/src/__tests__/meta-planned-dispatches.test.ts`.
+   `agent-tool-guards.test.ts` needed nothing: it declares its own fixture
+   metas, so the guard's behaviour was never keyed to the catalog.
 
 ## Implementation order
 

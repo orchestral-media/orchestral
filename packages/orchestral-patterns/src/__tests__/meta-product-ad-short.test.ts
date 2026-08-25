@@ -428,4 +428,22 @@ describe('meta_product-ad-short', () => {
     )
     expectProducedAssetsEnvelope(ProductAdShortOutputSchema, out)
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    const meta = createProductAdShortMeta(makeDeps())
+    const declared = [
+      'text-generation',
+      'text-to-image',
+      'image-to-video',
+      'text-to-audio',
+    ]
+    // text-to-audio is declared with or without `withMusic`: the declaration is
+    // what compose MAY dispatch, and the music bed is one flag away on any call.
+    expect(
+      meta.plannedDispatches?.({ brief: 'x', variantCount: 2, withMusic: false }),
+    ).toEqual(declared)
+    expect(
+      meta.plannedDispatches?.({ brief: 'x', variantCount: 2, withMusic: true }),
+    ).toEqual(declared)
+  })
 })

@@ -23,8 +23,8 @@ import {
   type MetaPattern,
 } from '@orchestral/core'
 import { sumCosts } from '../meta/_shared/meta-utils'
-import { imageToText } from './image-to-text'
-import { textToImage } from './text-to-image'
+import { IMAGE_TO_TEXT_PATTERN_ID, imageToText } from './image-to-text'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from './text-to-image'
 
 // ── Schemas ─────────────────────────────────────────────────────────────
 
@@ -160,6 +160,11 @@ export function createImageToImageViaCaptionPattern(): MetaPattern<
     },
     outputs: ImageToImageViaCaptionOutputSchema,
     assetNeeds: ASSET_NEEDS,
+    // The chain, fixed: caption then render, both on every call. Declared for
+    // the agent guard — an agent granted the fallback is granted the two steps
+    // it is made of. The image-to-image redirect that also reaches this meta
+    // runs off the alternatives path, which the guard never sees.
+    plannedDispatches: () => [IMAGE_TO_TEXT_PATTERN_ID, TEXT_TO_IMAGE_PATTERN_ID],
     async compose(params, ctx): Promise<ImageToImageViaCaptionOutput> {
       const { input } = params
       // tier drives the render resolution requested from the text-to-image

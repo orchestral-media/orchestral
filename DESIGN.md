@@ -544,17 +544,31 @@ plan step differently from every meta step with the same prompt.
 the layer-2 gate); pinned with `toBe` in
 `packages/orchestral-patterns/src/__tests__/meta-plan.test.ts`.
 
-### We don't close the agent allowlist bypass for hand-written metas here
-**Why.** Any meta a loop dispatches runs its inner steps outside the loop's
-`toolPatternIds` — the guards suite calls that behaviour legitimate and
-depends on it (`agent-tool-guards.test.ts:91-113`). It predates plans, and
-changing it is a decision about every meta, not a plan feature.
-**Instead.** `MetaPattern.plannedDispatches` is an opt-in any meta can
-declare; a declaring meta's inner ids are held to the caller's allowlist,
-blocklist and cycle check before dispatch, and the refusal names the offender
-in `via`. Every plan declares. A follow-up can make the shipped metas declare.
+### We don't require a meta to declare what it dispatches
+**Why.** `plannedDispatches` cannot be made mandatory without lying about
+what it is. A meta that fans out to a width the model chose, or branches on a
+sub-step's output, has no id list before `compose` runs; a declare-or-refuse
+rule would either lock those metas out of every agent loop or push them into
+naming half the catalog — a permission grant wearing a check's clothes. It is
+also a pre-check, not an enforcement: nothing at `ctx.step` holds a meta to
+what it declared, so requiring the field would advertise a guarantee the
+engine does not make. And an undeclared meta running its inner steps outside
+the caller's `toolPatternIds` is behaviour the guards suite calls legitimate
+and depends on (`agent-tool-guards.test.ts:91-113`) — every third-party and
+host-authored meta already registered rides on it.
+**Instead.** The declaration is opt-in, and the shipped catalog takes it: all
+nine metas `@orchestral/patterns` registers declare — the seven hand-written
+pipelines, the via-caption fallback, and `meta_plan`, whose list is the DAG it
+was handed — with a sweep over the registered catalog failing if a new one
+forgets. A declaring meta's inner ids are held to the caller's allowlist,
+blocklist and cycle check before anything is dispatched, and the refusal names
+the offender in `via`, so the bypass is now exactly as wide as the metas that
+stay silent. One level deep, though: a declared inner meta is judged on the id
+it names, not on what that meta declares in turn.
 **Where.** `packages/orchestral-runtime/src/agent-dispatch.ts` (the
 `plannedDispatches` guard);
+`packages/orchestral-patterns/src/__tests__/meta-planned-dispatches.test.ts`
+(the catalog sweep);
 `packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts`.
 
 ### We don't namespace `job:step` ids or mint handles for inner plan steps

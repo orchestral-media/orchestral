@@ -53,9 +53,9 @@ import {
   type LabelledAsset,
 } from '../_shared/meta-utils'
 import { boundedText, metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { imageToImage } from '../../atomic/image-to-image'
-import { imageBestOfNMeta } from '../image-best-of-n'
+import { TEXT_GENERATION_PATTERN_ID, textGeneration } from '../../atomic/text-generation'
+import { IMAGE_TO_IMAGE_PATTERN_ID, imageToImage } from '../../atomic/image-to-image'
+import { IMAGE_BEST_OF_N_PATTERN_ID, imageBestOfNMeta } from '../image-best-of-n'
 import { STORYBOARD_DESIGN_PROMPT } from '../_shared/storyboard-design-prompt'
 
 // ── input / output ──────────────────────────────────────────────────────
@@ -294,6 +294,15 @@ export function createStoryboardMeta(
       inputs: StoryboardInputSchema,
     },
     outputs: StoryboardOutputSchema,
+    // Both render paths, because `bestOfN` chooses between them per call.
+    // One level deep on purpose: what meta_image-best-of-n dispatches in turn
+    // is its own declaration to make, and the guard reads the declaration of
+    // the pattern the loop actually called.
+    plannedDispatches: () => [
+      TEXT_GENERATION_PATTERN_ID,
+      IMAGE_TO_IMAGE_PATTERN_ID,
+      IMAGE_BEST_OF_N_PATTERN_ID,
+    ],
     async compose(params, ctx): Promise<StoryboardOutput> {
       const { input } = params
       const startedAt = Date.now()

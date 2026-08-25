@@ -53,10 +53,10 @@
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
 import { createPatternFn, metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { textToImage } from '../../atomic/text-to-image'
-import { imageToImage } from '../../atomic/image-to-image'
-import { imageToVideo } from '../../atomic/image-to-video'
+import { TEXT_GENERATION_PATTERN_ID, textGeneration } from '../../atomic/text-generation'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from '../../atomic/text-to-image'
+import { IMAGE_TO_IMAGE_PATTERN_ID, imageToImage } from '../../atomic/image-to-image'
+import { IMAGE_TO_VIDEO_PATTERN_ID, imageToVideo } from '../../atomic/image-to-video'
 import {
   CHARACTER_EXTRACTION_PROMPT,
   PORTRAIT_FRONT_PROMPT,
@@ -296,6 +296,15 @@ export function createScript2VideoMeta(
       inputs: ScriptToVideoInputSchema,
     },
     outputs: ScriptToVideoOutputSchema,
+    // The eight stages reach exactly four patterns — how MANY calls each makes
+    // depends on the storyboard the model writes, which ids it reaches does
+    // not. Stage 8's `concatVideos` is a host op, dispatched nowhere.
+    plannedDispatches: () => [
+      TEXT_GENERATION_PATTERN_ID,
+      TEXT_TO_IMAGE_PATTERN_ID,
+      IMAGE_TO_IMAGE_PATTERN_ID,
+      IMAGE_TO_VIDEO_PATTERN_ID,
+    ],
     async compose(params, ctx): Promise<ScriptToVideoOutput> {
       const { input } = params
       const startedAt = Date.now()

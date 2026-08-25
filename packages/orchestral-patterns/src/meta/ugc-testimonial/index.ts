@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { textToImage } from '../../atomic/text-to-image'
-import { imageToVideo } from '../../atomic/image-to-video'
-import { textToSpeech } from '../../atomic/text-to-speech'
+import { TEXT_GENERATION_PATTERN_ID, textGeneration } from '../../atomic/text-generation'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from '../../atomic/text-to-image'
+import { IMAGE_TO_VIDEO_PATTERN_ID, imageToVideo } from '../../atomic/image-to-video'
+import { TEXT_TO_SPEECH_PATTERN_ID, textToSpeech } from '../../atomic/text-to-speech'
 import {
+  AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID,
   automaticSpeechRecognition,
   type AutomaticSpeechRecognitionOutput,
 } from '../../atomic/automatic-speech-recognition'
@@ -122,6 +123,17 @@ export function createUgcTestimonialMeta(deps: UgcTestimonialMetaDeps): MetaPatt
     searchHint: 'UGC testimonial talking-head product review vertical social video spokesperson authentic user-generated content',
     tool: { description: 'Generate a UGC product testimonial video from a product description and optional persona.', inputs: UgcTestimonialInputSchema },
     outputs: UgcTestimonialOutputSchema,
+    // Stage order. The ASR call fires only under `subtitles` and is declared
+    // either way — over-declaring costs a caller permission, never spend.
+    // Stages 4-5 stitch, mux and burn through host ops, which dispatch
+    // nothing.
+    plannedDispatches: () => [
+      TEXT_GENERATION_PATTERN_ID,
+      TEXT_TO_SPEECH_PATTERN_ID,
+      TEXT_TO_IMAGE_PATTERN_ID,
+      IMAGE_TO_VIDEO_PATTERN_ID,
+      AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID,
+    ],
     async compose({ input }, ctx: ExecutionContext): Promise<UgcTestimonialOutput> {
       const startedAt = Date.now()
 

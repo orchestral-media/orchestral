@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
 import { metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { textToImage } from '../../atomic/text-to-image'
+import { TEXT_GENERATION_PATTERN_ID, textGeneration } from '../../atomic/text-generation'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from '../../atomic/text-to-image'
 import {
   firstAsset,
   labelAsset,
@@ -74,6 +74,9 @@ export function createProductPhotoPackMeta(
     searchHint: 'product photo pack e-commerce listing images white background lifestyle macro product shots',
     tool: { description: 'Generate a product photo pack (multiple e-commerce shots) from a product brief.', inputs: ProductPhotoPackInputSchema },
     outputs: ProductPhotoPackOutputSchema,
+    // Static: the model chooses how many shots, never which patterns render
+    // them. Held to the calling agent loop's allowlist before dispatch.
+    plannedDispatches: () => [TEXT_GENERATION_PATTERN_ID, TEXT_TO_IMAGE_PATTERN_ID],
     async compose({ input }, ctx: ExecutionContext): Promise<ProductPhotoPackOutput> {
       const startedAt = Date.now()
 

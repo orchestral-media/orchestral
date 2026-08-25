@@ -205,6 +205,12 @@ describe('agent_long-form-video', () => {
     // The agent must be able to reach every meta + atomic it orchestrates,
     // and only those. Order is part of the contract — it shapes the
     // catalog order the LLM sees.
+    //
+    // The last four are reached THROUGH the two shipped metas, not called
+    // directly: those metas declare their inner dispatches, and the runtime
+    // holds a declaring meta's ids to this allowlist before submitting. A
+    // list without them is a director whose every script2video call is
+    // refused up front.
     expect(agent.loop.toolPatternIds).toEqual([
       'meta_prose-chunking',
       'meta_novel-to-events',
@@ -212,6 +218,10 @@ describe('agent_long-form-video', () => {
       'meta_script2video',
       'meta_image-best-of-n',
       'text-generation',
+      'text-to-image',
+      'image-to-image',
+      'image-to-video',
+      'image-to-text',
     ])
   })
 

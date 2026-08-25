@@ -461,4 +461,24 @@ describe('meta_ugc-testimonial', () => {
     )
     expectProducedAssetsEnvelope(UgcTestimonialOutputSchema, out)
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    const meta = createUgcTestimonialMeta(makeDeps())
+    const declared = [
+      'text-generation',
+      'text-to-speech',
+      'text-to-image',
+      'image-to-video',
+      'automatic-speech-recognition',
+    ]
+    // ASR is declared whether or not this call asks for subtitles — the
+    // declaration is what compose MAY dispatch. The stitch / mux / burn steps
+    // are host ops and appear nowhere.
+    expect(
+      meta.plannedDispatches?.({ product: 'Widget Pro', targetSeconds: 20, subtitles: true }),
+    ).toEqual(declared)
+    expect(
+      meta.plannedDispatches?.({ product: 'Widget Pro', targetSeconds: 20, subtitles: false }),
+    ).toEqual(declared)
+  })
 })

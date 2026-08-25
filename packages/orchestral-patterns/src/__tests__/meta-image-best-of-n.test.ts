@@ -372,4 +372,29 @@ describe('meta_image-best-of-n', () => {
     expect(out).not.toHaveProperty('allCandidates')
     expect(out.assets.map((a) => a.label)).toEqual(['winner', 'candidate'])
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    const meta = createImageBestOfNMeta()
+    const call = (innerPatternId: 'text-to-image' | 'image-to-image') =>
+      meta.plannedDispatches?.({
+        innerPatternId,
+        innerInput: { prompt: 'a red bicycle' },
+        n: 2,
+        targetDescription: 'a red bicycle',
+      })
+    // The fan-out id is the caller's, the judge's is this meta's own.
+    expect(call('text-to-image')).toEqual(['text-to-image', 'image-to-text'])
+    expect(call('image-to-image')).toEqual(['image-to-image', 'image-to-text'])
+
+    // Defensive: the declaration runs on the dispatch path, where a
+    // host-direct submit never parsed the input against `tool.inputs`. It must
+    // not throw, and it answers what `dispatchInner` would actually do with a
+    // missing / unknown id — anything but 'text-to-image' renders through i2i.
+    for (const malformed of [undefined, null, {}, { innerPatternId: 'nonsense' }]) {
+      expect(meta.plannedDispatches?.(malformed as never)).toEqual([
+        'image-to-image',
+        'image-to-text',
+      ])
+    }
+  })
 })

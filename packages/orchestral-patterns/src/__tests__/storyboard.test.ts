@@ -1004,4 +1004,26 @@ describe('meta_storyboard', () => {
     expect(meta.tool.description.toLowerCase()).toContain('storyboard')
     expect(meta.tool.description).toContain('consistent')
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    const meta = createStoryboardMeta()
+    const declared = [
+      'text-generation',
+      'image-to-image',
+      'meta_image-best-of-n',
+    ]
+    // Both render paths, whatever this call's `bestOfN` says: the declaration
+    // is what compose MAY dispatch. One level deep — best-of-n's own inner ids
+    // are its declaration, and the guard reads the id the loop called.
+    expect(
+      meta.plannedDispatches?.(
+        inputOf({ scene: 'a duel at the gate', characters: CHARACTERS }),
+      ),
+    ).toEqual(declared)
+    expect(
+      meta.plannedDispatches?.(
+        inputOf({ scene: 'a duel at the gate', characters: CHARACTERS, bestOfN: 3 }),
+      ),
+    ).toEqual(declared)
+  })
 })

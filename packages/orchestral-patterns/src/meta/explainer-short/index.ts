@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import type { MetaPattern, ExecutionContext } from '@orchestral/core'
 import { boundedText, metaEnvelopeShape, parallel } from '@orchestral/core'
-import { textGeneration } from '../../atomic/text-generation'
-import { textToImage } from '../../atomic/text-to-image'
-import { textToSpeech } from '../../atomic/text-to-speech'
+import { TEXT_GENERATION_PATTERN_ID, textGeneration } from '../../atomic/text-generation'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from '../../atomic/text-to-image'
+import { TEXT_TO_SPEECH_PATTERN_ID, textToSpeech } from '../../atomic/text-to-speech'
 import {
   firstAsset,
   labelAsset,
@@ -168,6 +168,13 @@ export function createExplainerShortMeta(
       inputs: ExplainerShortInputSchema,
     },
     outputs: ExplainerShortOutputSchema,
+    // Three patterns whatever the scene count. Stage 4's assembly is
+    // `stillToVideo` + `concatVideos` — host ops, dispatched nowhere.
+    plannedDispatches: () => [
+      TEXT_GENERATION_PATTERN_ID,
+      TEXT_TO_IMAGE_PATTERN_ID,
+      TEXT_TO_SPEECH_PATTERN_ID,
+    ],
     async compose({ input }, ctx: ExecutionContext): Promise<ExplainerShortOutput> {
       const startedAt = Date.now()
 

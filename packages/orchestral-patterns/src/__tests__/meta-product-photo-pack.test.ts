@@ -195,4 +195,18 @@ describe('meta_product-photo-pack', () => {
     )
     expectProducedAssetsEnvelope(ProductPhotoPackOutputSchema, out)
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    // The model picks how many shots; it never picks which patterns render
+    // them, so the declaration does not move with maxSlots.
+    const meta = createProductPhotoPackMeta()
+    expect(meta.plannedDispatches?.({ brief: 'ceramic coffee mug', maxSlots: 4 })).toEqual([
+      'text-generation',
+      'text-to-image',
+    ])
+    expect(meta.plannedDispatches?.({ brief: 'ceramic coffee mug', maxSlots: 1 })).toEqual([
+      'text-generation',
+      'text-to-image',
+    ])
+  })
 })

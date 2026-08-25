@@ -190,6 +190,18 @@ export function createLongFormVideoAgent(): AgentPattern<AgentLongFormVideoInput
         // atomic — used directly for the character-merge-event-to-novel SKILL
         // call (host-mediated; SKILL body specified via the system field):
         'text-generation',
+        // atomic — NOT called directly by this agent. The two shipped metas
+        // above declare these through `MetaPattern.plannedDispatches`, and the
+        // runtime holds a declaring meta's inner ids to this very allowlist
+        // before it submits the child: listing meta_script2video without the
+        // four patterns it renders with earns a SUBAGENT_TOOL_OUT_OF_SCOPE
+        // refusal naming them in `via`, not a run. Granting the meta means
+        // granting what the meta is made of — the director's prompt is what
+        // keeps it dispatching pipelines rather than raw renders.
+        'text-to-image',
+        'image-to-image',
+        'image-to-video',
+        'image-to-text',
       ],
       // Long-running dispatches go through the async fan-out path so
       // cancellation and progress events stream through host plumbing

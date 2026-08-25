@@ -477,4 +477,18 @@ describe('meta_explainer-short', () => {
       'final-video',
     ])
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    const meta = createExplainerShortMeta(noopDeps())
+    const declared = ['text-generation', 'text-to-image', 'text-to-speech']
+    // Three patterns whatever the scene count, and whether or not the scenes
+    // are assembled: `stillToVideo` / `concatVideos` are host ops, not
+    // dispatches, so `assemble` moves nothing here.
+    expect(
+      meta.plannedDispatches?.({ topic: 'black holes', sceneCount: 4, assemble: true }),
+    ).toEqual(declared)
+    expect(
+      meta.plannedDispatches?.({ topic: 'black holes', sceneCount: 2, assemble: false }),
+    ).toEqual(declared)
+  })
 })

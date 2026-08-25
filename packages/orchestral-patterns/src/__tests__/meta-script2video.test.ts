@@ -1069,4 +1069,13 @@ describe('meta_script2video', () => {
     expect(ScriptToVideoInputSchema.safeParse({ sceneScript: 'x', maxShots: 25 }).success).toBe(false)
     expect(ScriptToVideoInputSchema.safeParse({ sceneScript: 'x', maxShots: 24 }).success).toBe(true)
   })
+
+  it('declares the dispatch set an agent guard holds to its allowlist', () => {
+    const meta = createScript2VideoMeta({ concatVideos: async () => ({ assetId: 'final' }) })
+    // Four patterns across eight stages, whatever the storyboard turns out to
+    // be — the widths move, the ids do not. Stage 8's concat is a host op.
+    expect(
+      meta.plannedDispatches?.(inputOf({ sceneScript: 'a short scene', characters: [ALICE] })),
+    ).toEqual(['text-generation', 'text-to-image', 'image-to-image', 'image-to-video'])
+  })
 })

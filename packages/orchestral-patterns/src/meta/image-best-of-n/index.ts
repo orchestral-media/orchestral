@@ -20,13 +20,15 @@
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
 import { boundedText, createPatternFn, metaEnvelopeShape, parallel } from '@orchestral/core'
-import { imageToText } from '../../atomic/image-to-text'
+import { IMAGE_TO_TEXT_PATTERN_ID, imageToText } from '../../atomic/image-to-text'
 import {
+  TEXT_TO_IMAGE_PATTERN_ID,
   textToImage,
   type TextToImageInput,
   type TextToImageOutput,
 } from '../../atomic/text-to-image'
 import {
+  IMAGE_TO_IMAGE_PATTERN_ID,
   imageToImage,
   type ImageToImageInput,
   type ImageToImageOutput,
@@ -160,6 +162,17 @@ export function createImageBestOfNMeta(
       inputs: ImageBestOfNInputSchema,
     },
     outputs: ImageBestOfNOutputSchema,
+    // The fan-out id is the caller's (`innerPatternId`), the judge's is not.
+    // Branches exactly as `dispatchInner` does — anything that is not
+    // 'text-to-image' renders through image-to-image — and reads defensively,
+    // because this runs on the dispatch path and the host-direct submit never
+    // parses an input against `tool.inputs`.
+    plannedDispatches: (input) => [
+      input?.innerPatternId === 'text-to-image'
+        ? TEXT_TO_IMAGE_PATTERN_ID
+        : IMAGE_TO_IMAGE_PATTERN_ID,
+      IMAGE_TO_TEXT_PATTERN_ID,
+    ],
     async compose(params, ctx): Promise<ImageBestOfNOutput> {
       const { input } = params
 

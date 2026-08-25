@@ -11,6 +11,17 @@ import {
 } from '@orchestral/core'
 
 import {
+  createExplainerShortMeta,
+  createImageBestOfNMeta,
+  createImageToImageViaCaptionPattern,
+  createProductAdShortMeta,
+  createProductPhotoPackMeta,
+  createScript2VideoMeta,
+  createStoryboardMeta,
+  createUgcTestimonialMeta,
+} from '@orchestral/patterns'
+
+import {
   createOrchestratorAgent,
   AGENT_ORCHESTRATOR_PATTERN_ID,
 } from '../orchestrator'
@@ -127,6 +138,48 @@ describe('agent_orchestrator', () => {
       expect(id.startsWith('agent_')).toBe(false)
     }
     expect(agent.loop.toolPatternIds).not.toContain(AGENT_ORCHESTRATOR_PATTERN_ID)
+  })
+
+  it('grants the inner dispatches every meta it lists declares', () => {
+    // The shipped metas declare what they will dispatch, and the runtime holds
+    // a declaring meta's ids to THIS allowlist before submitting the child. So
+    // listing a meta without the patterns it is made of is not a narrower
+    // agent — it is an agent whose every call to that meta is refused up front
+    // with SUBAGENT_TOOL_OUT_OF_SCOPE. The two lists have to be read together,
+    // and this is what reads them.
+    const allow = new Set<string>(createOrchestratorAgent().loop.toolPatternIds)
+    const noop = async () => ({ assetId: 'x' })
+    const metas = [
+      createImageToImageViaCaptionPattern(),
+      createScript2VideoMeta({ concatVideos: noop }),
+      createImageBestOfNMeta(),
+      createStoryboardMeta(),
+      createProductAdShortMeta({
+        addBackgroundAudio: noop,
+        recordSessionAsset: async () => ({ handle: 'image_1' }),
+      }),
+      createProductPhotoPackMeta(),
+      createUgcTestimonialMeta({
+        concatVideos: noop,
+        addBackgroundAudio: noop,
+        addSubtitles: noop,
+        createSubtitleAsset: noop,
+      }),
+      createExplainerShortMeta({ concatVideos: noop, stillToVideo: noop }),
+    ]
+
+    for (const meta of metas) {
+      expect(allow.has(meta.id), `${meta.id} listed`).toBe(true)
+      // Both branches of the one declaration that reads its input: an empty
+      // input takes image-best-of-n's image-to-image fallback.
+      const declared = [
+        ...(meta.plannedDispatches?.({} as never) ?? []),
+        ...(meta.plannedDispatches?.({ innerPatternId: 'text-to-image' } as never) ?? []),
+      ]
+      for (const inner of declared) {
+        expect(allow.has(inner), `${meta.id} declares ${inner}`).toBe(true)
+      }
+    }
   })
 
   it('flags long-running sub-dispatches via asyncToolPatternIds (subset of toolPatternIds)', () => {
