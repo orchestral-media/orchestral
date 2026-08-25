@@ -1,6 +1,6 @@
 {
   "name": "@orchestral/discovery",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pattern discovery layer for @orchestral/core — a BM25 search index over a PatternRegistry plus the find_pattern tool handler that turns a free-form LLM query into ranked Pattern descriptors. Retrieval, not contract: core stays search-free.",
   "license": "Apache-2.0",
   "engines": {
