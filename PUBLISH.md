@@ -18,19 +18,30 @@ hand, §4–§6), releases ride **changesets** through
    smoke-dist), then `pnpm -r publish` in topological order, skipping
    versions already on the registry, then tags `v<version>`.
 
-One-time setup the automation needs:
+One-time setup the automation needs (all done for this repo):
 
-- An npm **granular automation token** (packages + scopes: `@orchestral`,
-  publish permission, 2FA-bypassing) stored as the `NPM_TOKEN` repository
-  secret.
+- **Trusted publishing (OIDC)** — each of the six packages names this repo +
+  `release.yml` as its trusted publisher, so publishing needs no long-lived
+  token and carries provenance attestation. Configured in one loop (npm CLI ≥
+  11.15; re-run it for any new package joining the line):
+
+  ```sh
+  for p in core discovery runtime patterns agent adapters-ai-sdk; do
+    npm trust github "@orchestral/$p" --file release.yml \
+      --repo orchestral-media/orchestral --allow-publish --yes
+  done
+  ```
+
+  `npm trust list @orchestral/<p>` shows a package's publishers. The
+  workflow's `permissions:` carries the `id-token: write` this depends on.
 - The repository setting **Settings → Actions → General → Workflow
   permissions → "Allow GitHub Actions to create and approve pull requests"**
   — without it the action cannot open the Version Packages PR, whatever the
   workflow's `permissions:` block says.
-- Later, to drop the token entirely: configure **trusted publishing** for
-  each of the six packages on npmjs.com (package Settings → Trusted
-  publisher → this repo + `release.yml`), add `id-token: write` under the
-  workflow's `permissions:`, and delete the two token lines from its `env:`.
+- **Rollback**: the `NPM_TOKEN` repository secret (granular automation token,
+  publish scope for `@orchestral`) is kept but unused. If OIDC has to be
+  backed out, re-add `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to the
+  changesets step's `env:` and publishing works the token way again.
 
 Two behaviours to know about, both accepted on purpose:
 
@@ -311,10 +322,5 @@ decision, not something CI or the tests need.
 
 ## Not set up (deliberate)
 
-- **npm provenance.** Attestation needs either trusted publishing or
-  `--provenance` with `id-token: write` in the release workflow. The workflow
-  exists now; flipping the six packages to trusted publishing on npmjs.com is
-  the intended way to get provenance, and removes the `NPM_TOKEN` secret in
-  the same move.
 - **Prereleases / dist-tags.** Everything goes to `latest`. If that changes,
   changesets pre-mode (`changeset pre enter next`) is the mechanism.

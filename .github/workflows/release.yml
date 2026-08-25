@@ -29,11 +29,14 @@
 #     emit — better no releases than releases keyed on a parse that cannot
 #     match. The v<version> git tag below is the release marker.
 #
-# Auth: NPM_TOKEN repository secret (granular automation token, publish
-# scope for @orchestral). Swapping to npm trusted publishing (OIDC, no
-# secret) later means configuring each package on npmjs.com, adding
-# `id-token: write` under `permissions:`, and deleting the token env lines —
-# PUBLISH.md records the steps.
+# Auth: npm trusted publishing (OIDC). Each of the six packages names this
+# repo + this workflow file as its trusted publisher (configured via
+# `npm trust github`, PUBLISH.md records the command); `id-token: write`
+# below lets pnpm mint the short-lived credential per publish, and provenance
+# attestation comes with it. No long-lived token is involved — the NPM_TOKEN
+# repository secret is unused and kept only as a rollback (re-add
+# `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to the changesets step's env if
+# OIDC ever has to be backed out).
 #
 # Node 22 is the release floor on purpose: it is what ci.yml tests, and a
 # publish artifact should never be built by an older toolchain than CI runs.
@@ -48,6 +51,10 @@ concurrency: release-${{ github.ref }}
 permissions:
   contents: write
   pull-requests: write
+  # Trusted publishing: pnpm exchanges the workflow's OIDC token for the
+  # publish credential; without this the publish falls back to (absent)
+  # token auth and 401s.
+  id-token: write
 
 jobs:
   release:
@@ -77,11 +84,6 @@ jobs:
           commit-message: 'release: version packages'
           pr-title: 'release: version packages'
           create-github-releases: false
-        env:
-          # setup-node's npmrc reads NODE_AUTH_TOKEN; NPM_TOKEN rides along
-          # for any tooling that looks for it under that name.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # One human-readable tag per release of the line (v0.1.0 set the
       # convention), cut from core's version — the six move together, so any
