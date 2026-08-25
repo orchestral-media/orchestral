@@ -1,11 +1,3 @@
-All notable changes to `@orchestral/discovery` are documented here. The format
-is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
-project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-> **0.x note:** while the API is pre-1.0, minor releases may contain breaking
-> changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
-> `### Breaking (0.x)`.
-
 # Changelog
 
 ## [0.1.0] - 2026-08-25 — Initial public release
@@ -39,3 +31,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`buildCatalogDescriptors`) and validating an incoming call are contract work
   that must not require a search index. This package owns only the retrieval
   that answers a validated call.
+
+---
+
+All notable changes to `@orchestral/discovery` are documented here. The format
+is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
+project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+> **0.x note:** while the API is pre-1.0, minor releases may contain breaking
+> changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
+> `### Breaking (0.x)`.
