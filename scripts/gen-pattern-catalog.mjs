@@ -96,6 +96,20 @@ for (const m of dts.matchAll(
   factoryToParams.set(m[1], m[2].trim())
 }
 
+/**
+ * The body of the FIRST `{ … }` in a parameter list, brace-counted so a second
+ * parameter's own literal (`init?: { audience?: … }`) cannot leak into it.
+ */
+function firstObjectLiteralOf(params) {
+  const start = params.indexOf('{')
+  let depth = 0
+  for (let i = start; i < params.length; i++) {
+    if (params[i] === '{') depth++
+    else if (params[i] === '}' && --depth === 0) return params.slice(start + 1, i)
+  }
+  return params.slice(start + 1)
+}
+
 /** The emitted declaration of `type`, trimmed for use in an error message. */
 function declarationOf(type) {
   const m = new RegExp(
@@ -119,10 +133,15 @@ function hostOpsFor(factoryName) {
   if (params === '') return [] // nullary factory — nothing for the host to supply
   const named = /^\w+\??:\s*(\w+)$/.exec(params)
   if (named === null) {
-    // An inline object-literal parameter — alternatives-only init sugar, never
-    // a MetaCommonDeps Pick (which is always a named exported type). Anything
-    // else means the emitted shape moved and this parse can't be trusted.
-    if (/^\w+\??:\s*\{[\s\S]*\}$/.test(params)) return []
+    // An inline object-literal parameter. A REQUIRED function-typed property
+    // of that literal is still an op the host must supply (`createPlanMeta`'s
+    // `ops.getPattern`); an OPTIONAL property is init sugar — alternatives,
+    // audience — that asks nothing. Rendering the former as `—` would read as
+    // "needs no host support", the one mistake this table exists to prevent.
+    if (/^\w+\??:\s*\{[\s\S]*\}$/.test(params)) {
+      const literal = firstObjectLiteralOf(params)
+      return [...literal.matchAll(/(\w+):\s*\(/g)].map((x) => x[1])
+    }
     return { error: `unparseable deps parameter: ${params}` }
   }
   const type = named[1]
@@ -260,7 +279,7 @@ const table = [
   '',
   '- **Input slots** — the `assetNeeds` an author declared; the LLM fills them through `input.references.<slot>`. `[]` marks a multi-asset slot, **req** a required one. A Pattern with no slots takes text input only.',
   '- **Output** — the same projection `find_pattern` shows the LLM: the outputs schema\'s `modality` literal, and `assets[]` when it returns produced assets. Every shipped meta that produces media returns it through `assets[]` (with a role `label` per element); a pattern that produces no media reads as `—` here.',
-  "- **Host ops required** — the `MetaCommonDeps` operations the factory takes as constructor deps. This package specifies them but does not implement them, so the host must (see [Deliverable metas](#deliverable-metas)).",
+  "- **Host ops required** — the operations the factory takes as constructor deps: `MetaCommonDeps` picks for the deliverable metas, `meta_plan`'s `getPattern` registry read for the one-shot. This package specifies them but does not implement them, so the host must (see [Deliverable metas](#deliverable-metas)).",
   '- **Alternatives** — fallback paths the factory mounts by default; the runtime cascades to them when the primary path is unsatisfiable or fails.',
 ].join('\n')
 

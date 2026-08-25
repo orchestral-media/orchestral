@@ -319,10 +319,17 @@ result". The counter is shared across nested metas so default ids are
 tree-unique; explicit ids are namespaced by the parent step, and a collision
 throws `DUPLICATE_STEP_ID` rather than silently sharing a cache entry.
 **Instead.** Pass `stepId` explicitly for fan-out (`candidate-${i}`) — "the
-documented bypass", and the stable key resume needs.
+documented bypass", and the stable key resume needs. Since plans there is a
+second documented bypass: `StepOptions.identity: 'id'` keys the dispatch by its
+namespaced step NAME (`JobSpec.stepKey`) instead of by position, so inserting a
+step into an edited plan re-runs one dispatch, not everything after it. It is
+opt-in per step, requires an explicit `stepId`, and positional stays the
+default — the conditional spread in `deriveIdempotencyKey` keeps every
+pre-`stepKey` payload byte-identical.
 **Where.** `packages/orchestral-runtime/src/meta-execution-context.ts:357-394`;
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts:12-13, 166-171`;
-`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts:170-217`.
+`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts:170-217`;
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-id.test.ts`.
 
 ### We don't impose concurrency caps, timeouts, or TTLs
 **Why.** "There is no concurrency limit, no per-step timeout and no job TTL.
@@ -501,6 +508,87 @@ the first-party ones; replace either by implementing against the core contracts.
 **Where.** `packages/orchestral-discovery/src/index.ts:1-12`;
 `packages/orchestral-core/src/index.ts:78-84`;
 `packages/orchestral-agent/src/index.ts:1-10`.
+
+### We don't evaluate anything in a plan
+**Why.** A plan `$ref` is a path, not an expression: no interpolation, no
+arithmetic, no conditionals, no `map`. The cost is real and named: none of the
+three richest shipped metas can be written as a plan, because each parses JSON
+out of a `text-generation` `.text` and fans out to a width the model chose
+(`product-photo-pack`, `storyboard`, `image-best-of-n`). The moment the grammar
+can express `if` it is a second Pattern language with none of the type checking
+the first one has, and it needs the sandbox "We don't run a plugin framework"
+refuses.
+**Instead.** A transform is a `text-generation` step; a decision is a shipped
+meta called as one step (`$hero.assets[label=winner]`); a dynamic width is
+authored as a fixed one.
+**Where.** `packages/orchestral-core/src/plan.ts` (the three ref regexes);
+`validatePlan` rules 4 and 9 (`packages/orchestral-core/src/plan-validate.ts`);
+`docs/plan.md`.
+
+### We don't give a plan its own Alternatives
+**Why.** `Alternative.via.mapInput` / `mapOutput` are closures by design
+(`alternative.ts:87-135`) and cannot survive JSON. Alternatives are also
+evaluated only for atomic dispatches, so a meta — plan or hand-written — never
+has semantic fallback of its own.
+**Instead.** A plan inherits whatever is attached to the atomics it dispatches;
+`preflightPlan` reports which would fire, and the runtime's `alternatives` mode
+still decides whether one does.
+**Where.** `packages/orchestral-runtime/src/preflight-plan.ts`
+(`routing.alternative`); `packages/orchestral-core/src/alternative.ts:87-135`.
+
+### We don't add a partial-success state for plans
+**Why.** A plan is a meta: `parallel()` is `Promise.all` and the job is one
+row. The rows that succeeded are already in the JobStore and hit on the next
+submit; a status for "some steps done" would be a second source of truth for
+what the store records, and a column on every host store to serve it.
+**Instead.** `job.error.details.planStepId` names the failed step; `job:step`
+events name the ones that landed; resubmit — the finished steps come back from
+the store.
+**Where.** `packages/orchestral-patterns/src/meta/plan/index.ts` (failure
+stamping); "We don't resume lost jobs" above.
+
+### We don't rewrite a step's input at execution
+**Why.** The plan interpreter's layer-2 parse is a gate that dispatches the
+original value. A defaults-applied copy would change the child's idempotency
+input relative to a hand-written meta's and, for `text-generation`, key every
+plan step differently from every meta step with the same prompt.
+**Instead.** `safeParse` for the verdict, dispatch the input as written.
+**Where.** `packages/orchestral-patterns/src/meta/plan/index.ts` (`runPlan`,
+the layer-2 gate); pinned with `toBe` in
+`packages/orchestral-patterns/src/__tests__/meta-plan.test.ts`.
+
+### We don't close the agent allowlist bypass for hand-written metas here
+**Why.** Any meta a loop dispatches runs its inner steps outside the loop's
+`toolPatternIds` — the guards suite calls that behaviour legitimate and
+depends on it (`agent-tool-guards.test.ts:91-113`). It predates plans, and
+changing it is a decision about every meta, not a plan feature.
+**Instead.** `MetaPattern.plannedDispatches` is an opt-in any meta can
+declare; a declaring meta's inner ids are held to the caller's allowlist,
+blocklist and cycle check before dispatch, and the refusal names the offender
+in `via`. Every plan declares. A follow-up can make the shipped metas declare.
+**Where.** `packages/orchestral-runtime/src/agent-dispatch.ts` (the
+`plannedDispatches` guard);
+`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts`.
+
+### We don't namespace `job:step` ids or mint handles for inner plan steps
+**Why.** Both are engine-wide changes with a one-line host workaround
+(`childJobId`) and would make a plan more visible, not more correct.
+Intermediate lineage stays a host concern; the plan's `output.assets` is the
+model-facing surface.
+**Instead.** Key a progress UI on `childJobId`; list what should be
+addressable in the plan's `output` block.
+**Where.** `packages/orchestral-runtime/src/inline.ts:1498-1510`;
+`packages/orchestral-runtime/src/meta-execution-context.ts:492-507`.
+
+### We don't gate spend inside the plan interpreter
+**Why.** The host decides on spend ("We don't impose concurrency caps,
+timeouts, or TTLs"); `compose` has no router to show a model with, and an
+`askUser` step would consume the step counter and park the job without replay.
+**Instead.** `preflightPlan` routes every step and prices nothing — put its
+report in front of your own `AskUserHandler` before `submitJob`; a hard cap is
+a `beforeDispatch` middleware.
+**Where.** `packages/orchestral-runtime/src/preflight-plan.ts`;
+`packages/orchestral-core/src/middleware.ts`.
 
 ## Things this document is not
 

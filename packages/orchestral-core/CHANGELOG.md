@@ -237,6 +237,48 @@ adapter over whichever provider SDK you use.
   which model was tried, how many times, why it was abandoned — without
   scraping stderr. Not terminal: the job goes on to the next candidate.
 
+- **Plans as data.** A pipeline an LLM (or a host) writes as JSON and the meta
+  engine executes. `PlanDagSchema` is the wire schema: steps with `$ref`
+  bindings (`$<stepId>.<path>`, `$<stepId>.assets[…]`, `$input.<field>` —
+  three regex productions, paths not expressions) and a required `output`
+  block; everything a model can fill is bounded. `validatePlan` /
+  `assertPlanValid` walk a DAG against a registry lookup and report 28 stable
+  `PlanProblemCode`s with zod-style paths; `planRefine` runs the same walk as
+  a schema refinement so the one-shot's tool input carries it; a nested
+  one-shot step is refused outright (`PLAN_PATTERN_ONE_SHOT`) while a
+  persisted plan (`.plan` on the pattern) is an ordinary steppable meta. The
+  interpreter ships in `@orchestral/patterns` (`planToMeta` / `meta_plan`);
+  routing preflight in `@orchestral/runtime` (`preflightPlan`); the design and
+  its refusals in `docs/plan.md`.
+
+- **`PatternBase.origin?: 'plan'` and `MetaPattern.plannedDispatches?`.**
+  `origin` records that a pattern was interpreted from a step list —
+  provenance a catalog can read, never a permission. `plannedDispatches?(input)`
+  lets any meta DECLARE the pattern ids its compose will dispatch, so a
+  runtime can hold the declared set to a calling agent's allowlist before
+  anything is spent. Every plan declares its static step list; hand-written
+  metas may opt in.
+
+- **Name-keyed step identity.** `StepOptions.identity: 'id'` opts a single
+  `ctx.step` dispatch out of positional identity: the durable key derives from
+  the namespaced step NAME (`JobSpec.stepKey`) instead of the shared step
+  counter, so editing a pipeline authored as data re-runs the edited step, not
+  everything positioned after it. Requires an explicit `stepId`; positional
+  stays the default, and a positional dispatch's key payload is byte-identical
+  to pre-`stepKey` rows.
+
+- **`registry.scope()`.** A disposable registration scope for session-lived
+  patterns: `scope.add()` registers (exposure defaults to `no-tool`),
+  `scope.dispose()` unregisters what the scope added and nothing else. This is
+  the temporary-plan channel — register an interpreted plan for one session,
+  dispose after the job settles.
+
+- **`job:tool-rejected` gains `via?`.** When a refusal was judged one level
+  down — against a declared inner dispatch of the called meta rather than the
+  called id itself — `via` names the declared id that offended, while
+  `patternId` stays the call the loop actually made. Absent on direct
+  refusals.
+
 ### Peer dependencies
 
 - `zod` (`>=4.3 <5`) is a **peer** dependency, not a bundled one. The public API

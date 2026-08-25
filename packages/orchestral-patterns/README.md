@@ -16,10 +16,11 @@ It ships two tiers, all building on `@orchestral/core`:
   `text-generation`, and more.
 - **Meta pipelines** — multi-step compositions with inlined prompts: best-of-N
   image selection, storyboarding, script-to-video, four short-form deliverables
-  (product ad, UGC testimonial, explainer short, product photo pack), and the
-  caption → re-render image-edit fallback.
+  (product ad, UGC testimonial, explainer short, product photo pack), the
+  caption → re-render image-edit fallback, and `meta_plan` — the one-shot plan
+  interpreter that runs an LLM-authored step list (a JSON DAG) as one job.
 
-That is the whole catalog — eight metas, on purpose. The long-form
+That is the whole catalog — nine metas, on purpose. The long-form
 novel → video pipeline (script planning, prose chunking, novel-to-events,
 event-to-script, idea-to-video, and the director agent that drove them) is
 not API: it is kept runnable, with its tests, as
@@ -69,7 +70,7 @@ Every pattern this package exports, generated from the built package by
 | `meta_explainer-short` | meta | Generate a short explainer video from a topic: write a typed scene breakdown, let the user review… | — | assets[] | `concatVideos`<br>`stillToVideo` | — |
 | `meta_image-best-of-n` | meta | Render multiple image candidates and pick the best one via VLM quality judging. | — | assets[] | — | — |
 | `meta_image-to-image-via-caption` | meta | Edit an image without a native image-to-image model by chaining caption → text-to-image. | `source`:image[] **req** | image, assets[] | — | — |
-| `meta_plan` | meta | Run a fixed pipeline of registered patterns as one job: you write the steps as data and the runtime… | — | assets[] | — | — |
+| `meta_plan` | meta | Run a fixed pipeline of registered patterns as one job: you write the steps as data and the runtime… | — | assets[] | `getPattern` | — |
 | `meta_product-ad-short` | meta | Generate a short product ad clip via a pick-then-animate flow. | — | assets[] | `addBackgroundAudio`<br>`recordSessionAsset` | — |
 | `meta_product-photo-pack` | meta | Generate a product photo pack (multiple e-commerce shots) from a product brief. | — | assets[] | — | — |
 | `meta_script2video` | meta | Generate a video from a scene script. | — | assets[] | `concatVideos` | — |
@@ -80,7 +81,7 @@ Every pattern this package exports, generated from the built package by
 
 - **Input slots** — the `assetNeeds` an author declared; the LLM fills them through `input.references.<slot>`. `[]` marks a multi-asset slot, **req** a required one. A Pattern with no slots takes text input only.
 - **Output** — the same projection `find_pattern` shows the LLM: the outputs schema's `modality` literal, and `assets[]` when it returns produced assets. Every shipped meta that produces media returns it through `assets[]` (with a role `label` per element); a pattern that produces no media reads as `—` here.
-- **Host ops required** — the `MetaCommonDeps` operations the factory takes as constructor deps. This package specifies them but does not implement them, so the host must (see [Deliverable metas](#deliverable-metas)).
+- **Host ops required** — the operations the factory takes as constructor deps: `MetaCommonDeps` picks for the deliverable metas, `meta_plan`'s `getPattern` registry read for the one-shot. This package specifies them but does not implement them, so the host must (see [Deliverable metas](#deliverable-metas)).
 - **Alternatives** — fallback paths the factory mounts by default; the runtime cascades to them when the primary path is unsatisfiable or fails.
 <!-- catalog:end -->
 

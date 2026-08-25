@@ -190,6 +190,43 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
   `silentDiagnosticsLogger` in tests. The model-call failure that used to be a
   `console.error` on the hot path is now the `job:model-fallback` event.
 
+- **The `plannedDispatches` guard.** When an agent loop dispatches a meta that
+  DECLARES its inner dispatch set (`MetaPattern.plannedDispatches` — every
+  plan does), each declared id is held to the loop's effective allowlist, the
+  default sub-agent blocklist, and the ancestor chain BEFORE the child is
+  submitted. The refusal is the direct guard's own shape — same codes, same
+  `job:tool-rejected` event — plus `via`, the declared id that offended, so
+  the model can tell which of its calls was refused and why. A declaration
+  that throws fails open with a logged warning: a buggy `plannedDispatches`
+  must not be a denial of service written into a pattern. Undeclared metas are
+  unchanged — closing that bypass is a decision about every meta, recorded in
+  `DESIGN.md`, not a side effect of plans.
+
+- **A failed child goes back to the loop.** A sub-agent tool dispatch that
+  fails now returns a structured `SUBAGENT_TOOL_FAILED` tool result — code,
+  child job id, normalised error — instead of tearing down the parent agent,
+  so the loop can pick a different pattern or input. Cancellation, agent-depth
+  exhaustion and host-wiring failures still rethrow: those are verdicts about
+  the parent's run, not about one tool call.
+
+- **`preflightPlan` / `formatPlanPreflight`.** Routes every step of a plan and
+  spends nothing: validates the DAG (`validatePlan`), then asks the router for
+  each step's atomic capability — served / would-degrade (which declared
+  `Alternative` fires, with `preserves` / `losses`) / unavailable — and
+  expands a persisted plan-origin meta step one level instead of reporting it
+  opaque. `AvailableAlternative` is exported: the same projection the
+  `ALTERNATIVES_NOT_ENABLED` diagnostic uses, so preflight and the failure it
+  predicts cannot drift apart. `formatPlanPreflight` renders the report for a
+  host to put in front of a user before `submitJob`.
+
+- **Name-keyed step identity, engine side.** `deriveIdempotencyKey` accepts
+  `stepKey` and folds it in only when present (a conditional spread keeps
+  every positional payload byte-identical to pre-`stepKey` rows); the meta
+  engine derives it from the namespaced step id when a `ctx.step` passes
+  `identity: 'id'`, refuses the opt-in without an explicit `stepId`
+  (`STEP_IDENTITY_REQUIRES_STEP_ID`), and keeps the in-run step cache keyed
+  apart so the two identity modes cannot alias.
+
 ### Known limitations
 
 - **No durable queue.** The host's process lifecycle owns each job's lifetime.

@@ -261,6 +261,7 @@ export class PlanInvalidError extends Error {
 10. `PLAN_PATTERN_NOT_FOUND` — `lookup.get(step.pattern)` undefined; `{ stepId, pattern }`.
 11. `PLAN_PATTERN_KIND_AGENT` — `pattern.kind === 'agent'` (by kind, not prefix: `idCarriesKind` is not on the core barrel, `index.ts:228-246`); `{ stepId, pattern }`.
 12. `PLAN_PATTERN_SELF` — `step.pattern === opts.selfId`; `{ stepId, pattern }`. The runtime would refuse it as `CIRCULAR_META_STEP` (`meta-execution-context.ts:396-404`) after earlier steps had run.
+12a. `PLAN_PATTERN_ONE_SHOT` — the target is the one-shot interpreter, recognised structurally (`origin === 'plan'` with no `.plan` step list riding on the pattern), named from any plan that is not it (rule 12 covers the self case); `{ stepId, pattern }`. Nesting the one-shot cannot work — the outer substitution rewrites the inner DAG's `$refs` before it runs — and without this rule the wreckage surfaces at layer 2 as a schema mismatch rather than "you nested a plan". The message carries the remedy: inline the inner steps, or persist the inner plan with `planToMeta` — a persisted plan (`.plan` present) is an ordinary steppable meta whose parameter input the walk checks normally.
 13. `PLAN_PATTERN_NOT_EXPOSED` — `resolveExposure(pattern.exposure)[audience]` false (`pattern.ts:349-368`), only when `opts.audience` is given; `{ stepId, pattern, audience }`. Host-direct submit has no exposure gate (`inline.ts:701-707`), so "exposed to the surface" is a parameter of the validator, not a fact the registry holds.
 14. `PLAN_PATTERN_NOT_ALLOWED` — `opts.allow` given and the id absent; `{ stepId, pattern, allowlist }`. This is how an agent's `toolPatternIds` reaches inner steps ("Trust").
 15. `PLAN_ASSET_PRODUCER_NONE` / `PLAN_ASSET_LABEL_UNSUPPORTED` — an asset ref into a step whose `outputs.shape.assets` is absent, or a `label=` ref into one whose assets element has no `label` (atomics: `producedAssetShape`, `output-envelope.ts:81-91`); `{ stepId, ref, target }`.
@@ -325,7 +326,9 @@ factory loaded through `addFromManifest` runs before any pattern is
 registered (`registry.ts:291-370` builds every pattern, then registers). The
 returned `MetaPattern` is `{ kind: 'meta', id, origin: 'plan', tool: {
 description, inputs }, outputs: PlanOutputSchema, compose, plannedDispatches,
-plan }`, the shape `createStoryboardMeta` returns (`storyboard/index.ts:279-300`).
+plan }` — the shape `createStoryboardMeta` returns (`storyboard/index.ts:279-300`)
+*plus* the three plan fields (`origin`, `plannedDispatches`, `plan`), which no
+authored meta carries today.
 `compose({ input }, ctx)`:
 
 1. **Validate.** `validatePlan(dag, lookup, { selfId, inputs })`; throw on any
@@ -786,8 +789,12 @@ metas, which is a separate decision about every meta.
 **Origin.** `PatternBase.origin?: 'plan'` (`pattern.ts:57`; propagates to all
 three kinds). Absent means authored code. The registry stores it type-erased
 (`registry.ts:221`), `addFromManifest` does not check it, and no runtime
-path branches on it — provenance is readable, never a gate. `etc/core.api.md`
-gains it between `namespace?` and `outputs`.
+path branches on it — provenance is readable, never a gate. The one reader is
+the validator, which pairs it with the *absence* of a `.plan` step list to
+recognise the one-shot interpreter (rule 12a and the walk's nested-DAG skip):
+a statement about what the step's input IS, not a permission derived from
+where the pattern came from. `etc/core.api.md` gains it between `namespace?`
+and `outputs`.
 
 **Bounds.** Everything a model can fill is bounded by the schema: step ids
 and labels ≤ 64, pattern ids ≤ 128, ≤ 64 steps, ≤ 32 refs per slot, ≤ 64
@@ -801,7 +808,7 @@ nested echo of step outputs.
 | refused | schema | submit walk | runtime |
 |---|---|---|---|
 | `agent_*` targets | `.describe` | `PLAN_PATTERN_KIND_AGENT`; `plannedDispatches` guard | `maxAgentDepth` via inherited `visited` only |
-| `meta_plan` / self | `.describe` | `PLAN_PATTERN_SELF` | `CIRCULAR_META_STEP` (`meta-execution-context.ts:396-404`) |
+| `meta_plan` / self | `.describe` | `PLAN_PATTERN_SELF` (self), `PLAN_PATTERN_ONE_SHOT` (from any other plan) | `CIRCULAR_META_STEP` (`meta-execution-context.ts:396-404`) |
 | host-only (`no-tool`) targets | — | `PLAN_PATTERN_NOT_EXPOSED` | none (`inline.ts:701-707`) |
 | patterns outside the agent's list | — | `PLAN_PATTERN_NOT_ALLOWED`; `plannedDispatches` guard | none |
 | cycles, forward refs | `.describe` | `PLAN_REF_FORWARD` | unrepresentable |

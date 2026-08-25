@@ -66,6 +66,7 @@ export type PlanProblemCode =
   | 'PLAN_PATTERN_NOT_FOUND'
   | 'PLAN_PATTERN_KIND_AGENT'
   | 'PLAN_PATTERN_SELF'
+  | 'PLAN_PATTERN_ONE_SHOT'
   | 'PLAN_PATTERN_NOT_EXPOSED'
   | 'PLAN_PATTERN_NOT_ALLOWED'
   | 'PLAN_ASSET_PRODUCER_NONE'
@@ -345,11 +346,17 @@ class PlanWalk {
     this.ruleSerialisable(step)
     this.walkStepAssets(step, target)
     if (target === undefined) return
-    // A step already refused outright (an agent, or the plan itself) gets no
-    // further per-target checks: they would pile a schema complaint on top of a
-    // refusal with a different remedy, and parsing an input against the plan
-    // meta's own schema would re-enter this walk.
-    if (target.kind === 'agent' || step.pattern === this.opts.selfId) return
+    // A step already refused outright (an agent, the plan itself, or the
+    // nested one-shot) gets no further per-target checks: they would pile a
+    // schema complaint on top of a refusal with a different remedy, and
+    // parsing an input against the plan meta's own schema would re-enter this
+    // walk.
+    if (
+      target.kind === 'agent' ||
+      step.pattern === this.opts.selfId ||
+      isOneShotPlan(target)
+    )
+      return
     this.ruleRequiredSlots(step, target)
     this.ruleStepInput(step, target)
   }
@@ -401,6 +408,23 @@ class PlanWalk {
         message: `A plan cannot run itself as one of its own steps ("${step.pattern}").`,
         details: { stepId: step.id, pattern: step.pattern },
       })
+    } else if (isOneShotPlan(pattern)) {
+      // The self rule catches meta_plan inside meta_plan; this catches the
+      // one-shot named from any OTHER plan. Without it the nesting dies at
+      // dispatch, where the outer substitution has already rewritten the inner
+      // DAG's $refs and the diagnosis reads as a schema mismatch rather than
+      // "you nested a plan".
+      this.add({
+        code: 'PLAN_PATTERN_ONE_SHOT',
+        path: at,
+        stepId: step.id,
+        message:
+          `"${step.pattern}" is the one-shot plan interpreter; a plan cannot nest it — ` +
+          `this plan's own $refs would be rewritten inside the inner DAG before it runs. ` +
+          `Inline the inner steps into this plan, or persist the inner plan (planToMeta) ` +
+          `and step into that pattern instead.`,
+        details: { stepId: step.id, pattern: step.pattern },
+      })
     }
     const audience = this.opts.audience
     if (audience !== undefined && !exposedTo(pattern, audience)) {
@@ -427,24 +451,22 @@ class PlanWalk {
 
   /** Deep-walk `step.input`, applying rules 4 and 7 to 9 to every string. */
   private walkInputStrings(step: StepView, target: Pattern | undefined): void {
-    // A step whose target is itself a plan does not get the grammar rules.
-    // `origin: 'plan'` means the pattern was interpreted from a step list, and
-    // for the one-shot (`meta_plan`) the step's whole `input` IS another DAG:
-    // its `$refs` name the INNER plan's steps, so walking them against THIS
-    // plan's ids reports refusals that are simply false — `$take-0.assets[0]`
-    // inside a nested DAG is not this plan's `PLAN_REF_INTO_ASSETS`, and
-    // `$input.prompt` there binds the inner plan's parameters, not ours.
+    // A step whose target is the ONE-SHOT interpreter does not get the grammar
+    // rules: its whole `input` IS another DAG, whose `$refs` name the INNER
+    // plan's steps, so walking them against THIS plan's ids reports refusals
+    // that are simply false — `$take-0.assets[0]` inside a nested DAG is not
+    // this plan's `PLAN_REF_INTO_ASSETS`, and `$input.prompt` there binds the
+    // inner plan's parameters, not ours. The step itself is already refused
+    // (PLAN_PATTERN_ONE_SHOT); piling false grammar refusals on top would bury
+    // the one with the remedy.
     //
-    // The field cannot tell that case apart from a PERSISTED plan, whose input
-    // is ordinary parameters that a `$ref` may legitimately fill. So the rule
-    // fails open for both rather than accusing the first: an outer ref into a
-    // nested plan's parameters goes unchecked here and is caught by layer 2 at
-    // the step, which is the trade this walk makes everywhere it cannot read a
-    // shape (a false refusal blocks a legal plan; a missed typo costs one step).
+    // A PERSISTED plan (`.plan` rides on the pattern) is not skipped: its
+    // input is ordinary parameters, and a `$ref` filling one belongs to THIS
+    // plan's namespace like any other step's, typos included.
     //
     // The heads still count as reads, or rule 22 would call a step nothing
     // reads unused purely because its only reader is a nested plan.
-    if (target?.origin === 'plan') {
+    if (target !== undefined && isOneShotPlan(target)) {
       collectRefHeads(step.input, this.referenced)
       return
     }
@@ -1230,6 +1252,20 @@ function exposedTo(pattern: Pattern, audience: DispatchAudience): boolean {
  * `resolveDispatchTarget` does (dispatch-pattern.ts:198-201), so rule 21's
  * verdict and the dispatch path's verdict cannot disagree.
  */
+/**
+ * The one-shot interpreter, recognised structurally: interpreted-from-steps by
+ * `origin`, but carrying no step list of its own — its input IS a DAG. A
+ * `planToMeta` product carries its frozen list as `.plan` (a field core does
+ * not declare on `Pattern`; patterns' `PlanMetaPattern` does, hence the cast)
+ * and is an ordinary steppable meta.
+ */
+function isOneShotPlan(pattern: Pattern): boolean {
+  return (
+    pattern.origin === 'plan' &&
+    (pattern as { plan?: unknown }).plan === undefined
+  )
+}
+
 function passthroughOf(schema: unknown): z.ZodType<unknown> {
   if (
     typeof schema === 'object' &&

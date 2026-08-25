@@ -793,15 +793,23 @@ describe('validatePlan — the walk fails open when it cannot introspect', () =>
 
 describe('validatePlan — a step whose target is itself a plan', () => {
   /**
-   * `origin: 'plan'` means the pattern was interpreted from a step list, and
-   * for the one-shot the step's whole `input` IS another DAG. Its `$refs` name
-   * the INNER plan's steps, so the outer walk must not read them as its own.
+   * `origin: 'plan'` without a `.plan` step list on the pattern is the
+   * ONE-SHOT interpreter, whose whole `input` IS another DAG. Naming it as a
+   * step is refused outright (PLAN_PATTERN_ONE_SHOT): the outer substitution
+   * would rewrite the inner DAG's `$refs` before it ran. The refusal must be
+   * the ONLY problem — the inner refs name the INNER plan's steps, so the
+   * outer walk reading them as its own would bury the refusal that carries
+   * the remedy under false grammar complaints.
+   *
+   * A PERSISTED plan carries its frozen list as `.plan` and is an ordinary
+   * steppable meta: its input is parameters of THIS plan's namespace, walked
+   * like any other step's.
    */
   const nestedPlanStub: MetaPattern = {
     id: 'meta_nested-plan',
     kind: 'meta',
     origin: 'plan',
-    description: 'A plan, called as a step of another plan.',
+    description: 'The one-shot, called as a step of another plan.',
     tool: { description: 'Run a nested plan.', inputs: PlanDagSchema },
     outputs: PlanOutputSchema,
     compose: async () => {
@@ -824,22 +832,25 @@ describe('validatePlan — a step whose target is itself a plan', () => {
     output: { assets: [{ from: '$clip.assets[0]', label: 'clip' }] },
   }
 
-  it("the inner plan's own $refs produce no outer-plan problems", () => {
+  it('nesting the one-shot is refused, and the refusal is the only problem', () => {
     const dag: PlanDag = {
       steps: [{ id: 'inner', pattern: 'meta_nested-plan', input: innerDag }],
       output: { assets: [{ from: '$inner.assets[label=clip]', label: 'clip' }] },
     }
-    // Without the origin check the outer walk reports, at minimum:
-    // PLAN_REF_INPUT_NOT_ALLOWED for `$input.subject` (this plan takes no
-    // parameters), PLAN_REF_UNKNOWN_STEP for `$take.assets[0]` (no step named
-    // `take` out here), and PLAN_REF_INTO_ASSETS on top of it.
-    expect(validatePlan(dag, nestedLookup, {})).toEqual([])
+    // Exactly one problem. Without the one-shot skip the outer walk would pile
+    // on, at minimum: PLAN_REF_INPUT_NOT_ALLOWED for `$input.subject` (this
+    // plan takes no parameters), PLAN_REF_UNKNOWN_STEP for `$take.assets[0]`
+    // (no step named `take` out here), and PLAN_REF_INTO_ASSETS on top of it.
+    const problems = validatePlan(dag, nestedLookup, {})
+    expect(codesOf(problems)).toEqual(['PLAN_PATTERN_ONE_SHOT'])
+    expect(problems[0]!.message).toContain('planToMeta')
   })
 
   it('a ref into the nested plan still counts as reading the step it names', () => {
     // The outer `describe` step is read ONLY from inside the nested DAG. Rule
-    // 22 must still see that read, or skipping the descent would trade a false
-    // PLAN_REF_* for a false PLAN_STEP_UNUSED.
+    // 22 must still see that read — the step is refused, but a refusal must
+    // stay orthogonal: piling a false PLAN_STEP_UNUSED on `describe` would
+    // send the author fixing a step that is not the problem.
     const dag: PlanDag = {
       steps: [
         {
@@ -861,10 +872,10 @@ describe('validatePlan — a step whose target is itself a plan', () => {
       ],
       output: { assets: [{ from: '$inner.assets[label=clip]', label: 'clip' }] },
     }
-    expect(validatePlan(dag, nestedLookup, {})).toEqual([])
+    expect(codesOf(validatePlan(dag, nestedLookup, {}))).toEqual(['PLAN_PATTERN_ONE_SHOT'])
   })
 
-  it('an ordinary meta step is still walked — the skip is keyed on origin alone', () => {
+  it('an ordinary meta step is still walked — skip and refusal key on the one-shot alone', () => {
     const dag: PlanDag = {
       steps: [
         {
@@ -883,6 +894,34 @@ describe('validatePlan — a step whose target is itself a plan', () => {
     expect(codesOf(validatePlan(dag, nestedLookup, {}))).toEqual([
       'PLAN_REF_UNKNOWN_STEP',
     ])
+  })
+
+  it('a PERSISTED plan (`.plan` on the pattern) is steppable, its params walked normally', () => {
+    const persistedPlanStub = {
+      ...nestedPlanStub,
+      id: 'meta_persisted-plan',
+      description: 'A planToMeta product: frozen steps, parameter input.',
+      tool: { description: 'Reusable pipeline.', inputs: z.object({ subject: z.string() }) },
+      plan: innerDag,
+    }
+    const persistedLookup = makeLookup([...ALL_STUBS, persistedPlanStub as unknown as Pattern])
+    const dag: PlanDag = {
+      steps: [
+        { id: 'describe', pattern: 'text-generation', input: { prompt: 'a red bicycle' } },
+        { id: 'reuse', pattern: 'meta_persisted-plan', input: { subject: '$describe.text' } },
+      ],
+      output: { assets: [{ from: '$reuse.assets[label=clip]', label: 'clip' }] },
+    }
+    expect(validatePlan(dag, persistedLookup, {})).toEqual([])
+    // ...and the walk is the NORMAL one — a typo'd ref filling its parameters
+    // is caught here, not left for the runtime substitution to trip over.
+    const typod: PlanDag = {
+      steps: [
+        { id: 'reuse', pattern: 'meta_persisted-plan', input: { subject: '$nowhere.text' } },
+      ],
+      output: { assets: [{ from: '$reuse.assets[label=clip]', label: 'clip' }] },
+    }
+    expect(codesOf(validatePlan(typod, persistedLookup, {}))).toEqual(['PLAN_REF_UNKNOWN_STEP'])
   })
 })
 

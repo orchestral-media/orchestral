@@ -25,14 +25,14 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   `text-generation` — one pattern per capability, each a thin typed envelope
   over the resolved model call.
 
-- **Eight meta pipelines.** Four composed deliverables (explainer short,
+- **Nine meta pipelines.** Four composed deliverables (explainer short,
   product ad short, product photo pack, UGC testimonial) alongside the
   planning and utility pipelines they and your own metas build on
-  (storyboard, script-to-video, best-of-N image selection, and the
+  (storyboard, script-to-video, best-of-N image selection, the
   `via-caption` image-edit fallback — the only `Alternative` target in the
-  catalog).
+  catalog), and `meta_plan`, the one-shot plan interpreter (see below).
 
-- **The catalog is these eight, on purpose.** The long-form novel → video
+- **The catalog is these nine, on purpose.** The long-form novel → video
   pipeline — `meta_script-planning`, `meta_prose-chunking`,
   `meta_novel-to-events`, `meta_event-to-script`, `meta_idea2video`, and the
   `agent_long-form-video` director that was their only consumer — is not in
@@ -149,6 +149,24 @@ Agent-kind patterns are not part of this catalog; they ship in the optional
   because a partial sum renders as a confident small number a host would read
   as the real total. `undefined` still counts as 0 and the NaN / Infinity guard
   is unchanged. Every first-party meta's `cost` is accordingly `number | null`.
+
+- **The plan interpreter** (`@alpha`). `planToMeta(dag, opts)` turns a JSON
+  step list (`PlanDag`, the wire schema in `@orchestral/core`) into an
+  ordinary `MetaPattern`: levels run in dependency order, independent steps in
+  parallel, each dispatch keyed by step NAME (`identity: 'id'`) so an edited
+  plan re-runs the edited step and its downstream, nothing else. The layer-2
+  gate `safeParse`s each step's input against the target's schema and
+  dispatches the ORIGINAL object, so a plan step and a hand-written meta step
+  with the same input share one idempotency key. `createPlanMeta(ops)` builds
+  `meta_plan` (`PLAN_PATTERN_ID`), the shipped one-shot whose tool input IS
+  the DAG — validated by `planRefine` in the schema itself, exposed
+  `deferred`, reaching the registry only through the `requiredOps:
+  ['getPattern']` host channel. The returned pattern declares
+  `plannedDispatches`, carries `origin: 'plan'`, and a `planToMeta` product
+  additionally carries the frozen DAG as `.plan` (`PlanMetaPattern`) — which
+  is how validators and preflight tell a persisted plan (steppable) from the
+  one-shot (not nestable). `examples/plan-short-clip` runs the same three-step
+  pipeline as `examples/incremental-rerun`, authored as JSON.
 
 ### Peer dependencies
 

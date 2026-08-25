@@ -170,12 +170,13 @@ The annotated version of the same wiring is in
 
 ## What's in the box
 
-`@orchestral/patterns` ships **18 patterns**: 10 atomic ones (one per capability
+`@orchestral/patterns` ships **19 patterns**: 10 atomic ones (one per capability
 — `text-to-image`, `image-to-video`, `text-to-speech`,
-`automatic-speech-recognition`, …) and 8 meta pipelines with their prompts
+`automatic-speech-recognition`, …) and 9 meta pipelines with their prompts
 inlined (best-of-N image selection, storyboarding, script-to-video, a product
-ad, a UGC testimonial, an explainer short, a product photo pack, and the
-caption → re-render image-edit fallback). The agent pattern (an orchestrator)
+ad, a UGC testimonial, an explainer short, a product photo pack, the
+caption → re-render image-edit fallback, and `meta_plan` — the one-shot that
+runs an LLM-authored step list as one job). The agent pattern (an orchestrator)
 lives in the optional `@orchestral/agent` package. The long-form novel → video
 pipeline is in neither: it is kept runnable in
 [`examples/long-form-video`](examples/long-form-video).

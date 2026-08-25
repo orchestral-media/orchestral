@@ -7,8 +7,16 @@
 import { Alternative } from '@orchestral/core';
 import { AtomicPattern } from '@orchestral/core';
 import { DerivedReferences } from '@orchestral/core';
+import { DispatchAudience } from '@orchestral/core';
+import { ExecutionContext } from '@orchestral/core';
 import { MetaPattern } from '@orchestral/core';
+import { Pattern } from '@orchestral/core';
+import { PatternExposure } from '@orchestral/core';
 import { PatternFn } from '@orchestral/core';
+import { PatternId } from '@orchestral/core';
+import { PlanDag } from '@orchestral/core';
+import { PlanOutput } from '@orchestral/core';
+import { PlanPatternLookup } from '@orchestral/core';
 import { ProducedAssetModality } from '@orchestral/core';
 import { z } from 'zod';
 
@@ -125,6 +133,13 @@ export function createImageToTextPattern(init?: ImageToTextPatternInit): AtomicP
 
 // @public (undocumented)
 export function createImageToVideoPattern(init?: ImageToVideoPatternInit): AtomicPattern<ImageToVideoInput, ImageToVideoOutput>;
+
+// @alpha
+export function createPlanMeta(ops: {
+    getPattern: (id: PatternId) => Pattern | undefined;
+}, init?: {
+    audience?: DispatchAudience;
+}): MetaPattern<PlanDag, PlanOutput>;
 
 // @alpha (undocumented)
 export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPattern<ProductAdShortInput, ProductAdShortOutput>;
@@ -586,6 +601,30 @@ export const PanelSchema: z.ZodObject<{
 export function parseJsonWithSchema<T>(text: string, schema: z.ZodType<T>, label: string): T;
 
 // @alpha
+export const PLAN_PATTERN_ID: "meta_plan";
+
+// @alpha
+export const PLAN_TOOL_DESCRIPTION: string;
+
+// @alpha
+export interface PlanMetaPattern<I = Record<string, unknown>> extends MetaPattern<I, PlanOutput> {
+    readonly plan: PlanDag;
+}
+
+// @alpha
+export function planToMeta<I extends Record<string, unknown> = Record<string, unknown>>(dag: PlanDag, opts: PlanToMetaOptions): PlanMetaPattern<I>;
+
+// @alpha
+export interface PlanToMetaOptions {
+    description?: string;
+    exposure?: PatternExposure;
+    id: PatternId;
+    inputs?: z.ZodObject;
+    lookup: PlanPatternLookup;
+    searchHint?: string;
+}
+
+// @alpha
 export const PRODUCT_AD_SHORT_DEFAULT_PROMPTS: Readonly<{
     heroPrompts: "You write distinct hero-frame image prompts for a short product ad.\nGiven a product brief and optional style, output JSON {\"prompts\": string[]} with exactly N varied prompts.\nRules: each prompt describes a single clear product hero shot a camera would see — explicit lens + lighting + surface/material; vary angle, lighting, and mood across the N; NO quality boosters (8k/masterpiece/best quality); NO artist names. Keep each prompt 1-3 sentences.";
 }>;
@@ -678,6 +717,15 @@ export type ProductPhotoPackPromptOverrides = Partial<Record<keyof typeof PRODUC
 
 // @public
 export function resolvePrompts<T extends Record<string, string>>(defaults: T, overrides?: Partial<T>): T;
+
+// @alpha
+export function runPlan(dag: PlanDag, lookup: PlanPatternLookup, opts: RunPlanOptions, planInput: Record<string, unknown>, ctx: ExecutionContext): Promise<PlanOutput>;
+
+// @alpha
+export interface RunPlanOptions {
+    inputs?: z.ZodObject;
+    selfId: PatternId;
+}
 
 // @alpha
 export const SCRIPT2VIDEO_DEFAULT_PROMPTS: Readonly<{

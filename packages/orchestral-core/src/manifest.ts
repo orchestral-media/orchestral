@@ -50,9 +50,11 @@ export const OrchestralManifestPatternSchema = z
     export: z.string().min(1),
     /**
      * Names of host operations THIS pattern's factory expects on the object
-     * passed to it — the ffmpeg-shaped work (`concatVideos`, `addSubtitles`, …)
-     * a meta cannot do itself. Omitted means the factory needs nothing from the
-     * host, which is the common case: most atomic patterns and every
+     * passed to it — a function the host supplies, whether media work
+     * (`concatVideos`, `addSubtitles`, …) a meta cannot do itself or a
+     * registry read (`meta_plan`'s `getPattern`) a manifest-loaded factory
+     * cannot reach any other way. Omitted means the factory needs nothing from
+     * the host, which is the common case: most atomic patterns and every
      * prompt-only meta build from an empty object.
      *
      * Per pattern rather than per package on purpose. A package-wide list is

@@ -646,6 +646,10 @@ describe('job:tool-rejected', () => {
     expect(ev.code).toBe('SUBAGENT_TOOL_OUT_OF_SCOPE')
     expect(ev.patternId).toBe('forbidden_atomic')
     expect(ev.callerPatternId).toBe('agent_scoped')
+    // `via` is reserved for refusals judged one level down, on a meta's
+    // DECLARED inner dispatch — a direct refusal must not carry it, or a host
+    // could no longer tell the two apart.
+    expect(ev.via).toBeUndefined()
     if (ev.code !== 'SUBAGENT_TOOL_OUT_OF_SCOPE') throw new Error('unreachable')
     expect(ev.allowlist).toEqual(['allowed_atomic'])
     // Fired on the agent's own stream, carrying the live snapshot.
@@ -855,6 +859,9 @@ describe('plannedDispatches', () => {
     expect(ev.code).toBe('SUBAGENT_TOOL_OUT_OF_SCOPE')
     expect(ev.patternId).toBe('meta_declared')
     expect(ev.callerPatternId).toBe('agent_scoped')
+    // The event names the declared offender too — an auditor must not have to
+    // re-run plannedDispatches to learn why an in-scope call was refused.
+    expect(ev.via).toBe('forbidden_atomic')
     if (ev.code !== 'SUBAGENT_TOOL_OUT_OF_SCOPE') throw new Error('unreachable')
     expect(ev.allowlist).toEqual(['meta_declared'])
     expect(h.events.indexOf(ev)).toBeLessThan(terminalIndex(h, job.id))
@@ -894,6 +901,7 @@ describe('plannedDispatches', () => {
     expect(evs).toHaveLength(1)
     const ev = evs[0]!
     expect(ev.code).toBe('SUBAGENT_BLOCKED')
+    expect(ev.via).toBe('agent_blocked')
     if (ev.code !== 'SUBAGENT_BLOCKED') throw new Error('unreachable')
     expect(ev.matched).toBe('prefix')
     expect(ev.patternId).toBe('meta_declared')
@@ -936,6 +944,7 @@ describe('plannedDispatches', () => {
     expect(evs).toHaveLength(1)
     const ev = evs[0]!
     expect(ev.code).toBe('CIRCULAR_AGENT_TOOL')
+    expect(ev.via).toBe('meta_hop')
     if (ev.code !== 'CIRCULAR_AGENT_TOOL') throw new Error('unreachable')
     expect(ev.ancestors).toEqual(['agent_ring', 'meta_hop', 'agent_leaf'])
     // Fired on the nested agent's job, not the root's.

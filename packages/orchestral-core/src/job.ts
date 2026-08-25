@@ -363,6 +363,14 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
       patternId: PatternId
       /** The AgentPattern whose loop emitted the call. */
       callerPatternId: PatternId
+      /**
+       * Present when the call itself was in scope but one of the target meta's
+       * DECLARED inner dispatches (`MetaPattern.plannedDispatches`) was not:
+       * the declared id that offended. `patternId` stays the call the loop
+       * actually made, so an auditor can tell WHICH call was refused and why
+       * without re-deriving the declaration.
+       */
+      via?: PatternId
     } & AgentToolRejection)
   | { type: 'job:completed'; job: Job<TInput, TOutput> }
   | { type: 'job:failed'; job: Job<TInput, TOutput> }
