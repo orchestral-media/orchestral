@@ -440,9 +440,10 @@ knowing before you rely on it:
   safe; loading the package runs its code, exactly like any other import.
 
 `@orchestral/patterns` is the first package to follow the convention — its
-`"orchestral"` field covers all 25 shipped patterns, six of which declare the
-ffmpeg-shaped ops they need. `@orchestral/agent` carries its own for the two
-agent patterns.
+`"orchestral"` field covers all 19 shipped patterns, five of which declare
+host operations (four the ffmpeg-shaped ops, `meta_plan` a `getPattern`
+registry read). `@orchestral/agent` carries its own for its one agent
+pattern.
 
 ## API map
 

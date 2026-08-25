@@ -76,10 +76,6 @@ the tarball and reading `package/package.json`:
 | `exports["."]` | `./src/index.ts` | `{ types: ./dist/index.d.ts, import: ./dist/index.js }` |
 | `dependencies["@orchestral/core"]` (patterns) | `workspace:*` | `0.1.0` |
 
-`pnpm pack` also drops the dev-only `./testing` subpath from
-`@orchestral/patterns` (it is absent from `publishConfig.exports`), which is
-intended — there is no dist artifact behind it.
-
 If you ever want to inspect a tarball without triggering the `prepack` build,
 `npm_config_ignore_scripts=true pnpm pack --pack-destination /tmp/x` works;
 `pnpm pack` has no `--ignore-scripts` flag of its own.
@@ -115,12 +111,23 @@ git diff --exit-code packages/orchestral-patterns/README.md   # commit if it mov
 ```
 
 Set the release date. Each package's `CHANGELOG.md` heads its section with
-`## [0.1.0] — Initial public release` and no date, because the date is only
-true once the publish lands. Fill it in on the day:
+`## [0.1.0] - <date> — Initial public release`, stamped with a placeholder
+date from when the entry was written. Update it to the day the publish
+actually lands:
 
 ```sh
-# six packages, one line each
+# six packages, one line each — check the date on every one
 grep -rn '^## \[0.1.0\]' packages/*/CHANGELOG.md
+```
+
+Flip the pre-publish banners. Two READMEs open their install sections with
+`> **Not on npm yet** — 0.1.0 publishes shortly. …` — the root `README.md`
+(Quickstart) and `packages/orchestral-core/README.md` (Install, which is the
+npm package page). Delete both lines on the day, and grep to be sure no third
+copy has appeared:
+
+```sh
+grep -rn "Not on npm yet" README.md packages/*/README.md
 ```
 
 Version bump, when releasing something other than the current `0.1.0`:
@@ -215,6 +222,7 @@ node --input-type=module -e "
 "
 ```
 
+```sh
 # the AI SDK adapters, which a host installs only if it is on the AI SDK
 npm install @orchestral/adapters-ai-sdk@0.1.0 ai
 node --input-type=module -e "

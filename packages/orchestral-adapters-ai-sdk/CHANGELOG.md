@@ -8,7 +8,7 @@ this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 > changes. Pin `"~0.1"` for patch-only updates. Breaking changes are listed under
 > `### Breaking (0.x)`.
 
-## [Unreleased]
+## [0.1.0] - 2026-08-21 — Initial public release
 
 ### Added
 
@@ -42,19 +42,12 @@ this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without one), validate the reply against that schema through zod's
   `fromJSONSchema`, and return the object in `text` as JSON — the shape the
   first-party metas parse.
-
-### Changed
-
 - **Produced artifacts carry `meta.assetId`.** Every artifact `fromImageModel`
   and `fromSpeechModel` return on `DispatchResult.artifacts` and fire on
   `events.onArtifact` (the runtime's `job:artifact` event) is stamped with the
   `assetId` of its output element — minted or placeholder — so a host that
   collects bytes from the event and one that reads the output look up the
-  same key. Additive: the speech artifact's `meta.format` stays.
-
-## [0.1.0] - 2026-08-21 — Initial public release
-
-### Added
+  same key. The speech artifact's `meta.format` rides alongside it.
 
 - **AI SDK model instance → `ModelCapability` envelope.** The call adapter a
   host on the Vercel AI SDK would otherwise write by hand, extracted from the
