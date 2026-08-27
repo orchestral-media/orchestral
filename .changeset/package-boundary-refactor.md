@@ -85,12 +85,19 @@ new InlineRuntime({
   `BuildCatalogDescriptorsOptions.querySyntaxHint` to put the prose back.
 - **New:** `PatternSearch` and `PatternSearchRequest` (types) on
   `@orchestral/core`; `BuildCatalogDescriptorsOptions.includeFindPattern`
-  (default `true`) and `.querySyntaxHint`; `createPatternSearch`,
+  (default `true`) and `.querySyntaxHint`; `ResolveDispatchOptions` and a
+  fourth, optional `opts` parameter on `resolveDispatchTarget` (existing
+  three-argument calls are unaffected); `createPatternSearch`,
   `CreatePatternSearchOptions` and `QUERY_SYNTAX_HINT` on
   `@orchestral/discovery`; `InlineRuntimeInit.patternSearch`.
-- **Refusal text changes only when no seam is wired.** Two agent-loop hints and
-  the `UNKNOWN_TOOL` message stop directing the model at a tool the loop does not
-  have. A wired host gets byte-identical strings to before.
+- **Model-visible text changes only when no seam is wired.** `includeFindPattern`
+  is one question reaching every string, not just the descriptor list:
+  `dispatch_pattern` is still emitted without a seam, but its description and
+  its `pattern_id` / `input` `describe`s switch to spellings that name no tool
+  the catalog lacks, and `resolveDispatchTarget`'s refusal hints do the same via
+  `opts.hasPatternSearch` (the runtime passes it for an unwired agent loop), as
+  do two agent-loop hints and the `UNKNOWN_TOOL` message. A wired host gets
+  byte-identical strings to before.
 - `PatternBase.searchHint`'s doc comment no longer describes BM25 boost tiers
   (doc only — the field, its type and every consumer are unchanged).
 - **`@orchestral/agent`:** `ORCHESTRATOR_SYSTEM_PROMPT` still tells the model to
@@ -198,10 +205,12 @@ from your write paths instead of re-deriving the table.**
 
 `sumCosts` now lives in `@orchestral/core` beside `metaEnvelopeShape.cost`, whose
 null rule it implements (`@orchestral/patterns` re-exports it, so nothing to do).
-`applicableAlternatives`, `pickAlternative`, `toAvailableAlternative` and
-`readRequiresSemantics` are core's, because deciding whether a declared path
-applies is a read of the registry and the router, while taking one is runtime
-policy — the runtime's `ALTERNATIVES_NOT_ENABLED` diagnostic and a plan's
+`applicableAlternatives`, `pickAlternative`, `toAvailableAlternative`,
+`readRequiresSemantics` and `AlternativeSelectionDeps` — the registry + router
+pair all four read, which `@orchestral/runtime`'s `RunAlternativeDeps` now
+extends rather than restates — are core's, because deciding whether a declared
+path applies is a read of the registry and the router, while taking one is
+runtime policy — the runtime's `ALTERNATIVES_NOT_ENABLED` diagnostic and a plan's
 preflight now report from the same evaluation instead of two copies of it.
 `ResolveCtxProvider` is core's for the same reason: preflight and
 `InlineRuntimeInit` take the same provider, so it is a contract rather than one

@@ -431,6 +431,14 @@ export interface InlineRuntimeInit {
    * for a host that has swapped out a piece of that behaviour (see
    * `BuildCatalogDescriptorsOptions.slotDefaultNote`) and must keep the
    * agent-loop descriptors truthful and in step with its own chat-turn catalog.
+   *
+   * One field is NOT yours to set here: `includeFindPattern` is overwritten
+   * per loop from whether `patternSearch` is wired. The runtime is the only
+   * thing that knows what will actually answer a find_pattern call from an
+   * agent loop, so it decides; a value passed in is ignored rather than
+   * honoured, because honouring it is how a catalog ends up advertising a tool
+   * with nothing behind it. `querySyntaxHint` is the field to pass alongside
+   * a seam — those two are a pair (see `patternSearch` below).
    */
   catalogOptions?: BuildCatalogDescriptorsOptions
   /**
