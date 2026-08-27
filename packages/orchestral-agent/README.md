@@ -31,7 +31,8 @@ import { createInProcessAgentRunImpl } from './agent-runner' // yours
 
 const registry = new PatternRegistry()
 registry.add(createOrchestratorAgent())
-// …plus the atomic + meta patterns its loop.toolPatternIds names.
+// …plus the atomic + meta patterns its loop.toolPatternIds names — see below,
+// this line is load-bearing.
 
 const runtime = new InlineRuntime({
   store,
@@ -43,6 +44,37 @@ const runtime = new InlineRuntime({
   }),
 })
 ```
+
+## Register the tools it names, or narrow the list
+
+The shipped `loop.toolPatternIds` is the whole first-party catalog minus
+`meta_plan` — all 18 ids in `FIRST_PARTY_PATTERN_IDS` (the orchestrator plans as
+it goes, so a second static planner would be two planners). That list is a
+declaration the runtime now holds you to: dispatching the agent against a
+registry missing any of those ids fails the job with
+`AGENT_TOOL_PATTERN_NOT_REGISTERED` before the loop starts, naming what is
+absent. Registering a subset of `@orchestral/patterns` is a perfectly good
+deployment — say so, and the agent's tool universe matches what you pay for:
+
+```ts
+import { FIRST_PARTY_PATTERN_IDS } from '@orchestral/patterns'
+
+registry.add(
+  createOrchestratorAgent({
+    // Whatever you actually registered — here, the atomics and no metas.
+    toolPatternIds: FIRST_PARTY_PATTERN_IDS.atomic,
+    // Same seam for the rest of the defaults this package picked for you:
+    // `prompts` overrides the system prompt (keys of
+    // ORCHESTRATOR_DEFAULT_PROMPTS), `abortMode` whether a caller's abort
+    // cascades in.
+  }),
+)
+```
+
+The failure is loud rather than silent because the alternative is worse than a
+missing tool: a catalog that quietly shrinks under an unchanged system prompt
+leaves the agent being told to use patterns it does not have, and it finds out
+one wasted turn at a time.
 
 A host can also register it straight from the package manifest, without
 hand-written wiring:

@@ -61,7 +61,10 @@ example.
 - **Every output is held to its schema.** At the dispatch exit, an atomic or
   meta output that `pattern.outputs` rejects fails the job with
   `OUTPUT_SCHEMA_MISMATCH`; `error.details` names the pattern and the zod
-  issues and carries `rawOutput`, since the call was already paid for. A
+  issues and carries `rawOutput`, since the call was already paid for. An
+  output a middleware short-circuits with meets the same gate whatever the
+  Pattern's kind — it stands in for what an adapter would have returned, and no
+  finish tool ran there to have checked it. A
   conforming output is returned as the adapter produced it — unknown keys and
   all — never zod's parsed copy. `InlineRuntimeInit.outputValidation: 'off'`
   skips the check, for a migration window over adapters the host does not
@@ -238,6 +241,20 @@ to the verdict that caused it. Two boundaries:
   message kind is `tool-result`, so recording one would add `role: 'tool'` turns
   to the resume seed and change what a resumed model sees. The event stream
   carries the audit trail; resume stays as described below.
+
+An unsatisfiable allowlist is the opposite case, and it fails the job:
+`AGENT_TOOL_PATTERN_NOT_REGISTERED` is thrown while the tool catalog is being
+built, before the loop starts, when `loop.toolPatternIds` names a pattern id
+the registry does not have. The error names the agent and the missing ids —
+register those Patterns, or narrow the allowlist. It is not a refusal because
+there is no model to hand it to and nothing for a model to do differently: a
+refusal answers a call the LLM chose to make, while this answers a declaration
+its author wrote. Skipping the absent id instead would shrink the catalog under
+an unchanged system prompt, so the agent keeps being told to use tools it does
+not have and finds out one wasted turn at a time. Blocklisted ids are the
+exception and are skipped silently — a blocked id was never going to be callable
+whether or not it is registered, so naming one is an authoring no-op rather than
+an unmet declaration.
 
 ## Resume fidelity
 
