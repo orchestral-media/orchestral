@@ -24,7 +24,7 @@ import {
 } from '@orchestral/core'
 import { InMemoryJobStore } from '@orchestral/core/memory'
 import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
-import { createPatternSearch } from '@orchestral/discovery'
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createInProcessAgentRunImpl } from './agent-runner'
@@ -93,6 +93,12 @@ const runtime = new InlineRuntime({
   // is wired anyway because it is the line to copy the moment a host has a
   // Pattern the model must discover.
   patternSearch: createPatternSearch(registry, { router }),
+  // The other half of the same wiring, and it is a pair: the implementation
+  // parses a query mini-language (`select:`, `+term`, `namespace:`) that
+  // nothing tells the model about unless this hint is spliced into
+  // find_pattern's description. Wire the search without it and the model only
+  // ever writes prose at an index that can do better.
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
   onJobCreated: (jobId) =>
     runtime.subscribe(jobId, (ev) => {
       if (ev.type === 'job:artifact') artifacts.push(ev.artifact)

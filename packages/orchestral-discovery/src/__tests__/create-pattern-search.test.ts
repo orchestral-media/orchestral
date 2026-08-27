@@ -137,4 +137,16 @@ describe('QUERY_SYNTAX_HINT', () => {
     expect(QUERY_SYNTAX_HINT).toContain('namespace:')
     expect(QUERY_SYNTAX_HINT).toContain('+')
   })
+
+  // The tokenizer splits CJK, so a Chinese query returns matches and looks
+  // like it worked — against an English catalog they are the wrong matches.
+  // "prefer English" alone does not say that, which is why the sentence is
+  // separate and why it is asserted separately: it went missing once already,
+  // in the move that brought this string out of @orchestral/core.
+  it('keeps the CJK caveat, not just the English preference', () => {
+    expect(QUERY_SYNTAX_HINT).toContain('CJK')
+    expect(QUERY_SYNTAX_HINT).toContain(
+      'only match catalog text written in that language',
+    )
+  })
 })

@@ -443,6 +443,7 @@ interface SelectorResult {
  */
 export const QUERY_SYNTAX_HINT =
   'Prefer English keywords: the first-party catalog is written in English and the tokenizer does not translate across languages. ' +
+  'CJK queries are tokenized too, but only match catalog text written in that language — translate the user intent to English keywords when in doubt. ' +
   'Prefix a word with + to make it mandatory — only patterns containing it are returned, e.g. "edit photo +inpaint". ' +
   'When you already know what you want, use a selector instead of prose: ' +
   '"select:<id>[,<id>...]" for specific patterns (id or short name); ' +
