@@ -66,17 +66,17 @@ function harness(init: { alternatives?: 'auto' | 'off'; askUser?: AskUserHandler
   image.doGenerate = imageGen
 
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextToImagePattern())
-  registry.add(createImageToTextPattern())
-  registry.add(createImageToImagePattern())
-  registry.add(createImageToImageViaCaptionPattern())
+  registry.register(createTextToImagePattern())
+  registry.register(createImageToTextPattern())
+  registry.register(createImageToImagePattern())
+  registry.register(createImageToImageViaCaptionPattern())
   const path = registry
     .getEntry(IMAGE_TO_IMAGE_PATTERN_ID)!
     .alternatives.find((alt) => alt.id === 'via-caption') as Alternative<
     ImageToImageInput,
     ImageToImageOutput
   >
-  registry.add(createConsentedEditPattern({ path }))
+  registry.register(createConsentedEditPattern({ path }))
 
   const router = createDefaultCapabilityRouter({
     getModels: createModels(

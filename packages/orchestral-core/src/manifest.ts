@@ -155,21 +155,18 @@ export class ManifestError extends Error {
 }
 
 /**
- * The id prefix is normative, not cosmetic — the sub-agent recursion guard and
- * `inferNamespace` both route on it (see foundational.ts). Checking it here
- * makes the manifest self-describing to a static reader: an `agent_` id in the
- * list IS an agent.
- */
-/**
  * The id ↔ kind naming contract: `meta_` prefix for meta, `agent_` for agent, a
  * bare capability id for atomic.
  *
- * Exported because the contract is normative beyond the manifest.
- * `DEFAULT_SUBAGENT_BLOCKLIST` and `inferNamespace` (catalog.ts) route purely on
- * the prefix, so an agent Pattern whose id lacks `agent_` is invisible to the
- * sub-agent recursion guard. Checking it only in the manifest would leave
- * `PatternRegistry.register` — the path every first-party and hand-wired
- * Pattern takes — as an unguarded way in.
+ * The prefix is normative, not cosmetic — `DEFAULT_SUBAGENT_BLOCKLIST` and
+ * `inferNamespace` (catalog.ts) both route purely on it, so an agent Pattern
+ * whose id lacks `agent_` is invisible to the sub-agent recursion guard.
+ * Checking it here makes a manifest self-describing to a static reader: an
+ * `agent_` id in the list IS an agent.
+ *
+ * Exported because the contract is normative beyond the manifest. Checking it
+ * only here would leave `PatternRegistry.register` — the path every first-party
+ * and hand-wired Pattern takes — as an unguarded way in.
  * DESIGN: id-carries-kind
  */
 export function idCarriesKind(id: string, kind: ManifestPatternKind): boolean {

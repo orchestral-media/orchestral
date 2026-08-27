@@ -84,7 +84,7 @@ export function registerCatalog(
   const add = <I, O>(
     pattern: Pattern<I, O> & { alternatives?: readonly Alternative<I, O>[] },
   ): string => {
-    registry.add(pattern)
+    registry.register(pattern)
     return pattern.id
   }
 

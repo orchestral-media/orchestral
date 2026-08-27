@@ -89,7 +89,7 @@ describe('dispatchAgent tool catalog', () => {
     let capturedTools: string[] = []
     let capturedPatternId: string | undefined
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeAgent())
+    registry.register(makeAgent())
     const runImpl: AgentRunImpl = {
       async run(args) {
         capturedTools = args.tools.map((t) => t.name)
@@ -117,7 +117,7 @@ describe('dispatchAgent tool catalog', () => {
 describe('dispatchAgent sessionId wiring', () => {
   function makeRuntime(capture: { args?: RunArgs }): InlineRuntimeAdapter {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeAgent())
+    registry.register(makeAgent())
     const runImpl: AgentRunImpl = {
       async run(args) {
         capture.args = args
@@ -267,7 +267,7 @@ describe('dispatchAgent finish broker', () => {
     bridge?: AgentAssetBridge
   }): InlineRuntimeAdapter {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(opts.pattern)
+    registry.register(opts.pattern)
     const runImpl: AgentRunImpl = { run: (args) => opts.drive(args) }
     return new InlineRuntimeAdapter({
       store: new MemoryJobStore() as never,
@@ -534,7 +534,7 @@ describe('dispatchAgent finish broker', () => {
       jobId ??= ev.job.id
     })
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeSalvageComposeThrowsAgent())
+    registry.register(makeSalvageComposeThrowsAgent())
     const bridge = makeBridge({ recordedAssetIds: () => ['salvage-produced-1'] })
     const runImpl: AgentRunImpl = {
       async run(args) {
@@ -602,7 +602,7 @@ describe('dispatchAgent finish broker', () => {
       jobId ??= ev.job.id
     })
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeDefaultAgent())
+    registry.register(makeDefaultAgent())
     let runtime!: InlineRuntimeAdapter
     const runImpl: AgentRunImpl = {
       async run(args) {

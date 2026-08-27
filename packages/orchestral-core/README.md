@@ -67,7 +67,7 @@ import { openai } from '@ai-sdk/openai'
 
 // 1. Register the atomic patterns you want to expose.
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
+registry.register(createTextToImagePattern())
 
 // 2. Bridge your provider SDK to a ModelCapability envelope. The `call` adapter
 //    is the host's — core never imports a provider SDK. It is generic in its

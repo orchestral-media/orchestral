@@ -53,12 +53,12 @@ const ALL_ROWS = [
 /** Identical wiring to src/main.ts, minus the latency. */
 function makeHost(store = new InMemoryJobStore()) {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextGenerationPattern())
-  registry.add(createTextToImagePattern())
-  registry.add(createImageToVideoPattern())
+  registry.register(createTextGenerationPattern())
+  registry.register(createTextToImagePattern())
+  registry.register(createImageToVideoPattern())
   const ops = { getPattern: (id: PatternId) => registry.get(id) }
-  registry.add(createShortClip(ops))
-  registry.add(createCaptionedShortClip(ops))
+  registry.register(createShortClip(ops))
+  registry.register(createCaptionedShortClip(ops))
 
   const { getModels, models } = createMockModels()
   const router = createDefaultCapabilityRouter({ getModels })

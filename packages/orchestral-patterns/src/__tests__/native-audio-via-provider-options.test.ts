@@ -54,7 +54,7 @@ function freshIndex(): {
   registry: PatternRegistry
 } {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextToVideoPattern() as unknown as Pattern)
+  registry.register(createTextToVideoPattern() as unknown as Pattern)
   return { index: new PatternSearchIndex(registry), registry }
 }
 

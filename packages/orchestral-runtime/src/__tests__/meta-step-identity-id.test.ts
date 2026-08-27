@@ -201,11 +201,11 @@ interface StepRecord {
 function makeHost() {
   const prompts: string[] = []
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createFakeGenPattern() as never)
-  registry.add(createSeqMeta() as never)
-  registry.add(createUnnamedMeta() as never)
-  registry.add(createInnerMeta() as never)
-  registry.add(createOuterMeta() as never)
+  registry.register(createFakeGenPattern() as never)
+  registry.register(createSeqMeta() as never)
+  registry.register(createUnnamedMeta() as never)
+  registry.register(createInnerMeta() as never)
+  registry.register(createOuterMeta() as never)
 
   let collecting: StepRecord[] | undefined
   let sawRoot = false

@@ -45,8 +45,8 @@ import { PatternRegistry } from '@orchestral/core'
 import { createTextToImagePattern, createStoryboardMeta } from '@orchestral/patterns'
 
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
-registry.add(createStoryboardMeta())
+registry.register(createTextToImagePattern())
+registry.register(createStoryboardMeta())
 ```
 
 See [`@orchestral/core`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-core)

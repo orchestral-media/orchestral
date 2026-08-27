@@ -76,7 +76,7 @@ describe('checkPermissions — every kind', () => {
     } as unknown as AtomicPattern
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(atomic)
+    registry.register(atomic)
     // A denied dispatch settles as a failed Job whose JobError carries the
     // hook's reason — identical for all three kinds here.
     const job = await makeRuntime(registry).submitJob({
@@ -105,7 +105,7 @@ describe('checkPermissions — every kind', () => {
     } as unknown as MetaPattern
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(meta)
+    registry.register(meta)
     const job = await makeRuntime(registry).submitJob({
       patternId: 'meta_gated' as PatternId,
       input: {},
@@ -129,7 +129,7 @@ describe('checkPermissions — every kind', () => {
     } as unknown as AgentPattern
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(agent)
+    registry.register(agent)
     const runtime = new InlineRuntime({
       store: new InMemoryJobStore(),
       registry,
@@ -167,7 +167,7 @@ describe('checkPermissions — every kind', () => {
     } as unknown as MetaPattern
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(meta)
+    registry.register(meta)
     const job = await makeRuntime(registry).submitJob({
       patternId: 'meta_allowed' as PatternId,
       input: { n: 7 },
@@ -199,7 +199,7 @@ describe('checkPermissions — every kind', () => {
     } as unknown as MetaPattern
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(meta)
+    registry.register(meta)
     const job = await makeRuntime(registry).submitJob({
       patternId: 'meta_ungated' as PatternId,
       input: {},

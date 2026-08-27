@@ -148,10 +148,10 @@ function createParentMeta(): MetaPattern<
 
 function makeRuntime(calls: Array<{ prompt: string }>): InlineRuntime {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createFakeImagePattern() as never)
-  registry.add(createGrandchildMeta() as never)
-  registry.add(createChildMeta() as never)
-  registry.add(createParentMeta() as never)
+  registry.register(createFakeImagePattern() as never)
+  registry.register(createGrandchildMeta() as never)
+  registry.register(createChildMeta() as never)
+  registry.register(createParentMeta() as never)
   return new InlineRuntime({
     router: makeImageRouter(calls),
     registry,

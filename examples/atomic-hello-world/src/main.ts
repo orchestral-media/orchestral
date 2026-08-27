@@ -36,7 +36,7 @@ if (!process.env.OPENAI_API_KEY) {
 // 1. Register the atomic Pattern we want to dispatch. `registry.add` is generic
 //    over the Pattern's I/O, so a fully-typed factory result drops straight in.
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
+registry.register(createTextToImagePattern())
 
 // 2. Declare which model serves text-to-image. The model instance is ours —
 //    @ai-sdk/openai builds it from OPENAI_API_KEY in the environment.

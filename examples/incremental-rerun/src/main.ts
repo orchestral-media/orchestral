@@ -31,10 +31,10 @@ import { createShortClipMeta } from './pattern'
 
 // 1. Register the three atomics the meta steps through, plus the meta itself.
 const registry = new PatternRegistry()
-registry.add(createTextGenerationPattern())
-registry.add(createTextToImagePattern())
-registry.add(createImageToVideoPattern())
-registry.add(createShortClipMeta())
+registry.register(createTextGenerationPattern())
+registry.register(createTextToImagePattern())
+registry.register(createImageToVideoPattern())
+registry.register(createShortClipMeta())
 
 // 2. One mock model per capability, each with an artificial latency. The
 //    latency is the only thing that makes a hit look different from a run on

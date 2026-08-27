@@ -1284,12 +1284,12 @@ describe('planRefine through the real dispatch path', () => {
       textToImageStub,
       imageToVideoStub,
     ] as unknown as Pattern[]) {
-      registry.add(pattern)
+      registry.register(pattern)
     }
     const refined = PlanDagSchema.superRefine(
       planRefine(registry, { selfId: 'meta_plan', audience: 'agent-loop' }),
     )
-    registry.add({
+    registry.register({
       ...planMetaStub,
       tool: { ...planMetaStub.tool, inputs: refined },
     } as unknown as Pattern)

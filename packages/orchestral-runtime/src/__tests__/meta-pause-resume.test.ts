@@ -93,10 +93,10 @@ let onCall: ReturnType<typeof vi.fn>
 beforeEach(() => {
   onCall = vi.fn()
   registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(
-    createTextGenerationPattern() as unknown as Parameters<typeof registry.add>[0],
+  registry.register(
+    createTextGenerationPattern() as unknown as Parameters<typeof registry.register>[0],
   )
-  registry.add(makePauseMeta() as unknown as Parameters<typeof registry.add>[0])
+  registry.register(makePauseMeta() as unknown as Parameters<typeof registry.register>[0])
 })
 
 function makeRuntime(askUser: AskUserHandler): InlineRuntime {
@@ -195,7 +195,7 @@ function makeTwoPauseMeta(): MetaPattern {
 
 describe('sequential + parallel parks', () => {
   it('parks twice in sequence — answers route by request order, no accumulation', async () => {
-    registry.add(makeTwoPauseMeta() as unknown as Parameters<typeof registry.add>[0])
+    registry.register(makeTwoPauseMeta() as unknown as Parameters<typeof registry.register>[0])
     const order: string[] = []
     const askUser = vi.fn<AskUserHandler>(async (req) => {
       const which = (req.payload as { which: string }).which
@@ -235,7 +235,7 @@ describe('sequential + parallel parks', () => {
         return { left, right }
       },
     } as unknown as MetaPattern
-    registry.add(parallelMeta as unknown as Parameters<typeof registry.add>[0])
+    registry.register(parallelMeta as unknown as Parameters<typeof registry.register>[0])
 
     const askUser = vi.fn<AskUserHandler>(async () => 'left-answer')
     const runtime = makeRuntime(askUser)
@@ -273,7 +273,7 @@ describe('sequential + parallel parks', () => {
         return { a, b }
       },
     } as unknown as MetaPattern
-    registry.add(twoParkMeta as unknown as Parameters<typeof registry.add>[0])
+    registry.register(twoParkMeta as unknown as Parameters<typeof registry.register>[0])
 
     // Hold each request until BOTH have parked, then answer by the request's own
     // payload — so this only passes if the two parks are genuinely concurrent AND
@@ -319,7 +319,7 @@ describe('sequential + parallel parks', () => {
         return { shout }
       },
     } as unknown as MetaPattern
-    registry.add(xform as unknown as Parameters<typeof registry.add>[0])
+    registry.register(xform as unknown as Parameters<typeof registry.register>[0])
 
     const askUser = vi.fn<AskUserHandler>(async () => 'quiet')
     const done = await makeRuntime(askUser).submitJob({
@@ -386,7 +386,7 @@ describe('abort while parked', () => {
         return { v }
       },
     } as unknown as MetaPattern
-    registry.add(gatedMeta as unknown as Parameters<typeof registry.add>[0])
+    registry.register(gatedMeta as unknown as Parameters<typeof registry.register>[0])
     const runtime = new InlineRuntime({
       router: makeRouter(onCall),
       registry,
@@ -436,8 +436,8 @@ describe('nested park routes to the dispatch-tree root (rootJobId)', () => {
         return await ctx.step<{ v: string }>({ patternId: 'meta_child_park', input: {} })
       },
     } as unknown as MetaPattern
-    registry.add(childPark as unknown as Parameters<typeof registry.add>[0])
-    registry.add(parent as unknown as Parameters<typeof registry.add>[0])
+    registry.register(childPark as unknown as Parameters<typeof registry.register>[0])
+    registry.register(parent as unknown as Parameters<typeof registry.register>[0])
 
     const seen: AskUserRequest[] = []
     const askUser = vi.fn<AskUserHandler>(async (req) => {

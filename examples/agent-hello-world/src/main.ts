@@ -49,8 +49,8 @@ if (!process.env.OPENAI_API_KEY) {
 //    loop.toolPatternIds names 'text-to-image', so that atomic must be in the
 //    registry for the loop to resolve + dispatch it.
 const registry = new PatternRegistry()
-registry.add(createAgentHelloWorldPattern())
-registry.add(createTextToImagePattern())
+registry.register(createAgentHelloWorldPattern())
+registry.register(createTextToImagePattern())
 
 // 2. The model that serves the text-to-image TOOL call (router territory),
 //    bridged by the same host-local ai-sdk wiring the atomic example uses.

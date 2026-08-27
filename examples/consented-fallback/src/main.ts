@@ -106,17 +106,17 @@ const models = live ? await liveModels() : mockModels()
 // strips it into the registry's alternatives table, which is where the
 // runtime (and this host) read it from.
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
-registry.add(createImageToTextPattern())
-registry.add(createImageToImagePattern())
-registry.add(createImageToImageViaCaptionPattern())
+registry.register(createTextToImagePattern())
+registry.register(createImageToTextPattern())
+registry.register(createImageToImagePattern())
+registry.register(createImageToImageViaCaptionPattern())
 
 const declared = registry.getEntry(IMAGE_TO_IMAGE_PATTERN_ID)?.alternatives ?? []
 const viaCaption = declared.find((alt) => alt.id === 'via-caption') as
   | Alternative<ImageToImageInput, ImageToImageOutput>
   | undefined
 if (!viaCaption) throw new Error('image-to-image no longer declares via-caption')
-registry.add(createConsentedEditPattern({ path: viaCaption }))
+registry.register(createConsentedEditPattern({ path: viaCaption }))
 
 // ── 2. Router ───────────────────────────────────────────────────────────────
 // `getModels` answers for text-to-image and image-to-text, and `[]` for

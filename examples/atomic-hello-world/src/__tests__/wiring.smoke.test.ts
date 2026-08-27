@@ -40,7 +40,7 @@ describe('atomic hello-world wiring', () => {
   it('dispatches text-to-image end to end with a mock model (no API key)', async () => {
     // Identical wiring to src/main.ts, swapping only the model instance.
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(createTextToImagePattern())
+    registry.register(createTextToImagePattern())
 
     const getModels = createImageModels([
       {

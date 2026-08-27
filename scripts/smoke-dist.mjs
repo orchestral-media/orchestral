@@ -216,7 +216,7 @@ const artifacts = []
 let job
 try {
   const registry = new core.PatternRegistry()
-  registry.add(patterns.createTextToImagePattern())
+  registry.register(patterns.createTextToImagePattern())
 
   const router = coreRouting.createDefaultCapabilityRouter({ getModels: inlineImageModels() })
   const rt = new runtime.InlineRuntime({
@@ -279,7 +279,7 @@ let adapterJob
 const adapterArtifacts = []
 try {
   const registry = new core.PatternRegistry()
-  registry.add(patterns.createTextToImagePattern())
+  registry.register(patterns.createTextToImagePattern())
   const envelope = adapters.fromImageModel(
     new MockImageModelV3({
       provider: 'openai',
@@ -335,7 +335,7 @@ console.log('\ndispatch text-generation via @orchestral/adapters-ai-sdk:')
 let textJob
 try {
   const registry = new core.PatternRegistry()
-  registry.add(patterns.createTextGenerationPattern())
+  registry.register(patterns.createTextGenerationPattern())
   const envelope = adapters.fromLanguageModel(
     new MockLanguageModelV3({
       provider: 'openai',

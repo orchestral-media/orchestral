@@ -76,7 +76,7 @@ function makeRuntime(
   logger?: DiagnosticsLogger,
 ): InlineRuntime {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(makeInstantPattern() as never)
+  registry.register(makeInstantPattern() as never)
   return new InlineRuntime({
     router: makeInstantRouter(),
     registry,

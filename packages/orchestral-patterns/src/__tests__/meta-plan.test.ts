@@ -124,7 +124,7 @@ function hostWithPlanMeta(store?: InMemoryJobStore, latencyMs?: number): PlanHos
     ...(store !== undefined ? { store } : {}),
     ...(latencyMs !== undefined ? { latencyMs } : {}),
   })
-  registryHolder.registry.add(planMetaFor(registryHolder))
+  registryHolder.registry.register(planMetaFor(registryHolder))
   return registryHolder
 }
 
@@ -212,7 +212,7 @@ describe('planToMeta — three takes, a judge, and a winner', () => {
 
   function host(): PlanHost {
     const h = makePlanHost({ bestOfN: true, latencyMs: 5 })
-    h.registry.add(
+    h.registry.register(
       planToMeta(THREE_TAKES, {
         id: 'meta_shortlist' as PatternId,
         lookup: h.registry,

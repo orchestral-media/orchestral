@@ -305,12 +305,12 @@ export interface PlanHostInit {
 
 export function makePlanHost(init: PlanHostInit = {}): PlanHost {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextGenerationPattern())
-  registry.add(createTextToImagePattern())
-  registry.add(createImageToVideoPattern())
-  registry.add(createImageToTextPattern())
-  if (init.bestOfN === true) registry.add(createImageBestOfNMeta())
-  for (const pattern of init.extra ?? []) registry.add(pattern)
+  registry.register(createTextGenerationPattern())
+  registry.register(createTextToImagePattern())
+  registry.register(createImageToVideoPattern())
+  registry.register(createImageToTextPattern())
+  if (init.bestOfN === true) registry.register(createImageBestOfNMeta())
+  for (const pattern of init.extra ?? []) registry.register(pattern)
 
   const models = createMockModels(
     init.latencyMs === undefined ? {} : { latencyMs: init.latencyMs },

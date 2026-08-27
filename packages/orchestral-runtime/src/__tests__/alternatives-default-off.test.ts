@@ -76,7 +76,7 @@ function makeRouter(model: ModelCapability): CapabilityRouter {
 /** parent_cap with one matching alternative → fallback_cap. */
 function makeRegistry(): PatternRegistryType {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add({
+  registry.register({
     ...atomic('parent_cap'),
     alternatives: [
       {
@@ -174,7 +174,7 @@ describe('alternatives default to off', () => {
 
   it('enumerates every applicable alternative, not just the first, and skips non-matching ones', async () => {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add({
+    registry.register({
       ...atomic('parent_cap'),
       alternatives: [
         {

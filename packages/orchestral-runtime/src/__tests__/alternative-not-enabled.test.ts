@@ -64,7 +64,7 @@ describe("alternatives — 'not-enabled' counts as capability-unavailable", () =
     }
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add({
+    registry.register({
       ...atomic('parent_cap'),
       alternatives: [
         {

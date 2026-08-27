@@ -110,7 +110,7 @@ import { generateImage } from 'ai'
 import { openai } from '@ai-sdk/openai'
 
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
+registry.register(createTextToImagePattern())
 
 // The seam you write: your provider SDK behind a ModelCapability envelope.
 const model: ModelCapability = {

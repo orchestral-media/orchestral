@@ -134,7 +134,7 @@ function makeRegistry(): PatternRegistry {
       outputs: imageOutput('image'),
     }),
   )
-  registry.add({
+  registry.register({
     ...atomic({
       id: 'image-to-video',
       inputs: z.object({ prompt: z.string().max(4_000).optional() }),
@@ -156,7 +156,7 @@ function makeRegistry(): PatternRegistry {
       },
     ],
   } as never)
-  registry.add({
+  registry.register({
     ...atomic({
       id: 'image-to-image',
       // `requiresSemantics` is deliberately NOT on this schema. The field is

@@ -79,7 +79,7 @@ function routerThatSays(ok: boolean): CapabilityRouter {
 
 function registryWith(alternatives: readonly Alternative<unknown, unknown>[]) {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add({ ...imageToImage, alternatives } as never)
+  registry.register({ ...imageToImage, alternatives } as never)
   return registry
 }
 

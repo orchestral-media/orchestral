@@ -30,7 +30,7 @@ import { createOrchestratorAgent } from '@orchestral/agent'
 import { createInProcessAgentRunImpl } from './agent-runner' // yours
 
 const registry = new PatternRegistry()
-registry.add(createOrchestratorAgent())
+registry.register(createOrchestratorAgent())
 // …plus the atomic + meta patterns its loop.toolPatternIds names — see below,
 // this line is load-bearing.
 
@@ -59,7 +59,7 @@ deployment — say so, and the agent's tool universe matches what you pay for:
 ```ts
 import { FIRST_PARTY_PATTERN_IDS } from '@orchestral/patterns'
 
-registry.add(
+registry.register(
   createOrchestratorAgent({
     // Whatever you actually registered — here, the atomics and no metas.
     toolPatternIds: FIRST_PARTY_PATTERN_IDS.atomic,

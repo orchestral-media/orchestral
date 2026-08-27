@@ -128,7 +128,7 @@ function makeRouter(calls: string[], primary: PrimaryState): CapabilityRouter {
  */
 function makeRegistry(): PatternRegistryType {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add({
+  registry.register({
     ...atomic('parent_cap'),
     alternatives: [
       {

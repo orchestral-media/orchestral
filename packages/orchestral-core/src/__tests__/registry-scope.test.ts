@@ -86,7 +86,7 @@ describe('PatternRegistry.scope', () => {
 
   it('disposing one scope leaves another scope and the base registry untouched', () => {
     const registry = newRegistry()
-    registry.add(imagePattern)
+    registry.register(imagePattern)
     const a = registry.scope()
     const b = registry.scope()
     a.add(scopedMeta('meta_plan-a'))
@@ -104,7 +104,7 @@ describe('PatternRegistry.scope', () => {
 
   it('a duplicate add throws and leaves nothing half-owned in the scope', () => {
     const registry = newRegistry()
-    registry.add(scopedMeta('meta_plan-abc'))
+    registry.register(scopedMeta('meta_plan-abc'))
     const scope = registry.scope()
     expect(() => scope.add(scopedMeta('meta_plan-abc'))).toThrow(
       /PATTERN_ALREADY_REGISTERED/,

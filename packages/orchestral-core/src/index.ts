@@ -214,9 +214,10 @@ export type {
 //
 //   import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 //
-// The interface is vocabulary; a 500-line (capability, tags, ctx) → model
-// algorithm is one answer to it. Keeping both on this barrel made "core is the
-// vocabulary" a sentence no import list could contradict.
+// The interface is vocabulary; the (capability, tags, ctx) → model algorithm
+// behind it — the largest body of policy in this package — is one answer to it.
+// Keeping both on this barrel made "core is the vocabulary" a sentence no
+// import list could contradict.
 // Routing visibility: the structured dump `CapabilityRouter.explain` returns
 // (which model was dropped by which filter, the surviving order, what resolve
 // would do) plus a printable rendering of it. `explain` is optional on the

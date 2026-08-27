@@ -64,7 +64,7 @@ describe('job:alternative-selected event', () => {
     }
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add({
+    registry.register({
       ...atomic('parent_cap'),
       alternatives: [
         {
@@ -148,7 +148,7 @@ describe('job:alternative-selected event', () => {
       },
     }
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add({
+    registry.register({
       ...atomic('parent_cap'),
       alternatives: [
         {

@@ -1288,9 +1288,6 @@ export class PatternRegistry {
     constructor(options?: {
         logger?: DiagnosticsLogger;
     });
-    add<I = unknown, O = unknown>(spec: Pattern<I, O> & {
-        alternatives?: readonly Alternative<I, O>[];
-    }): void;
     addFromManifest(manifest: unknown, module: Readonly<Record<string, unknown>>, ops?: Readonly<Record<string, unknown>>, options?: AddFromManifestOptions): AddFromManifestResult;
     attachAlternative<I, O>(parentId: PatternId, alt: Alternative<I, O>): Unsubscribe;
     byNamespace(ns: NamespaceId): readonly Pattern[];
@@ -1299,13 +1296,6 @@ export class PatternRegistry {
     getEntry(id: PatternId): RegistryEntry | undefined;
     // (undocumented)
     has(id: PatternId): boolean;
-    listForCatalog(excludeIds?: readonly PatternId[]): Array<{
-        patternId: PatternId;
-        shortName: string;
-        description: string;
-        primaryDescription: string;
-        primaryInputs: ZodSchema<unknown>;
-    }>;
     register<I = unknown, O = unknown>(pattern: Pattern<I, O> & {
         alternatives?: readonly Alternative<I, O>[];
     }): void;

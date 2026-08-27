@@ -22,7 +22,7 @@ import { FIRST_PARTY_CAPABILITIES } from './capability'
  * prefix if one accidentally appears.
  *
  * The registry is the single source of truth for alternatives. Interface:
- *   • `add(spec)`            — the single registration entry point, auto-expands
+ *   • `register(spec)`       — the registration entry point; expands
  *                              spec.alternatives into attach calls
  *   • `addFromManifest()`    — the same, driven by a pattern package's declared
  *                              package.json `"orchestral"` field; all of it, or
@@ -33,8 +33,11 @@ import { FIRST_PARTY_CAPABILITIES } from './capability'
  *                              Pattern.extensible
  *   • `byNamespace()`        — catalog rendering grouped by namespace
  *
- * `register` / `get` / `has` / `resolveShortName` / `listForCatalog` are the
- * lower-level accessors the above are built on.
+ * `get` / `has` / `resolveShortName` are the accessors the above are built on.
+ * There is one way in and it is `register`: `add(spec)` used to be a second
+ * name for it, from back when it was the layer that expanded
+ * `spec.alternatives`. That expansion moved into `register`, and what was left
+ * was two spellings and a class doc describing a layer between them.
  * DESIGN: pattern-capability-one-to-one
  */
 export class PatternRegistry {
@@ -42,8 +45,8 @@ export class PatternRegistry {
   private readonly byShortName = new Map<string, PatternId>()
   private readonly byNamespaceMap = new Map<NamespaceId, Set<PatternId>>()
   // Source of truth for alternatives. `Pattern.alternatives` is a spec-sugar
-  // entry point only — `add()` / `register()` strip it into this map, and every
-  // runtime read goes through here.
+  // entry point only — `register()` strips it into this map, and every runtime
+  // read goes through here.
   private readonly alternativesByParentId = new Map<
     PatternId,
     Alternative<unknown, unknown>[]
@@ -68,11 +71,10 @@ export class PatternRegistry {
   register<I = unknown, O = unknown>(
     pattern: Pattern<I, O> & { alternatives?: readonly Alternative<I, O>[] },
   ): void {
-    // Authoring sugar handled here too: a factory output carrying
-    // `alternatives` registered via register() must behave exactly like
-    // add() — strip the field off the stored Pattern, expand each entry
-    // into an attachment. Silently dropping the declared fallbacks was the
-    // trap this closes.
+    // Authoring sugar: a factory output carrying `alternatives` gets the
+    // field stripped off the stored Pattern and each entry expanded into an
+    // attachment. Silently dropping an author's declared fallbacks — which is
+    // what a plain store would do — was the trap this closes.
     const sugar = (
       pattern as { alternatives?: readonly Alternative<unknown, unknown>[] }
     ).alternatives
@@ -239,28 +241,6 @@ export class PatternRegistry {
   }
 
   /**
-   * Spec-shaped registration entry point.
-   *
-   * The Pattern author passes in the spec their factory produced, and the
-   * registry automatically:
-   *   1. calls `register(pattern)` to register the Pattern itself
-   *   2. attaches each spec.alternatives entry to this Pattern
-   *   3. routes the attach through the same internal attachAlternative entry,
-   *      fully equivalent to a third-party attachment
-   *
-   * The extensible field does **not** affect the sugar bundled with add()
-   * (that's the Pattern's own declaration, clear author intent); extensible
-   * only governs whether later external `attachAlternative` calls are allowed.
-   */
-  add<I = unknown, O = unknown>(
-    spec: Pattern<I, O> & {
-      alternatives?: readonly Alternative<I, O>[]
-    },
-  ): void {
-    this.register(spec)
-  }
-
-  /**
    * A disposable group of registrations — the shape a session-scoped Pattern
    * needs, most obviously a plan a model authored for one job.
    *
@@ -291,10 +271,11 @@ export class PatternRegistry {
     const ids: PatternId[] = []
     return {
       add: (spec) => {
-        // `this.add` is the sugar-expanding entry point; remember the id only
+        // `register` is the sugar-expanding entry point; remember the id only
         // once it has actually taken, so a duplicate throw leaves nothing
-        // half-owned in the scope.
-        this.add(spec)
+        // half-owned in the scope. (`PatternScope.add` keeps its name: it is
+        // the scope's verb, not an alias of a registry method.)
+        this.register(spec)
         ids.push(spec.id)
       },
       dispose: () => {
@@ -415,7 +396,7 @@ export class PatternRegistry {
       built.push(produced as Pattern)
     }
 
-    for (const pattern of built) this.add(pattern)
+    for (const pattern of built) this.register(pattern)
     return { registered: built.map((p) => p.id), skipped }
   }
 
@@ -469,8 +450,8 @@ export class PatternRegistry {
    * declared `extensible: true`, otherwise throws `PATTERN_NOT_EXTENSIBLE`.
    * Returns an Unsubscribe to undo it.
    *
-   * Uses the same internal storage as the sugar bundled with add() — once
-   * registered, dispatch sees no distinction between "built-in" and
+   * Uses the same internal storage as the sugar bundled with register() —
+   * once registered, dispatch sees no distinction between "built-in" and
    * "third-party".
    * DESIGN: pattern-not-extensible
    */
@@ -516,48 +497,6 @@ export class PatternRegistry {
     return out
   }
 
-  /**
-   * Lightweight snapshot for inspection / debug surfaces. Catalog
-   * rendering for LLM consumption lives in `catalog-builder.ts`
-   * (`buildCatalogDescriptors`); BM25 retrieval over this registry lives in
-   * `@orchestral/discovery` (`PatternSearchIndex`), which reads it through
-   * the public accessors below.
-   */
-  listForCatalog(
-    excludeIds?: readonly PatternId[],
-  ): Array<{
-    patternId: PatternId
-    shortName: string
-    description: string
-    /**
-     * Primary tool description — the LLM-facing description for the main
-     * path. Useful for debug listings that don't need the full tool spec.
-     */
-    primaryDescription: string
-    primaryInputs: ZodSchema<unknown>
-  }> {
-    const exclude = excludeIds ? new Set<PatternId>(excludeIds) : undefined
-    const out: Array<{
-      patternId: PatternId
-      shortName: string
-      description: string
-      primaryDescription: string
-      primaryInputs: ZodSchema<unknown>
-    }> = []
-    for (const p of this.byId.values()) {
-      if (p.kind !== 'atomic') continue
-      if (exclude?.has(p.id)) continue
-      out.push({
-        patternId: p.id,
-        shortName: shortNameOf(p.id),
-        description: p.description,
-        primaryDescription: p.primary.tool.description,
-        primaryInputs: p.primary.tool.inputs as ZodSchema<unknown>,
-      })
-    }
-    return out
-  }
-
   [Symbol.iterator](): IterableIterator<Pattern> {
     return this.byId.values()
   }
@@ -570,9 +509,9 @@ export class PatternRegistry {
     return this.byId.size
   }
 
-  // Internal helper: attach that skips the extensible check. Shared by add()
-  // (built-in sugar) and attachAlternative (external) for the source-of-truth
-  // write.
+  // Internal helper: attach that skips the extensible check. Shared by
+  // register() (built-in sugar) and attachAlternative (external) for the
+  // source-of-truth write.
   private attachAlternativeInternal(
     parentId: PatternId,
     alt: Alternative<unknown, unknown>,
@@ -608,7 +547,7 @@ export interface RegistryEntry {
  * with it — and for why it is not a lifecycle.
  */
 export interface PatternScope {
-  /** `registry.add`, plus remembering the id for `dispose`. */
+  /** `registry.register`, plus remembering the id for `dispose`. */
   add<I = unknown, O = unknown>(
     spec: Pattern<I, O> & { alternatives?: readonly Alternative<I, O>[] },
   ): void

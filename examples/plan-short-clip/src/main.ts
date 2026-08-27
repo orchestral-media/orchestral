@@ -48,13 +48,13 @@ import { createShortClip, SHORT_CLIP_PATTERN_ID, SHORT_CLIP_PLAN } from './patte
 //    that reads this registry — the same channel package.json declares as
 //    `"requiredOps": ["getPattern"]`.
 const registry = new PatternRegistry()
-registry.add(createTextGenerationPattern())
-registry.add(createTextToImagePattern())
-registry.add(createImageToVideoPattern())
+registry.register(createTextGenerationPattern())
+registry.register(createTextToImagePattern())
+registry.register(createImageToVideoPattern())
 
 const ops = { getPattern: (id: PatternId) => registry.get(id) }
-registry.add(createShortClip(ops))
-registry.add(createCaptionedShortClip(ops))
+registry.register(createShortClip(ops))
+registry.register(createCaptionedShortClip(ops))
 
 // 2. One mock model per capability, each with an artificial latency. The
 //    latency is the only thing that makes a hit look different from a run on

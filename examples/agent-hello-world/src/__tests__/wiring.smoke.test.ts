@@ -105,8 +105,8 @@ describe('agent hello-world wiring', () => {
   it('runs the agent loop end to end with a mock LLM (no API key)', async () => {
     // Identical wiring to src/main.ts, swapping only the model instances.
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(createAgentHelloWorldPattern())
-    registry.add(createTextToImagePattern())
+    registry.register(createAgentHelloWorldPattern())
+    registry.register(createTextToImagePattern())
 
     const getModels = createImageModels([
       {
@@ -168,8 +168,8 @@ describe('agent hello-world wiring', () => {
 
   it('recurses through onToolCall into the runtime for the tool dispatch', async () => {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(createAgentHelloWorldPattern())
-    registry.add(createTextToImagePattern())
+    registry.register(createAgentHelloWorldPattern())
+    registry.register(createTextToImagePattern())
 
     // Spy on the image model's doGenerate to prove the tool call actually
     // round-tripped: onToolCall → runtime.submitJob(text-to-image) → router →
