@@ -1,6 +1,8 @@
 // LLM tool catalog descriptor builder.
 //
-// Emits exactly 2 fixed router descriptors: find_pattern + dispatch_pattern.
+// Emits the fixed router descriptors: dispatch_pattern always, find_pattern
+// only when something can answer one (see `includeFindPattern` — retrieval is
+// a host seam, not a thing this library ships).
 // Host tools are prepended to this array by the host when it assembles the
 // catalog (host-owned; this library knows nothing about host tool naming).
 //
@@ -61,6 +63,15 @@ const DISPATCH_DESCRIPTION_HEAD =
 const DISPATCH_DESCRIPTION_TAIL =
   ' For OPTIONAL attachments (mask / end-frame / reference / voiceClone) read the per-slot descriptions inside the schema\'s \`references\` object — unknown slot keys are rejected.'
 
+/**
+ * What `find_pattern` returns and how to narrow it. Deliberately says nothing
+ * about HOW a query is written beyond "free-form": the query mini-language is
+ * the retrieval implementation's, and it is appended through
+ * `BuildCatalogDescriptorsOptions.querySyntaxHint`.
+ */
+const FIND_DESCRIPTION_HEAD =
+  'Search the Pattern catalog. Returns top-K matching Patterns with their tool descriptions, primary input schemas (with the resolved top-1 model\'s typed providerOptions fields lifted in), a typed references object whose per-slot descriptions document required and optional asset attachments, and a compact output summary (modality + producesAssets). Use this to discover what capabilities are available for a user task. Patterns have three kinds: atomic (single capability call — image/video/audio/text generation, editing, analysis), meta (multi-step pipeline), agent (LLM-driven loop). Pass optional `kind` and (for atomic) `modality` filters to narrow the search.'
+
 export interface BuildCatalogDescriptorsOptions {
   /**
    * Override for the sentence describing how an omitted required asset slot
@@ -74,6 +85,31 @@ export interface BuildCatalogDescriptorsOptions {
    * in the byte-stable tool prefix — keep it constant across turns.
    */
   slotDefaultNote?: string
+  /**
+   * Whether the `find_pattern` descriptor is emitted at all. Defaults to
+   * `true`.
+   *
+   * Pass `false` when nothing behind this catalog can answer a find_pattern
+   * call. Retrieval is a host choice (`PatternSearch`; @orchestral/runtime
+   * takes one as `InlineRuntimeInit.patternSearch`), and a tool definition
+   * whose only possible answer is "no retrieval wired" is worse than no tool:
+   * it spends prefix bytes and buys a round-trip the model cannot complete.
+   * `dispatch_pattern` is unaffected — a catalog with no search still
+   * dispatches by id, which is exactly what an always-load inline core needs.
+   */
+  includeFindPattern?: boolean
+  /**
+   * Appended to the `find_pattern` description. The stock text says what the
+   * tool returns; any query syntax beyond free-form prose (mandatory terms,
+   * selectors) belongs to whichever retrieval implementation is behind the
+   * seam, so it is passed in rather than written here —
+   * @orchestral/discovery exports its own as `QUERY_SYNTAX_HINT`. Left unset,
+   * the model is told only to describe the task, which every implementation
+   * can honour.
+   *
+   * Spliced into the byte-stable tool prefix — keep it constant across turns.
+   */
+  querySyntaxHint?: string
 }
 
 /**
@@ -85,22 +121,25 @@ export interface BuildCatalogDescriptorsOptions {
 export function buildCatalogDescriptors(
   opts: BuildCatalogDescriptorsOptions = {},
 ): AgentToolDescriptor[] {
-  return [
-    {
+  const out: AgentToolDescriptor[] = []
+  if (opts.includeFindPattern !== false) {
+    out.push({
       name: 'find_pattern',
       description:
-        'Search the Pattern catalog. Returns top-K matching Patterns with their tool descriptions, primary input schemas (with the resolved top-1 model\'s typed providerOptions fields lifted in), a typed references object whose per-slot descriptions document required and optional asset attachments, and a compact output summary (modality + producesAssets). Use this to discover what capabilities are available for a user task. Patterns have three kinds: atomic (single capability call — image/video/audio/text generation, editing, analysis), meta (multi-step pipeline), agent (LLM-driven loop). Pass optional `kind` and (for atomic) `modality` filters to narrow the search.',
+        FIND_DESCRIPTION_HEAD +
+        (opts.querySyntaxHint ? ` ${opts.querySyntaxHint}` : ''),
       inputSchema: toJsonSchema(FindPatternInputSchema),
-    },
-    {
-      name: 'dispatch_pattern',
-      description:
-        DISPATCH_DESCRIPTION_HEAD +
-        (opts.slotDefaultNote ?? DEFAULT_SLOT_DEFAULT_NOTE) +
-        DISPATCH_DESCRIPTION_TAIL,
-      inputSchema: toJsonSchema(DispatchPatternInputSchema),
-    },
-  ]
+    })
+  }
+  out.push({
+    name: 'dispatch_pattern',
+    description:
+      DISPATCH_DESCRIPTION_HEAD +
+      (opts.slotDefaultNote ?? DEFAULT_SLOT_DEFAULT_NOTE) +
+      DISPATCH_DESCRIPTION_TAIL,
+    inputSchema: toJsonSchema(DispatchPatternInputSchema),
+  })
+  return out
 }
 
 /**

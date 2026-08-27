@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { buildAlwaysLoadDescriptors } from '../catalog-builder'
+import { buildAlwaysLoadDescriptors, buildCatalogDescriptors } from '../catalog-builder'
 import type { Pattern } from '../pattern'
 
 describe('buildAlwaysLoadDescriptors', () => {
@@ -144,5 +144,45 @@ describe('buildAlwaysLoadDescriptors — exposure gate', () => {
       loop: { system: '', toolPatternIds: [], modelTags: [] },
     } as unknown as Pattern
     expect(buildAlwaysLoadDescriptors([meta, agent])).toHaveLength(0)
+  })
+})
+
+// The two router descriptors are a catalog's fixed head, but `find_pattern` is
+// only honest when something can answer it — retrieval is an injected seam
+// (@orchestral/runtime's `InlineRuntimeInit.patternSearch`), and the query
+// mini-language belongs to whichever implementation is behind that seam.
+describe('buildCatalogDescriptors', () => {
+  it('emits find_pattern + dispatch_pattern by default', () => {
+    const out = buildCatalogDescriptors()
+    expect(out.map((d) => d.name)).toEqual(['find_pattern', 'dispatch_pattern'])
+  })
+
+  it('omits find_pattern when includeFindPattern is false, keeping dispatch_pattern', () => {
+    const out = buildCatalogDescriptors({ includeFindPattern: false })
+    expect(out.map((d) => d.name)).toEqual(['dispatch_pattern'])
+  })
+
+  it('appends querySyntaxHint to the find_pattern description', () => {
+    const hint = 'Prefix a word with + to make it mandatory.'
+    const out = buildCatalogDescriptors({ querySyntaxHint: hint })
+    const find = out.find((d) => d.name === 'find_pattern')
+    expect(find?.description.endsWith(hint)).toBe(true)
+  })
+
+  it('says nothing about a query syntax when no hint is passed', () => {
+    const find = buildCatalogDescriptors().find((d) => d.name === 'find_pattern')
+    // Every shape @orchestral/discovery's QUERY_SYNTAX_HINT teaches. A bare
+    // '+' is deliberately not asserted on: the stock text says "modality +
+    // producesAssets" about what a match RETURNS, which is not a query syntax
+    // and not a claim about anyone's parser.
+    for (const implementationSyntax of [
+      'select:',
+      'namespace:',
+      '+term',
+      'mandatory',
+      'tokeniz',
+    ]) {
+      expect(find?.description).not.toContain(implementationSyntax)
+    }
   })
 })
