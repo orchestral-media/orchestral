@@ -28,7 +28,7 @@ import type {
   PatternBase,
   ResolveContext,
 } from '@orchestral/core'
-import { resolveExposure } from '@orchestral/core'
+import { resolveExposure, toJsonSchema } from '@orchestral/core'
 import type { PatternSearchIndex, PatternSearchFilter } from './pattern-search-index'
 import { DEFAULT_SEARCH_K } from './pattern-search-index'
 
@@ -194,7 +194,7 @@ export interface HandleFindPatternOptions {
    *   - replaces `input.providerOptions` with a typed `z.object(remaining)`
    *     (the model's leftover provider-specific fields) so structured-output
    *     generation can fill them by name instead of guessing.
-   * find_pattern just `z.toJSONSchema()`-es the returned schema. The lift/merge
+   * find_pattern just `toJsonSchema()`-es the returned schema. The lift/merge
    * function itself (`deriveLlmFacingInputSchema`) ships in @orchestral/core;
    * this package never calls it directly — the host does, behind this closure.
    *
@@ -305,7 +305,7 @@ export function handleFindPattern(
       }
     }
     // Degraded fallback: when the closure returns a merged LLM-facing schema,
-    // buildMatchDescriptor z2js-es it directly; when it returns undefined,
+    // buildMatchDescriptor serialises it directly; when it returns undefined,
     // buildMatchDescriptor falls back to the base pattern.primary.tool.inputs
     // (see getPrimaryInputSchema below — the `!mergedInputSchema` branch).
     // Either way the atomic surfaces. providerOptions is per-model fine-tuning,
@@ -584,35 +584,34 @@ function buildMatchDescriptor(
    * Pre-merged LLM-facing input ZodObject for atomic Patterns. `handleFindPattern`
    * calls `deriveProviderOptionsZod(patternId, baseSchema)` once in the outer
    * loop — the host invokes the lift/merge internally and returns the merged
-   * schema, which is passed here to be z2js-ed directly. Meta/agent Patterns and
+   * schema, which is passed here to be serialised directly. Meta/agent Patterns and
    * atomic Patterns called without the callback (or whose top model has no
    * curated schema) get `undefined` — see `getPrimaryInputSchema` below for the
-   * no-lift fallback path (z2js the base schema).
+   * no-lift fallback path (serialise the base schema).
    */
   mergedInputSchema?: z.ZodObject<z.ZodRawShape>,
 ): FindPatternMatch {
-  // zod v4 native JSON-Schema serialiser. Replaces the legacy `zod-to-json-schema`
-  // package, which was incompatible with zod v4's `_def.type` (vs v3's
-  // `_def.typeName`) and silently emitted empty schemas for any ZodObject.
-  // Byte-stability: `z.toJSONSchema` is deterministic for a given
-  // ZodSchema (property order = ZodObject shape order).
-  const z2js = (s: unknown): unknown =>
-    z.toJSONSchema(s as z.ZodTypeAny, { target: 'draft-2020-12' })
+  // Serialisation goes through @orchestral/core's `toJsonSchema`, which owns
+  // the draft-2020-12 target. A find_pattern result and the always-load tool
+  // prefix describe the same Pattern to the same model, so a second local
+  // serialiser here would be a second place for those bytes to be decided.
+  // (Byte-stability itself comes from zod: the render is deterministic for a
+  // given ZodSchema — property order = ZodObject shape order.)
 
   // The host closure returns the merged LLM-facing schema
   // (LIFTABLE fields lifted to top level + typed z.object(remaining) for
-  // providerOptions). We just z2js it. Only atomic Patterns with a primary
+  // providerOptions). We just serialise it. Only atomic Patterns with a primary
   // path + a curated top-model schema get the merged shape; everything else
   // (meta, agent, or no-curated-schema atomics) falls back to the base inputs.
   function getPrimaryInputSchema(): unknown {
     if (pattern.kind === 'meta') {
-      return z2js(pattern.tool.inputs)
+      return toJsonSchema(pattern.tool.inputs)
     }
     if (!pattern.primary) return {}
     if (pattern.kind !== 'atomic' || !mergedInputSchema) {
-      return z2js(pattern.primary.tool.inputs)
+      return toJsonSchema(pattern.primary.tool.inputs)
     }
-    return z2js(mergedInputSchema)
+    return toJsonSchema(mergedInputSchema)
   }
 
   // Fallback for primary.toolDescription when neither primary nor meta tool

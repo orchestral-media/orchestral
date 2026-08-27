@@ -16,14 +16,15 @@ import { DispatchPatternInputSchema } from './dispatch-pattern'
 import { FindPatternInputSchema } from './find-pattern-schema'
 import type { Pattern } from './pattern'
 import { resolveExposure } from './pattern'
+import { toJsonSchema } from './schema'
 
-// zod v4 native JSON-Schema serialiser. The find_pattern / dispatch_pattern
-// schemas are owned by this package, so serialising them here is a
-// self-contained internal operation (much like ai-sdk serialising its own
-// Tool inputSchema) — not the host's responsibility.
-function z2js(s: unknown): unknown {
-  return z.toJSONSchema(s as z.ZodTypeAny, { target: 'draft-2020-12' })
-}
+// The find_pattern / dispatch_pattern schemas are owned by this package, so
+// serialising them here is a self-contained internal operation (much like
+// ai-sdk serialising its own Tool inputSchema) — not the host's
+// responsibility. The serialiser itself is not: `toJsonSchema` is the one
+// place the draft-2020-12 target lives, because these descriptors are a
+// KV-cached prompt prefix and must render the same bytes as every other
+// surface.
 
 /**
  * Cross-process tool descriptor (IPC-friendly, no closures). Host wraps
@@ -89,7 +90,7 @@ export function buildCatalogDescriptors(
       name: 'find_pattern',
       description:
         'Search the Pattern catalog. Returns top-K matching Patterns with their tool descriptions, primary input schemas (with the resolved top-1 model\'s typed providerOptions fields lifted in), a typed references object whose per-slot descriptions document required and optional asset attachments, and a compact output summary (modality + producesAssets). Use this to discover what capabilities are available for a user task. Patterns have three kinds: atomic (single capability call — image/video/audio/text generation, editing, analysis), meta (multi-step pipeline), agent (LLM-driven loop). Pass optional `kind` and (for atomic) `modality` filters to narrow the search.',
-      inputSchema: z2js(FindPatternInputSchema),
+      inputSchema: toJsonSchema(FindPatternInputSchema),
     },
     {
       name: 'dispatch_pattern',
@@ -97,7 +98,7 @@ export function buildCatalogDescriptors(
         DISPATCH_DESCRIPTION_HEAD +
         (opts.slotDefaultNote ?? DEFAULT_SLOT_DEFAULT_NOTE) +
         DISPATCH_DESCRIPTION_TAIL,
-      inputSchema: z2js(DispatchPatternInputSchema),
+      inputSchema: toJsonSchema(DispatchPatternInputSchema),
     },
   ]
 }
@@ -119,7 +120,7 @@ export function buildCatalogDescriptors(
  * Same byte-stable / IPC-safe contract as buildCatalogDescriptors (pure data,
  * no closures). When `deriveProviderOptionsZod` is supplied, it returns the
  * fully-merged LLM-facing schema for the atomic's top-1 model (the host
- * invokes the lift/merge internally) and this function just z2js-es it. When
+ * invokes the lift/merge internally) and this function just serialises it. When
  * the closure returns undefined for an atomic (no curated schema for the top-1
  * model, or no closure at all), the descriptor is still emitted with the BASE
  * inputSchema — providerOptions is progressive enhancement, not an expose
@@ -170,7 +171,7 @@ export function buildAlwaysLoadDescriptors(
       out.push({
         name: p.id,
         description: p.primary.tool.description,
-        inputSchema: z2js(inputs),
+        inputSchema: toJsonSchema(inputs as z.ZodType),
       })
     } else if (p.kind === 'meta') {
       // Meta puts its LLM-facing tool at the top level (no primary wrapper);
@@ -179,7 +180,7 @@ export function buildAlwaysLoadDescriptors(
       out.push({
         name: p.id,
         description: p.tool.description,
-        inputSchema: z2js(p.tool.inputs),
+        inputSchema: toJsonSchema(p.tool.inputs),
       })
     } else if (p.kind === 'agent') {
       // An always-load agent (e.g. agent_orchestrator) is surfaced as a
@@ -192,7 +193,7 @@ export function buildAlwaysLoadDescriptors(
         out.push({
           name: p.id,
           description: p.primary.tool.description,
-          inputSchema: z2js(p.primary.tool.inputs),
+          inputSchema: toJsonSchema(p.primary.tool.inputs),
         })
       }
     }

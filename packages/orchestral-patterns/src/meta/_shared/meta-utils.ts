@@ -4,7 +4,7 @@
 // One copy here keeps them from drifting apart.
 
 import { z } from 'zod'
-import { boundedText, producedAssetShape, type ProducedAssetModality } from '@orchestral/core'
+import { boundedText, producedAssetShape, toJsonSchema, type ProducedAssetModality } from '@orchestral/core'
 
 // Schemas passed here are module-level constants, so this cache is effectively
 // a per-schema compute-once — the same object identity recurs every call.
@@ -18,12 +18,13 @@ const jsonSchemaCache = new WeakMap<z.ZodType, unknown>()
  * as immutable. Mutating the result poisons the cache for the process
  * lifetime, including the copies the shipped metas feed to text-generation.
  * (Named `-Cached` to keep it distinct from `@orchestral/core`'s uncached
- * `toJsonSchema`, which has a different return type.)
+ * `toJsonSchema`, which this now wraps — the memo is the only thing this adds,
+ * so the bytes are core's, not a second rendering of them.)
  */
 export const toJsonSchemaCached = (s: z.ZodType): unknown => {
   const cached = jsonSchemaCache.get(s)
   if (cached !== undefined) return cached
-  const rendered = z.toJSONSchema(s, { target: 'draft-2020-12' })
+  const rendered = toJsonSchema(s)
   jsonSchemaCache.set(s, rendered)
   return rendered
 }

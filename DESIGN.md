@@ -126,8 +126,12 @@ later is a ~30 min change)" and "No Schema interface abstraction
 one-way and named: `.refine` / `.transform` do not survive `toJsonSchema`,
 "which matches the reality of LLM tool specs".
 **Instead.** Author in zod; call `toJsonSchema(zodSchema)` at the one boundary
-(catalog, IPC, persistence). zod v4 is a peer dependency for the same reason:
-one instance, shared with the host.
+(catalog, IPC, persistence). It is literally one: `z.toJSONSchema` is called in
+`schema.ts` and nowhere else under `packages/*/src`, so the draft-2020-12
+target that the byte-stability invariant rides on is decided once. A source
+scan holds the line — nothing in the type system would notice a second
+serialiser that quietly picked a different target. zod v4 is a peer dependency
+for the same reason: one instance, shared with the host.
 **Where.** `packages/orchestral-core/src/schema.ts:1-24`;
 `packages/orchestral-core/src/index.ts:112-117`.
 

@@ -7,11 +7,12 @@
 //   2. WHAT the model sees for each — the LLM-facing ToolDescriptor lives at a
 //      kind-dependent place on the Pattern (atomic/agent: `primary.tool`,
 //      meta: `tool`), mirroring @orchestral/core's own buildAlwaysLoadDescriptors.
+//      Its JSON Schema is rendered by core's `toJsonSchema`, so a dsh tool and
+//      an always-load catalog entry describe the same Pattern byte-for-byte.
 //
 // Nothing here touches dsh types, so the selection rules are unit-testable
 // without a Cordis context.
-import { resolveExposure, type Pattern } from '@orchestral/core'
-import { z } from 'zod'
+import { resolveExposure, toJsonSchema, type Pattern, type ToolDescriptor } from '@orchestral/core'
 
 /**
  * Which dsh catalog a Pattern is being projected into.
@@ -44,9 +45,7 @@ export interface PatternToolDescriptor {
  * An AgentPattern without `primary` is host-only by construction (no tool
  * spec to show a model), so it is skipped regardless of `exposure`.
  */
-function llmFacingTool(
-  pattern: Pattern,
-): { description: string; inputs: unknown } | undefined {
+function llmFacingTool(pattern: Pattern): ToolDescriptor | undefined {
   if (pattern.kind === 'atomic') return pattern.primary.tool
   if (pattern.kind === 'meta') return pattern.tool
   return pattern.primary?.tool
@@ -88,9 +87,7 @@ export function buildPatternToolDescriptors(
       name: toToolName(opts.toolNamePrefix, pattern.id),
       patternId: pattern.id,
       description: tool.description,
-      parameters: z.toJSONSchema(tool.inputs as z.ZodTypeAny, {
-        target: 'draft-2020-12',
-      }) as Record<string, unknown>,
+      parameters: toJsonSchema(tool.inputs) as Record<string, unknown>,
     })
   }
   return out
