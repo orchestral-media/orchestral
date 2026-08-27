@@ -24,6 +24,7 @@ import { z } from 'zod'
 
 import type {
   AgentPattern,
+  AgentToolDescriptor,
   AtomicPattern,
   CapabilityRouter,
   Modality,
@@ -113,15 +114,21 @@ function seamAgent(): AgentPattern {
   } as unknown as AgentPattern
 }
 
+interface Capture {
+  tools: readonly AgentToolDescriptor[]
+  results: unknown[]
+}
+
+function toolNames(capture: Capture): string[] {
+  return capture.tools.map((t) => t.name)
+}
+
 // Records the catalog the loop was handed and the result of one scripted
 // find_pattern call, then finishes cleanly through the injected finish tool.
-function makeRunImpl(capture: {
-  tools: string[]
-  results: unknown[]
-}): AgentRunImpl {
+function makeRunImpl(capture: Capture): AgentRunImpl {
   return {
     async run(args) {
-      capture.tools = args.tools.map((t) => t.name)
+      capture.tools = args.tools
       capture.results.push(
         await args.onToolCall({
           name: 'find_pattern',
@@ -139,6 +146,52 @@ function makeRunImpl(capture: {
   }
 }
 
+// Same harness, but it also drives the two refusals `resolveDispatchTarget`
+// writes and the loop returns verbatim: an id that resolves to nothing, and an
+// id that resolves but whose input fails the zod parse.
+function makeRefusalRunImpl(capture: Capture): AgentRunImpl {
+  return {
+    async run(args) {
+      capture.tools = args.tools
+      capture.results.push(
+        await args.onToolCall({
+          name: 'find_pattern',
+          input: { query: 'do the searchable thing' },
+          callId: 'tc-1',
+        }),
+        await args.onToolCall({
+          name: 'dispatch_pattern',
+          input: { pattern_id: 'no_such_pattern', input: {} },
+          callId: 'tc-2',
+        }),
+        // In the allowlist, so it gets past every scope guard and dies on the
+        // schema instead — `prompt` is required.
+        await args.onToolCall({
+          name: 'dispatch_pattern',
+          input: { pattern_id: 'searchable_atomic', input: {} },
+          callId: 'tc-3',
+        }),
+      )
+      await args.onToolCall({
+        name: args.finishToolName,
+        input: { summary: 'done', deliverables: [] },
+        callId: 'finish',
+      })
+      return { text: 'done' }
+    },
+  }
+}
+
+/**
+ * Every string in one tool descriptor an LLM can read: the description, and
+ * the `describe()` text that `toJsonSchema` folded into the input schema.
+ * Serialising the schema is how a `describe` gets asserted on at all — it is
+ * not reachable as a field.
+ */
+function modelVisibleText(tool: AgentToolDescriptor): string {
+  return `${tool.description}\n${JSON.stringify(tool.inputSchema)}`
+}
+
 function makeRegistry(): PatternRegistry {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(inlineAtomic())
@@ -149,7 +202,7 @@ function makeRegistry(): PatternRegistry {
 
 describe('agent catalog without a patternSearch seam', () => {
   it('advertises no find_pattern tool, and refuses the name without naming it', async () => {
-    const capture = { tools: [] as string[], results: [] as unknown[] }
+    const capture: Capture = { tools: [], results: [] }
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
       registry: makeRegistry(),
@@ -163,11 +216,11 @@ describe('agent catalog without a patternSearch seam', () => {
     })
     expect(job.status).toBe('done')
 
-    expect(capture.tools).not.toContain('find_pattern')
-    expect(capture.tools).toContain('dispatch_pattern')
+    expect(toolNames(capture)).not.toContain('find_pattern')
+    expect(toolNames(capture)).toContain('dispatch_pattern')
     // The inline core is a static part of the catalog — no search involved,
     // so it is untouched by the seam being absent.
-    expect(capture.tools).toContain('inline_atomic')
+    expect(toolNames(capture)).toContain('inline_atomic')
 
     const res = capture.results[0] as {
       code?: string
@@ -185,6 +238,58 @@ describe('agent catalog without a patternSearch seam', () => {
     )
     expect(res.hint).not.toContain('find_pattern')
   })
+
+  // Dropping the descriptor is only half of "this catalog has no find_pattern".
+  // The other half is every OTHER string the model reads, and those are not all
+  // written here: `dispatch_pattern`'s description and its schema `describe`s
+  // come from @orchestral/core's catalog-builder, and the refusals below are
+  // written by core's `resolveDispatchTarget` and returned verbatim. Three
+  // authorities, one claim — so the claim is asserted once, over everything the
+  // model can see.
+  it('names find_pattern in no description, no schema describe and no returned hint', async () => {
+    const capture: Capture = { tools: [], results: [] }
+    const rt = new InlineRuntime({
+      store: new MemoryJobStore() as never,
+      registry: makeRegistry(),
+      router: makeRouter(),
+      agentRunImpl: makeRefusalRunImpl(capture),
+    })
+
+    const job = await rt.submitJob({
+      patternId: 'agent_seam',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+
+    // Guard the guard: a typo'd tool name would make the sweep below pass over
+    // an empty catalog.
+    expect(toolNames(capture)).toContain('dispatch_pattern')
+    for (const tool of capture.tools) {
+      expect(modelVisibleText(tool)).not.toContain('find_pattern')
+    }
+
+    // The three refusals the loop handed back, in the order they were driven.
+    const [unknownTool, notFound, invalidInput] = capture.results as {
+      code?: string
+      hint?: string
+    }[]
+    expect(unknownTool?.code).toBe('UNKNOWN_TOOL')
+    expect(notFound?.code).toBe('PATTERN_NOT_FOUND')
+    expect(invalidInput?.code).toBe('INPUT_VALIDATION_FAILED')
+    // The hint is the field that tells the model what to do next, so it is the
+    // field that must not name a tool that is not there. Asserted per refusal
+    // rather than over the whole payload because UNKNOWN_TOOL's `message`
+    // echoes the name the model emitted — deliberately, so it can tell which
+    // call was refused (pinned by the test above).
+    for (const res of capture.results as { hint?: string }[]) {
+      expect(typeof res.hint).toBe('string')
+      expect(res.hint).not.toContain('find_pattern')
+    }
+    // Nothing else in the two dispatch refusals names it either: unlike
+    // UNKNOWN_TOOL they echo no tool name, so the whole payload is fair game.
+    expect(JSON.stringify(notFound)).not.toContain('find_pattern')
+    expect(JSON.stringify(invalidInput)).not.toContain('find_pattern')
+  })
 })
 
 describe('agent catalog with a patternSearch seam', () => {
@@ -195,7 +300,7 @@ describe('agent catalog with a patternSearch seam', () => {
       seen.push(req)
       return answer
     }
-    const capture = { tools: [] as string[], results: [] as unknown[] }
+    const capture: Capture = { tools: [], results: [] }
     const rt = new InlineRuntime({
       store: new MemoryJobStore() as never,
       registry: makeRegistry(),
@@ -209,7 +314,11 @@ describe('agent catalog with a patternSearch seam', () => {
       input: { prompt: 'start' },
     })
     expect(job.status).toBe('done')
-    expect(capture.tools).toContain('find_pattern')
+    expect(toolNames(capture)).toContain('find_pattern')
+    // The other half of the pair the unwired case asserts the absence of: with
+    // a seam wired, dispatch_pattern's own copy does send the model there.
+    const dispatch = capture.tools.find((t) => t.name === 'dispatch_pattern')!
+    expect(modelVisibleText(dispatch)).toContain('find_pattern')
 
     // The seam's value reaches the loop verbatim — including from an async
     // implementation, which is what a hosted search would be.

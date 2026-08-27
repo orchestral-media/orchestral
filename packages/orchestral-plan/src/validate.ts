@@ -1190,7 +1190,7 @@ function exposedTo(pattern: Pattern, audience: DispatchAudience): boolean {
 
 /**
  * Top-level `.passthrough()` when the schema supports it — byte-for-byte what
- * `resolveDispatchTarget` does (dispatch-pattern.ts:198-201), so rule 21's
+ * `resolveDispatchTarget` does (its `parseSchema` branch), so rule 21's
  * verdict and the dispatch path's verdict cannot disagree.
  */
 /**

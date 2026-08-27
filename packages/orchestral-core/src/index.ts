@@ -125,6 +125,7 @@ export {
   type DispatchAudience,
   type DispatchPatternInput,
   type DispatchPatternError,
+  type ResolveDispatchOptions,
   type ResolvedDispatchTarget,
 } from './dispatch-pattern'
 

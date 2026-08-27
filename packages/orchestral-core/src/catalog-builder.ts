@@ -14,7 +14,10 @@
 
 import type { z } from 'zod'
 
-import { DispatchPatternInputSchema } from './dispatch-pattern'
+import {
+  DispatchPatternInputSchema,
+  DispatchPatternInputSchemaNoSearch,
+} from './dispatch-pattern'
 import { FindPatternInputSchema } from './find-pattern-schema'
 import type { Pattern } from './pattern'
 import { resolveExposure } from './pattern'
@@ -57,8 +60,26 @@ export interface AgentToolDescriptor {
 const DEFAULT_SLOT_DEFAULT_NOTE =
   'When the user means a specific asset, or several assets of the same modality are in play, pass its handle explicitly for ANY slot including the primary/source slot; if a required slot is omitted the host defaults to the most recent same-modality asset, which may not be the one the user meant.'
 
-const DISPATCH_DESCRIPTION_HEAD =
+/**
+ * `dispatch_pattern`'s opening, in the two spellings a catalog can need.
+ *
+ * `dispatch_pattern` is emitted unconditionally — a catalog with no search
+ * still dispatches by id — so on an `includeFindPattern: false` catalog the
+ * WITH_SEARCH head would be the ONLY tool description present, and it would
+ * open by telling the model to call a tool this catalog does not carry. That
+ * is the same failure `includeFindPattern` exists to prevent, arriving through
+ * a string instead of a descriptor.
+ *
+ * The WITH_SEARCH text is byte-for-byte what shipped before the split (it sits
+ * in the KV-cached tool prefix); NO_SEARCH says where the id comes from
+ * instead of naming the absent tool. `dispatch-pattern.ts` carries the
+ * matching pair for the schema's own `describe`s — one parameter selects both.
+ */
+const DISPATCH_DESCRIPTION_HEAD_WITH_SEARCH =
   'Invoke a specific Pattern by id. Use find_pattern first to discover the pattern_id and its derived input schema. If input fails validation, the tool_result will include zod issues field-by-field — read them, fix the input, and retry. Assets are referenced by HANDLE via `input.references.<slot>` — never pass raw asset ids in `input`. '
+
+const DISPATCH_DESCRIPTION_HEAD_NO_SEARCH =
+  'Invoke a specific Pattern by id. This catalog cannot be searched, so the pattern_id must be one you already have — from your instructions or from an earlier result. If input fails validation, the tool_result will include zod issues field-by-field — read them, fix the input, and retry. Assets are referenced by HANDLE via `input.references.<slot>` — never pass raw asset ids in `input`. '
 
 const DISPATCH_DESCRIPTION_TAIL =
   ' For OPTIONAL attachments (mask / end-frame / reference / voiceClone) read the per-slot descriptions inside the schema\'s \`references\` object — unknown slot keys are rejected.'
@@ -94,8 +115,12 @@ export interface BuildCatalogDescriptorsOptions {
    * takes one as `InlineRuntimeInit.patternSearch`), and a tool definition
    * whose only possible answer is "no retrieval wired" is worse than no tool:
    * it spends prefix bytes and buys a round-trip the model cannot complete.
-   * `dispatch_pattern` is unaffected — a catalog with no search still
-   * dispatches by id, which is exactly what an always-load inline core needs.
+   * `dispatch_pattern` is still emitted — a catalog with no search dispatches
+   * by id, which is exactly what an always-load inline core needs — but it is
+   * not unaffected: its description and its schema `describe`s switch to
+   * spellings that name no tool this catalog lacks. Dropping the descriptor
+   * while the remaining one still says "use find_pattern first" would move the
+   * dead round-trip rather than remove it.
    */
   includeFindPattern?: boolean
   /**
@@ -121,8 +146,11 @@ export interface BuildCatalogDescriptorsOptions {
 export function buildCatalogDescriptors(
   opts: BuildCatalogDescriptorsOptions = {},
 ): AgentToolDescriptor[] {
+  // One question — "does this catalog carry find_pattern?" — reaching every
+  // model-visible string it produces, not just the descriptor list.
+  const includeFindPattern = opts.includeFindPattern !== false
   const out: AgentToolDescriptor[] = []
-  if (opts.includeFindPattern !== false) {
+  if (includeFindPattern) {
     out.push({
       name: 'find_pattern',
       description:
@@ -134,10 +162,16 @@ export function buildCatalogDescriptors(
   out.push({
     name: 'dispatch_pattern',
     description:
-      DISPATCH_DESCRIPTION_HEAD +
+      (includeFindPattern
+        ? DISPATCH_DESCRIPTION_HEAD_WITH_SEARCH
+        : DISPATCH_DESCRIPTION_HEAD_NO_SEARCH) +
       (opts.slotDefaultNote ?? DEFAULT_SLOT_DEFAULT_NOTE) +
       DISPATCH_DESCRIPTION_TAIL,
-    inputSchema: toJsonSchema(DispatchPatternInputSchema),
+    inputSchema: toJsonSchema(
+      includeFindPattern
+        ? DispatchPatternInputSchema
+        : DispatchPatternInputSchemaNoSearch,
+    ),
   })
   return out
 }

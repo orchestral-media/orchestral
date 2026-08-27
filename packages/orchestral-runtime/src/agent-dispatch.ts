@@ -961,7 +961,18 @@ deps: AgentDispatchDeps,
           // Subagent loop runs on agent-loop audience; resolveDispatchTarget
           // enforces exposure scope symmetrically (rejects 'no-tool' patterns,
           // permits 'agent-tool').
-          const target = resolveDispatchTarget(deps.registry, parsed.data, 'agent-loop')
+          //
+          // Its refusals go back to the model verbatim (the `return target`
+          // below), so it needs the same answer the catalog got: hints that
+          // send an unwired loop to find_pattern name a tool this catalog
+          // omits. The wording stays core's — one authority — and this passes
+          // the one fact core cannot know.
+          const target = resolveDispatchTarget(
+            deps.registry,
+            parsed.data,
+            'agent-loop',
+            { hasPatternSearch },
+          )
           if (isDispatchError(target)) {
             // Pattern lookup or input zod validation failed — return as
             // tool_result content so LLM self-corrects on next turn.

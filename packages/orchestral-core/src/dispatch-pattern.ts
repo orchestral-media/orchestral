@@ -27,20 +27,77 @@ import type { Pattern, PatternExposure } from './pattern'
 import { resolveExposure } from './pattern'
 import type { PatternRegistry } from './registry'
 
+// ── Model-visible strings come in two spellings ─────────────────────────
+//
+// Every string in this module an LLM can read has to answer one question
+// first: does the catalog this text is going back to carry `find_pattern`?
+// Retrieval is an injected seam (`PatternSearch`; @orchestral/runtime takes one
+// as `InlineRuntimeInit.patternSearch`), and a catalog with none wired emits no
+// find_pattern descriptor at all — so a `describe` or a hint that says "call
+// find_pattern" is, on that catalog, an instruction to call a tool that is not
+// there. It costs the model a turn to discover that, and it re-primes the very
+// token the model should stop emitting.
+//
+// So the question is ONE parameter — `includeFindPattern` on
+// `buildCatalogDescriptors`, `hasPatternSearch` on `resolveDispatchTarget` —
+// and it reaches every string below. Same two-variant shape the runtime's own
+// refusal hints already use (`rediscoverHint` in agent-dispatch.ts); this
+// module is the second half of that, because the strings the runtime forwards
+// verbatim are written here.
+//
+// The WITH_SEARCH spellings are byte-for-byte what shipped before the split.
+// They sit in the KV-cached tool-definition prefix, so editing one invalidates
+// every provider-side prompt cache built on the old text; the NO_SEARCH ones
+// are new and say what IS reachable rather than naming the absent tool.
+
+const PATTERN_ID_DESCRIBE_WITH_SEARCH =
+  'Pattern id returned by find_pattern (e.g. "text-to-image", "image-to-image", "meta_image-to-image-via-caption").'
+
+const PATTERN_ID_DESCRIBE_NO_SEARCH =
+  'Pattern id, exactly as spelled in your instructions or in an earlier result (e.g. "text-to-image", "image-to-image", "meta_image-to-image-via-caption").'
+
+const INPUT_DESCRIBE_WITH_SEARCH =
+  "Pattern-specific input fields. See find_pattern's primary.inputSchema for the derived schema (with the resolved top-1 model's typed providerOptions fields lifted in). Assets are referenced by HANDLE via `input.references.<slot>` — never pass raw asset ids. For OPTIONAL attachments (mask / end-frame / reference / voiceClone), read the per-slot descriptions inside the schema's `references` object — unknown slot keys are rejected."
+
+const INPUT_DESCRIBE_NO_SEARCH =
+  "Pattern-specific input fields, as that Pattern's own schema describes them. Assets are referenced by HANDLE via `input.references.<slot>` — never pass raw asset ids. For OPTIONAL attachments (mask / end-frame / reference / voiceClone), read the per-slot descriptions inside the schema's `references` object — unknown slot keys are rejected."
+
+/**
+ * One shape, two spellings. Both schemas parse identically — `describe()` text
+ * is metadata, never a parse rule — so the runtime keeps validating against
+ * `DispatchPatternInputSchema` no matter which one the catalog serialised.
+ */
+function buildDispatchPatternInputSchema(hasPatternSearch: boolean) {
+  return z.object({
+    pattern_id: z
+      .string()
+      .min(1)
+      .describe(
+        hasPatternSearch
+          ? PATTERN_ID_DESCRIBE_WITH_SEARCH
+          : PATTERN_ID_DESCRIBE_NO_SEARCH,
+      ),
+    input: z
+      .record(z.string(), z.unknown())
+      .describe(
+        hasPatternSearch ? INPUT_DESCRIBE_WITH_SEARCH : INPUT_DESCRIBE_NO_SEARCH,
+      ),
+  })
+}
+
 /** LLM-facing input contract for the dispatch_pattern catalog tool. */
-export const DispatchPatternInputSchema = z.object({
-  pattern_id: z
-    .string()
-    .min(1)
-    .describe(
-      'Pattern id returned by find_pattern (e.g. "text-to-image", "image-to-image", "meta_image-to-image-via-caption").',
-    ),
-  input: z
-    .record(z.string(), z.unknown())
-    .describe(
-      "Pattern-specific input fields. See find_pattern's primary.inputSchema for the derived schema (with the resolved top-1 model's typed providerOptions fields lifted in). Assets are referenced by HANDLE via `input.references.<slot>` — never pass raw asset ids. For OPTIONAL attachments (mask / end-frame / reference / voiceClone), read the per-slot descriptions inside the schema's `references` object — unknown slot keys are rejected.",
-    ),
-})
+export const DispatchPatternInputSchema = buildDispatchPatternInputSchema(true)
+
+/**
+ * The same contract for a catalog that carries no `find_pattern`. Module-level
+ * export for catalog-builder.ts; deliberately not re-exported from index.ts,
+ * because `buildCatalogDescriptors({ includeFindPattern: false })` is the one
+ * place that should be deciding which spelling a catalog serialises — a second
+ * public door to it is a second place the choice can be made inconsistently.
+ */
+export const DispatchPatternInputSchemaNoSearch =
+  buildDispatchPatternInputSchema(false)
+
 export type DispatchPatternInput = z.infer<typeof DispatchPatternInputSchema>
 
 /**
@@ -99,6 +156,24 @@ export interface ResolvedDispatchTarget {
   parsedInput: Record<string, unknown>
 }
 
+/** Options for `resolveDispatchTarget`. */
+export interface ResolveDispatchOptions {
+  /**
+   * Whether the catalog this refusal travels back to carries `find_pattern` —
+   * the same question `BuildCatalogDescriptorsOptions.includeFindPattern`
+   * answers for the descriptors, asked here for the hints. Defaults to `true`,
+   * which is the wording every caller got before this option existed.
+   *
+   * Pass `false` from a surface whose catalog has no retrieval behind it
+   * (@orchestral/runtime does this for an agent loop with no
+   * `InlineRuntimeInit.patternSearch` seam). The hints then point at what the
+   * caller actually has instead of sending it after a tool the catalog omits;
+   * the refusal `code`s, `message`s and side-fields are identical either way,
+   * so nothing that switches on them can tell the difference.
+   */
+  hasPatternSearch?: boolean
+}
+
 /**
  * Resolve the dispatch target and validate input. Pure function — host
  * caller takes the resolved target and delegates to its dispatch pipeline —
@@ -118,12 +193,19 @@ export interface ResolvedDispatchTarget {
  * instead — same resolver, same `DispatchPatternError` vocabulary. This library
  * never dispatches through them itself; they exist so a host building such a
  * surface gets the fail-closed gate rather than defaulting one open.
+ *
+ * `opts.hasPatternSearch` picks the spelling of every hint that would otherwise
+ * name `find_pattern`. It lives here rather than in the caller because the
+ * caller would have to rewrite text it did not write — one authority for the
+ * wording, one parameter selecting it.
  */
 export function resolveDispatchTarget(
   registry: PatternRegistry,
   input: DispatchPatternInput,
   audience: DispatchAudience,
+  opts: ResolveDispatchOptions = {},
 ): ResolvedDispatchTarget | DispatchPatternError {
+  const hasPatternSearch = opts.hasPatternSearch !== false
   // Two spellings of one id: the canonical full id, and the unqualified short
   // name a person types into a slash command (`/fancy-edit` for
   // `image-gen/fancy-edit`). Which spelling arrived is not a surface — it is
@@ -142,11 +224,15 @@ export function resolveDispatchTarget(
       pattern_id: input.pattern_id,
       message: `Pattern "${input.pattern_id}" is not registered (tried full id and short name).`,
       // The person-facing surfaces supply the id instead of discovering it, so
-      // sending them to find_pattern names a tool they never called.
+      // sending them to find_pattern names a tool they never called. An LLM
+      // surface whose catalog carries no find_pattern is in the same position
+      // for a different reason — hence the second branch.
       hint:
         audience === 'slash' || audience === 'canvas'
           ? 'Check the id against the registry — both the canonical full id and the unqualified short name are accepted.'
-          : 'Call find_pattern with a relevant query to discover valid pattern_id values.',
+          : hasPatternSearch
+            ? 'Call find_pattern with a relevant query to discover valid pattern_id values.'
+            : 'Use a pattern_id you were given — this catalog cannot be searched.',
     }
   }
   const { pattern } = entry
@@ -195,8 +281,12 @@ export function resolveDispatchTarget(
           : audience === 'canvas'
             ? "Set exposure.canvas to true on the Pattern to allow dispatch from the 'canvas' surface."
             : hostOnly
-              ? 'Use find_pattern to discover Patterns visible to this audience.'
-              : 'Use find_pattern from this audience to see Patterns appropriate for this surface.',
+              ? hasPatternSearch
+                ? 'Use find_pattern to discover Patterns visible to this audience.'
+                : 'Pick a pattern_id that is visible to this audience — this catalog cannot be searched.'
+              : hasPatternSearch
+                ? 'Use find_pattern from this audience to see Patterns appropriate for this surface.'
+                : 'Pick a pattern_id appropriate for this surface — this catalog cannot be searched.',
     }
   }
 
@@ -243,7 +333,9 @@ export function resolveDispatchTarget(
       message: `Input validation failed for "${input.pattern_id}". See issues[] for field-level errors.`,
       hint:
         (refSlotHint ? `${refSlotHint} ` : '') +
-        'Fix the listed fields and call dispatch_pattern again. Re-fetch the schema via find_pattern if uncertain.',
+        (hasPatternSearch
+          ? 'Fix the listed fields and call dispatch_pattern again. Re-fetch the schema via find_pattern if uncertain.'
+          : 'Fix the listed fields and call dispatch_pattern again. The issues[] list names every field the schema rejected.'),
     }
   }
 

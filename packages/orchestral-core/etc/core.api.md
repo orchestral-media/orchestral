@@ -1478,7 +1478,12 @@ export interface ResolvedExposure {
 }
 
 // @public
-export function resolveDispatchTarget(registry: PatternRegistry, input: DispatchPatternInput, audience: DispatchAudience): ResolvedDispatchTarget | DispatchPatternError;
+export interface ResolveDispatchOptions {
+    hasPatternSearch?: boolean;
+}
+
+// @public
+export function resolveDispatchTarget(registry: PatternRegistry, input: DispatchPatternInput, audience: DispatchAudience, opts?: ResolveDispatchOptions): ResolvedDispatchTarget | DispatchPatternError;
 
 // @alpha
 export function resolveExposure(e?: PatternExposure): ResolvedExposure;

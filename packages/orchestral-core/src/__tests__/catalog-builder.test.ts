@@ -162,6 +162,32 @@ describe('buildCatalogDescriptors', () => {
     expect(out.map((d) => d.name)).toEqual(['dispatch_pattern'])
   })
 
+  // dispatch_pattern is emitted either way, so on an includeFindPattern:false
+  // catalog it is the only description the model gets — and it used to open by
+  // telling the model to call find_pattern first. One flag, every string.
+  it('strips find_pattern from dispatch_pattern too when includeFindPattern is false', () => {
+    const [dispatch] = buildCatalogDescriptors({ includeFindPattern: false })
+    expect(dispatch.description).not.toContain('find_pattern')
+    // The schema's `describe`s are model-visible through the serialised
+    // inputSchema, which is the only place they can be asserted on.
+    expect(JSON.stringify(dispatch.inputSchema)).not.toContain('find_pattern')
+  })
+
+  // The wired spelling sits in the KV-cached tool-definition prefix: changing
+  // a byte of it invalidates every prompt cache built on the old text, so the
+  // two-variant split had to leave it exactly where it was.
+  it('keeps the wired dispatch_pattern head byte-identical', () => {
+    const dispatch = buildCatalogDescriptors().find(
+      (d) => d.name === 'dispatch_pattern',
+    )
+    expect(dispatch?.description.startsWith(
+      'Invoke a specific Pattern by id. Use find_pattern first to discover the pattern_id and its derived input schema.',
+    )).toBe(true)
+    expect(JSON.stringify(dispatch?.inputSchema)).toContain(
+      'Pattern id returned by find_pattern',
+    )
+  })
+
   it('appends querySyntaxHint to the find_pattern description', () => {
     const hint = 'Prefix a word with + to make it mandatory.'
     const out = buildCatalogDescriptors({ querySyntaxHint: hint })
