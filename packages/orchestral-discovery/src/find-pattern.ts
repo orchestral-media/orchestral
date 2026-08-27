@@ -426,6 +426,31 @@ interface SelectorResult {
 }
 
 /**
+ * The query syntax THIS package parses, as one sentence a host splices into
+ * the `find_pattern` tool description (`BuildCatalogDescriptorsOptions.
+ * querySyntaxHint`).
+ *
+ * It lives next to `parseSelector` on purpose: the prose and the parser are
+ * one thing split in two, and the previous arrangement — the prose in
+ * @orchestral/core's `FindPatternInputSchema.query`, the parser here, no
+ * compile-time link between them — could only drift. A host that replaces
+ * retrieval replaces this string with its own; a host that drops the hint
+ * entirely still gets a working tool, because every shape below is optional
+ * sugar over free-form prose.
+ *
+ * Spliced into a byte-stable tool prefix, so treat it as a constant: editing
+ * it invalidates every provider-side prompt cache built on the old text.
+ */
+export const QUERY_SYNTAX_HINT =
+  'Prefer English keywords: the first-party catalog is written in English and the tokenizer does not translate across languages. ' +
+  'Prefix a word with + to make it mandatory — only patterns containing it are returned, e.g. "edit photo +inpaint". ' +
+  'When you already know what you want, use a selector instead of prose: ' +
+  '"select:<id>[,<id>...]" for specific patterns (id or short name); ' +
+  '"namespace:<ns>" for a whole group; ' +
+  '"<prefix>*" for every id starting with that prefix, e.g. "meta_*"; ' +
+  'a bare "<id>" for exactly one pattern.'
+
+/**
  * Parse a find_pattern query into a precise selector, or return `null` to let
  * the caller fall back to BM25. Recognised shapes (checked in order):
  *

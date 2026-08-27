@@ -32,3 +32,15 @@ export {
   type FindPatternOutputsSummary,
   type HandleFindPatternOptions,
 } from './find-pattern'
+
+// ── The injectable seam ──────────────────────────────────────────────────
+// `PatternSearch` (the contract) lives in @orchestral/core; this is the
+// first-party implementation a host hands to @orchestral/runtime's
+// `InlineRuntimeInit.patternSearch`. QUERY_SYNTAX_HINT is the prose half of
+// the same split — the query language this package parses, for a host to
+// splice into the find_pattern tool description.
+export {
+  createPatternSearch,
+  type CreatePatternSearchOptions,
+} from './create-pattern-search'
+export { QUERY_SYNTAX_HINT } from './find-pattern'
