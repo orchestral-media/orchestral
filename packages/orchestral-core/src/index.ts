@@ -112,6 +112,12 @@ export type {
   PatternSearch,
   PatternSearchRequest,
 } from './pattern-search'
+// One resolver for every by-id dispatch, LLM-facing or person-facing. The
+// `audience` argument picks the exposure flag it gates on; a slash command's
+// unqualified short name is a spelling of the id, not a surface, so it resolves
+// on the same path. There is no second entry point and no second error
+// vocabulary — which refusal a user saw used to depend on which one the host
+// happened to call.
 export {
   resolveDispatchTarget,
   isDispatchError,
@@ -121,11 +127,6 @@ export {
   type DispatchPatternError,
   type ResolvedDispatchTarget,
 } from './dispatch-pattern'
-export {
-  resolveSlashDispatch,
-  type SlashDispatchError,
-  type SlashDispatchResolution,
-} from './slash-dispatch'
 
 // ── Plan ─────────────────────────────────────────────────────────────────
 // A plan — a meta whose compose is a list of `$`-referencing steps — is one

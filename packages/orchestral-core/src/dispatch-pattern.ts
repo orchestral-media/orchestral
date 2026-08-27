@@ -6,11 +6,17 @@
 // the host because it needs runtime + per-session context this layer
 // doesn't have.
 //
-// Validation lives here rather than at each call site, so the chat-turn and
-// agent-loop dispatch paths share one source of truth on:
-//   • pattern_id resolution
-//   • exposure / audience scope enforcement (chat-turn vs agent-loop)
+// Validation lives here rather than at each call site, so every by-id dispatch
+// path — the two LLM surfaces and the two person-facing ones — shares one
+// source of truth on:
+//   • pattern_id resolution (full id, falling back to the unqualified short
+//     name a person types into a slash command)
+//   • exposure / audience scope enforcement
 //   • zod parse with structured error reporting for LLM self-correction
+//
+// Scope: resolution only. What a person-facing command surface needs on top —
+// a completion menu, a schema-driven form, an asset picker — is the host's own
+// concern.
 //
 // Capability sub-modes are expressed via input.references asset slots +
 // typed providerOptions schema.
@@ -106,19 +112,41 @@ export interface ResolvedDispatchTarget {
  * filter on find_pattern would be a cosmetic discovery aid only — a
  * hallucinating / replaying LLM could still dispatch any registered
  * Pattern by id.
+ *
+ * `'slash'` and `'canvas'` are the person-facing surfaces: the id is supplied,
+ * not discovered, so they gate on `resolveExposure(...).slash` / `.canvas`
+ * instead — same resolver, same `DispatchPatternError` vocabulary. This library
+ * never dispatches through them itself; they exist so a host building such a
+ * surface gets the fail-closed gate rather than defaulting one open.
  */
 export function resolveDispatchTarget(
   registry: PatternRegistry,
   input: DispatchPatternInput,
   audience: DispatchAudience,
 ): ResolvedDispatchTarget | DispatchPatternError {
-  const entry = registry.getEntry(input.pattern_id)
+  // Two spellings of one id: the canonical full id, and the unqualified short
+  // name a person types into a slash command (`/fancy-edit` for
+  // `image-gen/fancy-edit`). Which spelling arrived is not a surface — it is
+  // orthography — so the fallback lives here rather than in a second resolver
+  // per audience. It used to live in slash-dispatch.ts, which had to reimplement
+  // the exposure gate around it and therefore refused with its own codes; the
+  // refusal a user saw then depended on which entry point their host called.
+  // `ResolvedDispatchTarget.pattern.id` is always the canonical id.
+  const canonicalId = registry.has(input.pattern_id)
+    ? input.pattern_id
+    : registry.resolveShortName(input.pattern_id)
+  const entry = canonicalId ? registry.getEntry(canonicalId) : undefined
   if (!entry) {
     return {
       code: 'PATTERN_NOT_FOUND',
       pattern_id: input.pattern_id,
-      message: `Pattern "${input.pattern_id}" is not registered.`,
-      hint: 'Call find_pattern with a relevant query to discover valid pattern_id values.',
+      message: `Pattern "${input.pattern_id}" is not registered (tried full id and short name).`,
+      // The person-facing surfaces supply the id instead of discovering it, so
+      // sending them to find_pattern names a tool they never called.
+      hint:
+        audience === 'slash' || audience === 'canvas'
+          ? 'Check the id against the registry — both the canonical full id and the unqualified short name are accepted.'
+          : 'Call find_pattern with a relevant query to discover valid pattern_id values.',
     }
   }
   const { pattern } = entry

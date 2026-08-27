@@ -1478,9 +1478,6 @@ export function resolveExposure(e?: PatternExposure): ResolvedExposure;
 // @public
 export function resolveNamespace(id: PatternId, declared: NamespaceId | undefined): NamespaceId;
 
-// @alpha
-export function resolveSlashDispatch(registry: PatternRegistry, patternId: string): SlashDispatchResolution;
-
 // @public
 export type RetryPolicy = {
     kind: 'none';
@@ -1602,26 +1599,6 @@ export interface SkippedManifestPattern {
     readonly id: PatternId;
     readonly missingOps: readonly string[];
 }
-
-// @alpha
-export type SlashDispatchError = {
-    code: 'SLASH_PATTERN_NOT_FOUND';
-    patternId: string;
-    message: string;
-} | {
-    code: 'SLASH_NOT_EXPOSED';
-    patternId: string;
-    message: string;
-};
-
-// @alpha
-export type SlashDispatchResolution = {
-    ok: true;
-    fullId: string;
-} | {
-    ok: false;
-    error: SlashDispatchError;
-};
 
 // @public (undocumented)
 export interface StepMeta {

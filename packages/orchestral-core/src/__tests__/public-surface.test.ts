@@ -82,7 +82,6 @@ describe('@orchestral/core public surface', () => {
         "resolveDispatchTarget",
         "resolveExposure",
         "resolveNamespace",
-        "resolveSlashDispatch",
         "sanitizeToolOutput",
         "setAssetUriScheme",
         "silentDiagnosticsLogger",
