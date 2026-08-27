@@ -6,7 +6,7 @@ hand, §4–§6), releases ride **changesets** through
 
 1. A PR that changes a published package includes a changeset
    (`pnpm changeset` — pick packages, pick the bump, write the consumer-facing
-   sentence). The six `@orchestral/*` packages are a fixed group: any bump
+   sentence). The seven `@orchestral/*` packages are a fixed group: any bump
    moves the whole line.
 2. Merging to main makes the release workflow open (or refresh) a
    **"Version Packages" PR** — versions bumped, changeset summaries prepended
@@ -20,17 +20,23 @@ hand, §4–§6), releases ride **changesets** through
 
 One-time setup the automation needs (all done for this repo):
 
-- **Trusted publishing (OIDC)** — each of the six packages names this repo +
+- **Trusted publishing (OIDC)** — each package names this repo +
   `release.yml` as its trusted publisher, so publishing needs no long-lived
   token and carries provenance attestation. Configured in one loop (npm CLI ≥
   11.15; re-run it for any new package joining the line):
 
   ```sh
-  for p in core discovery runtime patterns agent adapters-ai-sdk; do
+  for p in core discovery runtime patterns plan agent adapters-ai-sdk; do
     npm trust github "@orchestral/$p" --file release.yml \
       --repo orchestral-media/orchestral --allow-publish --yes
   done
   ```
+
+  **`@orchestral/plan` joined the line after that loop was first run and has
+  never been published**, so it is the one package whose trusted publisher is
+  not yet configured. Re-run the loop around its first release and confirm with
+  `npm trust list @orchestral/plan`; a package the registry has no publisher
+  entry for is the failure this list exists to prevent.
 
   `npm trust list @orchestral/<p>` shows a package's publishers. The
   workflow's `permissions:` carries the `id-token: write` this depends on.
@@ -59,7 +65,7 @@ Two behaviours to know about, both accepted on purpose:
 (changesets `ignore`, publish `--filter`) — it versions against its
 dev-preview host and goes out by hand (§7). Because it is ignored, it never
 gets a changeset: bump it directly in its package.json. In particular a
-single changeset must never name it TOGETHER with any of the six —
+single changeset must never name it TOGETHER with any of the seven —
 changesets hard-errors on a changeset that mixes ignored and released
 packages, and the error surfaces as a red release workflow on main.
 
@@ -69,8 +75,9 @@ publish by hand.
 
 Two version lines ship from this repo:
 
-- **`@orchestral/*`** — `core`, `discovery`, `runtime`, `patterns`, `agent`,
-  `adapters-ai-sdk`. Six packages on one version line, released together.
+- **`@orchestral/*`** — `core`, `discovery`, `runtime`, `patterns`, `plan`,
+  `agent`, `adapters-ai-sdk`. Seven packages on one version line, released
+  together.
 - **`@orchestral/dsh-plugin`** — the deepseek-harness bridge, versioned
   independently against its dev-preview host (see §7).
 
@@ -180,7 +187,7 @@ date from when the entry was written. Update it to the day the publish
 actually lands:
 
 ```sh
-# six packages, one line each — check the date on every one
+# one line per package that shipped that version — check the date on every one
 grep -rn '^## \[0.1.0\]' packages/*/CHANGELOG.md
 ```
 
@@ -196,7 +203,7 @@ grep -rn "Not on npm yet" README.md packages/*/README.md
 
 Version bump, when releasing something other than the current `0.1.0`:
 
-- The six `@orchestral/*` packages move together; keep the version line
+- The seven `@orchestral/*` packages move together; keep the version line
   identical. `@orchestral/dsh-plugin` does not — bump it on its own.
 - Update each package's `CHANGELOG.md`.
 - Internal dependencies are all `workspace:*`, so nothing else needs editing —
@@ -213,6 +220,7 @@ pnpm --filter @orchestral/core publish --access public
 pnpm --filter @orchestral/adapters-ai-sdk publish --access public
 pnpm --filter @orchestral/discovery publish --access public
 pnpm --filter @orchestral/runtime publish --access public
+pnpm --filter @orchestral/plan publish --access public
 pnpm --filter @orchestral/patterns publish --access public
 pnpm --filter @orchestral/agent publish --access public
 ```
@@ -227,13 +235,15 @@ core             (nothing)
 adapters-ai-sdk  core            (+ `ai` as a peer; nothing depends on it)
 discovery        core
 runtime          core
-patterns         core
-agent            core, patterns, runtime
+plan             core
+patterns         core, plan
+agent            core, patterns
 ```
 
-`patterns` and `adapters-ai-sdk` only need `core`, so they can go anywhere
-after it; `patterns` sits where it does to keep `agent` — the only package
-that needs all three of the others — last. `adapters-ai-sdk` is a leaf (no
+`adapters-ai-sdk`, `discovery`, `runtime` and `plan` only need `core`, so they
+can go anywhere after it. The tail is the only part that is forced: `patterns`
+ships `meta_plan` and so must follow `plan`, and `agent` reads the pattern
+catalog and so must follow `patterns`. `adapters-ai-sdk` is a leaf (no
 `@orchestral/*` package depends on it), so its position only has to be after
 `core`.
 
@@ -244,7 +254,7 @@ that needs all three of the others — last. `adapters-ai-sdk` is a leaf (no
 - `pnpm -r publish --access public` publishes every non-private package in
   topological order in one shot. It is correct, but the explicit commands fail
   more legibly, and it would sweep up `@orchestral/dsh-plugin` — which is on
-  its own version line — along with the six. `examples/*` being
+  its own version line — along with the seven. `examples/*` being
   `private: true` is the only thing keeping those out of it.
 - A mistaken publish can be undone within 72 hours (`npm unpublish
   @orchestral/core@0.1.0`). After that, the version is permanent — publish a
@@ -258,7 +268,7 @@ git push origin v0.1.0
 gh release create v0.1.0 --title "v0.1.0" --notes-file <notes>
 ```
 
-Notes are assembled by hand from the six `CHANGELOG.md` files. One tag and
+Notes are assembled by hand from the seven `CHANGELOG.md` files. One tag and
 one GitHub Release per version line, since the packages move together.
 
 ## 6. Verify what consumers get
@@ -269,34 +279,43 @@ nothing resolves to a local path:
 ```sh
 mkdir /tmp/orchestral-verify && cd /tmp/orchestral-verify
 npm init -y
-npm install @orchestral/core@0.1.0 @orchestral/patterns@0.1.0 @orchestral/runtime@0.1.0 zod
+V=0.1.0                          # the version you just published
+npm install @orchestral/core@$V @orchestral/patterns@$V @orchestral/runtime@$V @orchestral/plan@$V zod
 node --input-type=module -e "
-  import { PatternRegistry, InMemoryJobStore } from '@orchestral/core'
+  import { PatternRegistry } from '@orchestral/core'
+  import { InMemoryJobStore } from '@orchestral/core/memory'
   import { InlineRuntime } from '@orchestral/runtime'
   import { createTextToImagePattern } from '@orchestral/patterns'
-  console.log(typeof PatternRegistry, typeof InMemoryJobStore, typeof InlineRuntime, typeof createTextToImagePattern)
+  import { validatePlan } from '@orchestral/plan'
+  console.log(typeof PatternRegistry, typeof InMemoryJobStore, typeof InlineRuntime, typeof createTextToImagePattern, typeof validatePlan)
 "
 
 # the two optional packages, which a host installs only if it wants them
-npm install @orchestral/discovery@0.1.0 @orchestral/agent@0.1.0
+npm install @orchestral/discovery@$V @orchestral/agent@$V
 node --input-type=module -e "
-  import { PatternSearchIndex } from '@orchestral/discovery'
+  import { PatternSearchIndex, createPatternSearch } from '@orchestral/discovery'
   import { createOrchestratorAgent } from '@orchestral/agent'
-  console.log(typeof PatternSearchIndex, typeof createOrchestratorAgent)
+  console.log(typeof PatternSearchIndex, typeof createPatternSearch, typeof createOrchestratorAgent)
 "
 ```
 
 ```sh
 # the AI SDK adapters, which a host installs only if it is on the AI SDK
-npm install @orchestral/adapters-ai-sdk@0.1.0 ai
+npm install @orchestral/adapters-ai-sdk@$V ai
 node --input-type=module -e "
   import { fromImageModel } from '@orchestral/adapters-ai-sdk'
   console.log(typeof fromImageModel)
 "
 ```
 
-Four `function`s (then two more, then one more) means the published entry points, the type
-surface and the cross-package resolution all landed. `@orchestral/runtime` NOT
+Five `function`s (then three more, then one more) means the published entry points, the type
+surface and the cross-package resolution all landed. One of those five is the
+subpath check: `@orchestral/core/memory` resolving proves the two subpath
+entries ship, since the root entry no longer answers for the `InMemory*` stores.
+`@orchestral/plan` is installed by name here because a host that builds or
+preflights a plan installs it that way; `@orchestral/patterns` also depends on
+it (it ships `meta_plan`), which is why §4 publishes `plan` first of the two.
+`@orchestral/runtime` NOT
 pulling `@orchestral/discovery` in is part of what the first block proves:
 retrieval is a seam the host wires (`InlineRuntimeInit.patternSearch`), so a
 runtime install carries no search engine and the second block is a host asking
