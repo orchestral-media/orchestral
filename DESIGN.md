@@ -538,8 +538,8 @@ refuses.
 **Instead.** A transform is a `text-generation` step; a decision is a shipped
 meta called as one step (`$hero.assets[label=winner]`); a dynamic width is
 authored as a fixed one.
-**Where.** `packages/orchestral-core/src/plan.ts` (DESIGN: plan-ref-grammar);
-`packages/orchestral-core/src/plan-validate.ts` (DESIGN: plan-no-interpolation);
+**Where.** `packages/orchestral-plan/src/plan.ts` (DESIGN: plan-ref-grammar);
+`packages/orchestral-plan/src/validate.ts` (DESIGN: plan-no-interpolation);
 `docs/plan.md` (DESIGN: plan-doc-no-evaluation).
 
 ### We don't give a plan its own Alternatives
@@ -550,7 +550,7 @@ has semantic fallback of its own.
 **Instead.** A plan inherits whatever is attached to the atomics it dispatches;
 `preflightPlan` reports which would fire, and the runtime's `alternatives` mode
 still decides whether one does.
-**Where.** `packages/orchestral-runtime/src/preflight-plan.ts` (DESIGN: preflight-alternative-would-fire);
+**Where.** `packages/orchestral-plan/src/preflight.ts` (DESIGN: preflight-alternative-would-fire);
 `packages/orchestral-core/src/alternative.ts` (DESIGN: alternative-map-closures).
 
 ### We don't add a partial-success state for plans
@@ -561,7 +561,7 @@ what the store records, and a column on every host store to serve it.
 **Instead.** `job.error.details.planStepId` names the failed step; `job:step`
 events name the ones that landed; resubmit — the finished steps come back from
 the store.
-**Where.** `packages/orchestral-patterns/src/meta/plan/index.ts` (DESIGN: plan-step-failure-stamped);
+**Where.** `packages/orchestral-plan/src/interpreter.ts` (DESIGN: plan-step-failure-stamped);
 "We don't resume lost jobs" above.
 
 ### We don't rewrite a step's input at execution
@@ -570,7 +570,7 @@ original value. A defaults-applied copy would change the child's idempotency
 input relative to a hand-written meta's and, for `text-generation`, key every
 plan step differently from every meta step with the same prompt.
 **Instead.** `safeParse` for the verdict, dispatch the input as written.
-**Where.** `packages/orchestral-patterns/src/meta/plan/index.ts` (DESIGN: plan-layer-2-gate-not-rewrite);
+**Where.** `packages/orchestral-plan/src/interpreter.ts` (DESIGN: plan-layer-2-gate-not-rewrite);
 pinned with `toBe` in `packages/orchestral-patterns/src/__tests__/meta-plan.test.ts`.
 
 ### We don't require a meta to declare what it dispatches
@@ -616,7 +616,7 @@ timeouts, or TTLs"); `compose` has no router to show a model with, and an
 **Instead.** `preflightPlan` routes every step and prices nothing — put its
 report in front of your own `AskUserHandler` before `submitJob`; a hard cap is
 a `beforeDispatch` middleware.
-**Where.** `packages/orchestral-runtime/src/preflight-plan.ts` (DESIGN: preflight-prices-nothing);
+**Where.** `packages/orchestral-plan/src/preflight.ts` (DESIGN: preflight-prices-nothing);
 `packages/orchestral-core/src/middleware.ts` (DESIGN: before-dispatch-hook).
 
 ## Things this document is not

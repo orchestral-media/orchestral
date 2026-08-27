@@ -205,6 +205,9 @@ importers:
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../../packages/orchestral-patterns
+      '@orchestral/plan':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-plan
       '@orchestral/runtime':
         specifier: workspace:*
         version: link:../../packages/orchestral-runtime
@@ -354,6 +357,9 @@ importers:
       '@orchestral/core':
         specifier: workspace:*
         version: link:../orchestral-core
+      '@orchestral/plan':
+        specifier: workspace:*
+        version: link:../orchestral-plan
     devDependencies:
       '@orchestral/discovery':
         specifier: workspace:*
@@ -401,6 +407,9 @@ importers:
       '@orchestral/discovery':
         specifier: workspace:*
         version: link:../orchestral-discovery
+      '@orchestral/plan':
+        specifier: workspace:*
+        version: link:../orchestral-plan
     devDependencies:
       '@orchestral/patterns':
         specifier: workspace:*

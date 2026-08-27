@@ -30,7 +30,6 @@ import type {
   MetaPattern,
   ModelCapability,
   ModelTag,
-  PlanDag,
   ResolveContext,
   SatisfiableResult,
 } from '@orchestral/core'
@@ -39,14 +38,14 @@ import {
   createDefaultCapabilityRouter,
   dispatchEnvelopeShape,
   PatternRegistry,
-  PlanOutputSchema,
   producedAssetShape,
   silentDiagnosticsLogger,
   whenCapabilityUnavailable,
   whenPreservesRequired,
 } from '@orchestral/core'
 
-import { formatPlanPreflight, preflightPlan } from '../preflight-plan'
+import { PlanOutputSchema, type PlanDag } from '../plan'
+import { formatPlanPreflight, preflightPlan } from '../preflight'
 
 // ── Patterns ─────────────────────────────────────────────────────────────
 

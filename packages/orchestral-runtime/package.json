@@ -60,7 +60,8 @@
   },
   "dependencies": {
     "@orchestral/core": "workspace:*",
-    "@orchestral/discovery": "workspace:*"
+    "@orchestral/discovery": "workspace:*",
+    "@orchestral/plan": "workspace:*"
   },
   "peerDependencies": {
     "zod": ">=4.3 <5"

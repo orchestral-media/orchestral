@@ -181,7 +181,8 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
-    "@orchestral/core": "workspace:*"
+    "@orchestral/core": "workspace:*",
+    "@orchestral/plan": "workspace:*"
   },
   "peerDependencies": {
     "zod": ">=4.3 <5"

@@ -14,23 +14,23 @@
 import {
   auditOutputsSchema,
   InMemoryJobStore,
-  PlanDagSchema,
-  PlanOutputSchema,
   toJsonSchema,
   type PatternId,
+} from '@orchestral/core'
+import {
+  createPlanMeta,
+  planToMeta,
+  PlanDagSchema,
+  PlanOutputSchema,
+  PLAN_PATTERN_ID,
+  PLAN_TOOL_DESCRIPTION,
   type PlanDag,
   type PlanOutput,
-} from '@orchestral/core'
+} from '@orchestral/plan'
 import { deriveIdempotencyKey } from '@orchestral/runtime'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import {
-  createPlanMeta,
-  planToMeta,
-  PLAN_PATTERN_ID,
-  PLAN_TOOL_DESCRIPTION,
-} from '../meta/plan'
 import { makePlanHost, type PlanHost } from './helpers/plan-host'
 
 // ── fixtures ────────────────────────────────────────────────────────────

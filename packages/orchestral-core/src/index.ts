@@ -108,34 +108,13 @@ export {
 } from './slash-dispatch'
 
 // ── Plan ─────────────────────────────────────────────────────────────────
-// The wire schema for a pipeline authored as data — a meta whose compose is a
-// list of `$`-referencing steps — plus the walk that lists everything wrong
-// with one before any of it is dispatched. Core carries the contract only: the
-// interpreter that executes a DAG (`planToMeta`) lives in
-// `@orchestral/patterns`, where the label and cost conventions it needs are.
-export {
-  PLAN_ASSET_REF_RE,
-  PLAN_STEP_ID_RE,
-  PLAN_VALUE_REF_RE,
-  PlanDagSchema,
-  PlanOutputSchema,
-  PlanRetrySchema,
-  PlanStepSchema,
-  type PlanDag,
-  type PlanOutput,
-  type PlanRetry,
-  type PlanStep,
-} from './plan'
-export {
-  assertPlanValid,
-  planRefine,
-  PlanInvalidError,
-  validatePlan,
-  type PlanPatternLookup,
-  type PlanProblem,
-  type PlanProblemCode,
-  type PlanValidateOptions,
-} from './plan-validate'
+// A plan — a meta whose compose is a list of `$`-referencing steps — is one
+// Pattern's wire format, not this library's vocabulary, so the whole feature
+// (schema, `validatePlan`, the interpreter, the preflight) is
+// `@orchestral/plan`. The primitive all four share, "read a `$ref` off a step's
+// input", used to be copied once per package; it is one function there now:
+//
+//   import { PlanDagSchema, validatePlan } from '@orchestral/plan'
 
 // ── Tool-output sanitizer (defense-in-depth) ─────────────────────────────
 export { sanitizeToolOutput } from './sanitize'

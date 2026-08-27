@@ -18,9 +18,7 @@ import {
   createDefaultCapabilityRouter,
   InMemoryJobStore,
   PatternRegistry,
-  PlanOutputSchema,
   silentDiagnosticsLogger,
-  validatePlan,
   type PatternId,
 } from '@orchestral/core'
 import {
@@ -28,6 +26,7 @@ import {
   createTextGenerationPattern,
   createTextToImagePattern,
 } from '@orchestral/patterns'
+import { PlanOutputSchema, validatePlan } from '@orchestral/plan'
 import { deriveIdempotencyKey, InlineRuntime } from '@orchestral/runtime'
 import { describe, expect, it, vi } from 'vitest'
 

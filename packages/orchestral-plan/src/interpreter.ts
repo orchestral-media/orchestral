@@ -6,11 +6,12 @@
 // content-addressed dedup per step, cancellation, `job:step` events — is a
 // property the meta engine already gives a hand-written meta.
 //
-// This lives in @orchestral/patterns rather than core because the conventions
-// it consumes are patterns conventions: `labelledAssetShape`'s `label` (how
+// It lives beside the schema it walks (plan.ts), the walk that refuses a bad
+// one (validate.ts) and the preflight that prices one (preflight.ts). The two
+// conventions it reads are `label` on a produced asset (how
 // `$hero.assets[label=winner]` resolves) and `sumCosts`' "any null makes the
-// total null" rule. Core keeps the contract half — the wire schema, the three
-// regexes and `validatePlan` (plan.ts / plan-validate.ts).
+// total null" rule — both of which are core's, on `producedAssetShape` and
+// `metaEnvelopeShape.cost`.
 //
 // Three forms, one primitive:
 //
@@ -24,13 +25,7 @@
 
 import {
   parallel,
-  PLAN_ASSET_REF_RE,
-  PLAN_VALUE_REF_RE,
-  PlanDagSchema,
-  PlanInvalidError,
-  PlanOutputSchema,
-  planRefine,
-  validatePlan,
+  sumCosts,
   type DispatchAudience,
   type ExecutionContext,
   type MetaPattern,
@@ -38,17 +33,26 @@ import {
   type PatternExposure,
   type PatternId,
   type PatternRef,
-  type PlanDag,
-  type PlanOutput,
-  type PlanPatternLookup,
-  type PlanProblem,
-  type PlanProblemCode,
-  type PlanStep,
   type ResolvedAssetRef,
 } from '@orchestral/core'
 import { z } from 'zod'
 
-import { sumCosts } from '../_shared/meta-utils'
+import {
+  PlanDagSchema,
+  PlanOutputSchema,
+  type PlanDag,
+  type PlanOutput,
+  type PlanStep,
+} from './plan'
+import { parseAssetRef, parseValueRef, planLevels } from './refs'
+import {
+  PlanInvalidError,
+  planRefine,
+  validatePlan,
+  type PlanPatternLookup,
+  type PlanProblem,
+  type PlanProblemCode,
+} from './validate'
 
 // ── The one-shot's identity ─────────────────────────────────────────────
 
@@ -475,7 +479,7 @@ export async function runPlan(
   //    `parallel` is `Promise.all`: the first rejection rejects the level, no
   //    further level starts, and siblings already in flight complete and
   //    persist — which is what "completed steps stay in the JobStore" means.
-  for (const level of planLevels(dag)) {
+  for (const level of planLevels(dag).levels) {
     const promises = level.map((step) =>
       runStep(step).catch((err: unknown) => {
         throw stampPlanStep(err, step.id, opts.selfId)
@@ -621,103 +625,12 @@ function assertConstructionTimeValid(dag: PlanDag, opts: PlanToMetaOptions): voi
   if (problems.length > 0) throw new PlanInvalidError(problems as PlanProblem[])
 }
 
-// ── Levels ──────────────────────────────────────────────────────────────
-
-/**
- * Group the steps into dependency levels, preserving listed order within each.
- * References are backward-only (rule 5 is the cycle check), so one forward pass
- * suffices: every dependency already has a level by the time it is read.
- */
-function planLevels(dag: PlanDag): PlanStep[][] {
-  const declared = new Set(dag.steps.map((s) => s.id))
-  const levelById = new Map<string, number>()
-  const buckets: PlanStep[][] = []
-  for (const step of dag.steps) {
-    let level = 0
-    for (const dep of dependenciesOf(step, declared)) {
-      const depLevel = levelById.get(dep)
-      if (depLevel !== undefined) level = Math.max(level, depLevel + 1)
-    }
-    levelById.set(step.id, level)
-    const bucket = buckets[level] ?? []
-    bucket.push(step)
-    buckets[level] = bucket
-  }
-  return buckets.map((b) => b ?? [])
-}
-
-/** Every declared step id this step reads, through either channel. */
-function dependenciesOf(step: PlanStep, declared: ReadonlySet<string>): Set<string> {
-  const deps = new Set<string>()
-  const noteString = (value: string): void => {
-    const head = parseValueRef(value)?.head ?? parseAssetRef(value)?.head
-    if (head !== undefined && declared.has(head)) deps.add(head)
-  }
-  walkStrings(step.input, noteString)
-  for (const bound of Object.values(step.assets ?? {})) {
-    for (const ref of Array.isArray(bound) ? bound : [bound]) noteString(ref)
-  }
-  return deps
-}
-
-function walkStrings(value: unknown, visit: (s: string) => void): void {
-  if (typeof value === 'string') {
-    visit(value)
-    return
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) walkStrings(entry, visit)
-    return
-  }
-  if (isRecord(value)) for (const v of Object.values(value)) walkStrings(v, visit)
-}
-
 // ── Reference grammar ───────────────────────────────────────────────────
 //
-// The three productions live in core (plan.ts) as regexes; the parse of a
-// matched string is here, because only the interpreter needs the pieces. Kept
-// deliberately in step with `plan-validate.ts`'s private twin: a string the
-// walk read as a reference must be the string the interpreter substitutes, or
-// layer 1 would be validating something other than what runs.
-
-interface ParsedValueRef {
-  head: string
-  isInput: boolean
-  segments: (string | number)[]
-}
-
-interface ParsedAssetRef {
-  head: string
-  /** Positional selector; absent when the ref selects by label. */
-  index?: number
-  label?: string
-}
-
-const REF_HEAD_RE = /^\$([A-Za-z][A-Za-z0-9_-]{0,63})/
-const VALUE_SEGMENT_RE = /\.([A-Za-z_][A-Za-z0-9_]{0,63})|\[([0-9]{1,3})\]/g
-
-function parseValueRef(value: string): ParsedValueRef | null {
-  if (!PLAN_VALUE_REF_RE.test(value)) return null
-  // The head alternation lists `input` first for readability, but the general
-  // identifier branch matches it too — read the head greedily and compare, or
-  // `$inputs.x` would parse with head `input`.
-  const head = REF_HEAD_RE.exec(value)?.[1]
-  if (head === undefined) return null
-  const segments: (string | number)[] = []
-  for (const m of value.slice(1 + head.length).matchAll(VALUE_SEGMENT_RE)) {
-    segments.push(m[1] !== undefined ? m[1] : Number(m[2]))
-  }
-  return { head, isInput: head === 'input', segments }
-}
-
-function parseAssetRef(value: string): ParsedAssetRef | null {
-  const m = PLAN_ASSET_REF_RE.exec(value)
-  if (m === null) return null
-  const selector = m[2] ?? ''
-  return selector.startsWith('label=')
-    ? { head: m[1] ?? '', label: selector.slice('label='.length) }
-    : { head: m[1] ?? '', index: Number(selector) }
-}
+// The parse and the dependency walk are refs.ts's — one copy for layer 1, the
+// interpreter and preflight, which is what makes "the string the walk read as a
+// reference is the string substituted here" a function call. What stays below
+// is what only execution needs: applying a parsed ref to real values.
 
 /** Replace every whole-string value reference; leave everything else alone. */
 function substitute(value: unknown, resolve: (ref: string) => unknown): unknown {

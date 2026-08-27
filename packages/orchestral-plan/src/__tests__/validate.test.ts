@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import type { AssetNeed } from '../asset-index.types'
-import { defineAtomicPattern } from '../atomic-pattern'
-import { resolveDispatchTarget } from '../dispatch-pattern'
-import type { PatternId } from '../foundational'
-import { silentDiagnosticsLogger } from '../logger'
-import { dispatchEnvelopeShape, metaEnvelopeShape, producedAssetShape } from '../output-envelope'
-import { boundedText } from '../output-fields'
-import type { AgentPattern, MetaPattern, Pattern } from '../pattern'
+import {
+  boundedText,
+  defineAtomicPattern,
+  dispatchEnvelopeShape,
+  metaEnvelopeShape,
+  PatternRegistry,
+  producedAssetShape,
+  resolveDispatchTarget,
+  silentDiagnosticsLogger,
+  type AgentPattern,
+  type AssetNeed,
+  type MetaPattern,
+  type Pattern,
+  type PatternId,
+} from '@orchestral/core'
+
 import {
   assertPlanValid,
   planRefine,
@@ -18,13 +26,12 @@ import {
   type PlanProblem,
   type PlanProblemCode,
   type PlanValidateOptions,
-} from '../plan-validate'
+} from '../validate'
 import { PlanDagSchema, PlanOutputSchema, type PlanDag } from '../plan'
-import { PatternRegistry } from '../registry'
 
 // ── Stub patterns ───────────────────────────────────────────────────────
 //
-// @orchestral/patterns depends on @orchestral/core, never the other way round,
+// @orchestral/patterns depends on this package, never the other way round,
 // so importing the REAL text-generation / text-to-image / image-to-video /
 // image-to-text / meta_image-best-of-n here would be a package cycle. These
 // stubs mirror only what the walk reads — the outputs shape (fields, the

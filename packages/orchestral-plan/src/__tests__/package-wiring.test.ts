@@ -9,8 +9,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-import * as api from '../index'
-
 const pkg = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 ) as {
@@ -58,9 +56,5 @@ describe('@orchestral/plan package wiring', () => {
     )
     expect(pkg.scripts.typecheck).toBe('tsc --noEmit')
     expect(pkg.scripts.test).toBe('vitest run')
-  })
-
-  it('has a barrel, empty for now — the migration fills it', () => {
-    expect(Object.keys(api)).toEqual([])
   })
 })

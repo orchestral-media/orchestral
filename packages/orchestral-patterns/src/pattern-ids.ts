@@ -32,7 +32,9 @@ import { VIDEO_TO_VIDEO_PATTERN_ID } from './atomic/video-to-video'
 import { EXPLAINER_SHORT_PATTERN_ID } from './meta/explainer-short'
 import { IMAGE_BEST_OF_N_PATTERN_ID } from './meta/image-best-of-n'
 import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from './meta/image-to-image-via-caption'
-import { PLAN_PATTERN_ID } from './meta/plan'
+// `meta_plan`'s id comes from @orchestral/plan, which owns the interpreter;
+// this package still ships the pattern, so the id belongs in the list below.
+import { PLAN_PATTERN_ID } from '@orchestral/plan'
 import { PRODUCT_AD_SHORT_PATTERN_ID } from './meta/product-ad-short'
 import { PRODUCT_PHOTO_PACK_PATTERN_ID } from './meta/product-photo-pack'
 import { SCRIPT2VIDEO_PATTERN_ID } from './meta/script2video'

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { auditOutputsSchema } from '../output-fields'
+import { auditOutputsSchema, toJsonSchema } from '@orchestral/core'
+
 import {
   PLAN_ASSET_REF_RE,
   PLAN_STEP_ID_RE,
@@ -9,8 +10,7 @@ import {
   PlanOutputSchema,
   PlanRetrySchema,
 } from '../plan'
-import { planRefine } from '../plan-validate'
-import { toJsonSchema } from '../schema'
+import { planRefine } from '../validate'
 
 type JsonNode = Record<string, unknown>
 

@@ -207,22 +207,24 @@ export {
   type ExplainerShortPromptOverrides,
 } from './meta/explainer-short'
 
-// ── The plan interpreter ─────────────────────────────────────────────────
-// A meta whose compose is a list of steps rather than a function body. The
-// contract half — the wire schema, the three ref regexes and `validatePlan` —
-// is in @orchestral/core; this is the interpreter that walks it. `meta_plan` is
-// the shipped one-shot (its input IS the DAG); `planToMeta` is what a
-// session-scoped or persisted plan package calls on a JSON literal.
-export {
-  PLAN_PATTERN_ID,
-  PLAN_TOOL_DESCRIPTION,
-  createPlanMeta,
-  planToMeta,
-  runPlan,
-  type PlanMetaPattern,
-  type PlanToMetaOptions,
-  type RunPlanOptions,
-} from './meta/plan'
+// ── meta_plan, the shipped one-shot ──────────────────────────────────────
+//
+// The plan feature — the wire schema, layer 1, the interpreter and the
+// preflight — is `@orchestral/plan`, so that "the string layer 1 reads as a
+// reference is the string the interpreter substitutes" is one function rather
+// than three copies and two comments. What stays on THIS barrel is what this
+// package ships: `meta_plan` itself. Its factory is named by this package's
+// own manifest (`orchestral.patterns` in package.json declares
+// `export: "createPlanMeta"`, which `addFromManifest` looks up on this
+// module), and its id is a member of `FIRST_PARTY_PATTERN_IDS.meta`.
+//
+// `planToMeta` / `runPlan` / `PLAN_TOOL_DESCRIPTION` and the interpreter's
+// types are NOT re-exported: building a plan of your own is the plan package's
+// job, and a host that does it adds that dependency rather than reaching it
+// through the catalog.
+//
+//   import { planToMeta } from '@orchestral/plan'
+export { PLAN_PATTERN_ID, createPlanMeta } from '@orchestral/plan'
 
 // ── The shipped id catalog ───────────────────────────────────────────────
 // Which ids this package ships, as data, grouped by declared kind. For a
