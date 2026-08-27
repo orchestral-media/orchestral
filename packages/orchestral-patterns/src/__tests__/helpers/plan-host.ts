@@ -13,8 +13,6 @@
 // Not a test file (no `.test.ts` suffix) — vitest's include pattern skips it.
 
 import {
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
   silentDiagnosticsLogger,
   type Capability,
@@ -26,6 +24,8 @@ import {
   type Pattern,
   type PatternId,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import { InlineRuntime, type InlineRuntimeInit } from '@orchestral/runtime'
 import { MODEL_SPEC_VERSION } from '@orchestral/core'
 import { vi, type MockInstance } from 'vitest'

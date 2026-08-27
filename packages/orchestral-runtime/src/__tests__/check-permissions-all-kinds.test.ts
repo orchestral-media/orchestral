@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore,
   PatternRegistry,
   type AgentPattern,
   type AtomicPattern,
@@ -23,6 +22,7 @@ import {
   type PatternId,
   type PermissionResult,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'

@@ -21,11 +21,13 @@ import type {
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
-  InMemoryTranscriptStore,
   mintHandle,
   PatternRegistry,
 } from '@orchestral/core'
+import {
+  InMemoryJobStore as MemoryJobStore,
+  InMemoryTranscriptStore,
+} from '@orchestral/core/memory'
 
 import { InlineRuntime, type AgentAssetBridge } from '../inline'
 import type { AgentRunImpl } from '../agent-run'

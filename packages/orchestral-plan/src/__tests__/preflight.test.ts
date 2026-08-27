@@ -35,7 +35,6 @@ import type {
 } from '@orchestral/core'
 import {
   boundedText,
-  createDefaultCapabilityRouter,
   dispatchEnvelopeShape,
   PatternRegistry,
   producedAssetShape,
@@ -43,6 +42,7 @@ import {
   whenCapabilityUnavailable,
   whenPreservesRequired,
 } from '@orchestral/core'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 
 import { PlanOutputSchema, type PlanDag } from '../plan'
 import { formatPlanPreflight, preflightPlan } from '../preflight'

@@ -14,10 +14,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   silentDiagnosticsLogger,
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createImageToVideoPattern,
   createTextGenerationPattern,

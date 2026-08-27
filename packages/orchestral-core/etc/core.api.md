@@ -554,9 +554,6 @@ export type CapabilitySource = 'provider-default-official' | 'provider-default-c
 // @public
 export const consoleDiagnosticsLogger: DiagnosticsLogger;
 
-// @public (undocumented)
-export function createDefaultCapabilityRouter(deps: DefaultCapabilityRouterDeps): CapabilityRouter;
-
 // @public
 export function createPatternFn<I = unknown, O = unknown>(patternId: PatternId): PatternFn<I, O>;
 
@@ -608,12 +605,6 @@ export const defaultAgentFinishOutputs: z.ZodObject<{
     summary: z.ZodString;
     stepCount: z.ZodNumber;
 }, z.core.$strip>;
-
-// @public (undocumented)
-export interface DefaultCapabilityRouterDeps {
-    getCapabilityOrder?(cap: Capability): readonly string[] | undefined;
-    getModels(cap: Capability): readonly ModelCapability[];
-}
 
 // @public
 export function defineAtomicPattern<I = unknown, O = unknown>(init: AtomicPatternInit<I, O>): AtomicPattern<I, O> & {
@@ -787,49 +778,6 @@ export interface HandleSnapshot {
 
 // @public
 export function inferNamespace(id: PatternId): NamespaceId;
-
-// @alpha
-export class InMemoryAssetStore implements AssetStore {
-    // (undocumented)
-    listContext(contextId: string, filter?: ListContextFilter): Promise<AssetRecord[]>;
-    // (undocumented)
-    record(contextId: string, ann: RecordAssetInput): Promise<AssetRecord>;
-}
-
-// @public
-export class InMemoryJobStore implements JobStore {
-    constructor(options?: {
-        onSubscriberError?: (error: unknown, event: JobEvent) => void;
-    });
-    // (undocumented)
-    conditionalUpdate(id: string, patch: Partial<Job>, ifStatus: JobStatus): Promise<boolean>;
-    // (undocumented)
-    findByIdempotencyKey(key: string): Promise<Job | null>;
-    // (undocumented)
-    get(id: string): Promise<Job | null>;
-    // (undocumented)
-    insert(job: Job): Promise<void>;
-    // (undocumented)
-    insertIfAbsent(job: Job): Promise<Job>;
-    // (undocumented)
-    query(filter?: JobQueryFilter): Promise<readonly Job[]>;
-    // (undocumented)
-    subscribe(callback: (event: JobEvent) => void): Unsubscribe;
-    // (undocumented)
-    update(id: string, patch: Partial<Job>): Promise<void>;
-}
-
-// @public
-export class InMemoryTranscriptStore implements TranscriptStore {
-    // (undocumented)
-    append(runId: string, agentId: string, msg: TranscriptMessage): Promise<void>;
-    // (undocumented)
-    clear(runId: string): Promise<void>;
-    // (undocumented)
-    read(runId: string, agentId: string): Promise<readonly TranscriptMessage[]>;
-    // (undocumented)
-    readAll(runId: string, filterPatternIdPrefix?: string): Promise<readonly TranscriptMessageWithAgent[]>;
-}
 
 // @public (undocumented)
 export function isAssetUri(ref: string): boolean;
@@ -1146,29 +1094,6 @@ export interface ModelCapabilityRecord extends ModelCapabilityBlob {
     tags: readonly ModelTag[];
 }
 
-// @public (undocumented)
-export class ModelExcludedError extends Error {
-    constructor(modelStr: string, diagnostic?: {
-        capability: Capability;
-        requiredTags: readonly ModelTag[];
-        excludedByRetry: boolean;
-        excludeModel: readonly string[];
-        candidates: readonly string[];
-    } | undefined);
-    // (undocumented)
-    readonly code = "MODEL_EXCLUDED";
-    // (undocumented)
-    diagnostic?: {
-        capability: Capability;
-        requiredTags: readonly ModelTag[];
-        excludedByRetry: boolean;
-        excludeModel: readonly string[];
-        candidates: readonly string[];
-    } | undefined;
-    // (undocumented)
-    modelStr: string;
-}
-
 // @public
 export interface ModelFacingAsset {
     // (undocumented)
@@ -1222,19 +1147,6 @@ export type ModelTag =
 
 // @public
 export type NamespaceId = 'image-gen' | 'video-gen' | 'audio-gen' | 'text-gen' | 'meta-pipelines' | 'sub-agents' | 'uncategorized' | (string & {});
-
-// @public (undocumented)
-export class NoModelForCapabilityError extends Error {
-    constructor(cap: Capability, requiredTags: readonly ModelTag[], reason: UnavailabilityReason, remedy?: string);
-    // (undocumented)
-    cap: Capability;
-    // (undocumented)
-    readonly code = "NO_MODEL_FOR_CAPABILITY";
-    // (undocumented)
-    reason: UnavailabilityReason;
-    // (undocumented)
-    requiredTags: readonly ModelTag[];
-}
 
 // @public
 export type OnStrip = (info: {

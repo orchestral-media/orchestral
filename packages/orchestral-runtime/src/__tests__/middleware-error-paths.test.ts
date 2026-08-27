@@ -31,9 +31,9 @@ import type {
 import {
   silentDiagnosticsLogger,
   type DiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'

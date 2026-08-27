@@ -29,10 +29,10 @@ import {
   silentDiagnosticsLogger,
   boundedText,
   dispatchEnvelopeShape,
-  InMemoryJobStore,
   PatternRegistry,
   producedAssetShape,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime, type InlineRuntimeInit } from '../inline'
 

@@ -70,10 +70,10 @@ import {
   applicableAlternatives,
   assertSupportedModelSpecVersion,
   consoleDiagnosticsLogger,
-  NoModelForCapabilityError,
   pickAlternative,
   readRequiresSemantics,
 } from '@orchestral/core'
+import { NoModelForCapabilityError } from '@orchestral/core/routing'
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core'
 
 import { deriveIdempotencyKey } from './idempotency'

@@ -27,11 +27,11 @@
 // to "ran". Nothing below the wiring is more than printing.
 
 import {
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
   type PatternId,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createImageToVideoPattern,
   createTextGenerationPattern,

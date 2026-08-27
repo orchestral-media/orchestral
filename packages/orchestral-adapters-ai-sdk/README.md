@@ -27,7 +27,7 @@ pass in comes from your copy of the AI SDK, and the package must share it.
 
 ```ts
 import { openai } from '@ai-sdk/openai'
-import { createDefaultCapabilityRouter } from '@orchestral/core'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   fromImageModel,
   fromLanguageModel,

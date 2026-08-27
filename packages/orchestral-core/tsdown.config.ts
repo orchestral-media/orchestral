@@ -6,7 +6,7 @@ import { defineConfig } from 'tsdown'
 // type-literal members (sxzz/rolldown-plugin-dts#182); tsc + api-extractor
 // preserve leading comments faithfully.
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/memory.ts', 'src/routing.ts'],
   format: 'esm',
   dts: false,
   sourcemap: true,

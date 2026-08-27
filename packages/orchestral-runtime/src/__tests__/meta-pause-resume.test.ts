@@ -25,10 +25,10 @@ import type {
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
   parallel,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 import { createTextGenerationPattern } from '@orchestral/patterns'
 
 import { InlineRuntime } from '../inline'

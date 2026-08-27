@@ -30,7 +30,9 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./memory": "./src/memory.ts",
+    "./routing": "./src/routing.ts"
   },
   "files": [
     "dist",
@@ -45,11 +47,19 @@
       ".": {
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js"
+      },
+      "./memory": {
+        "types": "./dist/memory.d.ts",
+        "import": "./dist/memory.js"
+      },
+      "./routing": {
+        "types": "./dist/routing.d.ts",
+        "import": "./dist/routing.js"
       }
     }
   },
   "scripts": {
-    "build": "tsdown && tsc -p tsconfig.build.json && api-extractor run",
+    "build": "tsdown && tsc -p tsconfig.build.json && api-extractor run && api-extractor run -c api-extractor.memory.json && api-extractor run -c api-extractor.routing.json",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

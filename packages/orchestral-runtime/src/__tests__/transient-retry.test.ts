@@ -39,7 +39,8 @@ import type {
   ModelCapability,
   ResolveContext,
 } from '@orchestral/core'
-import { InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime, type TransientFailureInfo } from '../inline'
 

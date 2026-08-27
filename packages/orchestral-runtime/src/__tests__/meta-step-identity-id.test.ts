@@ -23,7 +23,8 @@ import type {
   MetaPattern,
   ModelCapability,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'

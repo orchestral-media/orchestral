@@ -98,12 +98,12 @@ Registry, model bridge, router, runtime, one dispatch — the whole surface:
 ```ts
 import {
   PatternRegistry,
-  InMemoryJobStore,
-  createDefaultCapabilityRouter,
   type DispatchContext,
   type DispatchResult,
   type ModelCapability,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { generateImage } from 'ai'
@@ -193,8 +193,8 @@ implementations you swap; the third is the call adapter:
 
 | Seam | What it decides | What ships |
 | --- | --- | --- |
-| `JobStore` | where job rows live | `InMemoryJobStore` for dev/test; bring a durable one (e.g. SQLite-backed) for production |
-| `CapabilityRouter` | which model answers a capability | `createDefaultCapabilityRouter`; you inject `getModels` and an optional enablement gate |
+| `JobStore` | where job rows live | `InMemoryJobStore` (from `@orchestral/core/memory`) for dev/test; bring a durable one (e.g. SQLite-backed) for production |
+| `CapabilityRouter` | which model answers a capability | `createDefaultCapabilityRouter` (from `@orchestral/core/routing`); you inject `getModels` and an optional enablement gate |
 | `ModelCapability.call` | the actual provider invocation | nothing — this is the ~15-line adapter you write over your own SDK (or, for the Vercel AI SDK, the one `@orchestral/adapters-ai-sdk` ships) |
 
 Agent patterns add a fourth seam, `AgentRunImpl`, which drives the inner LLM
@@ -207,7 +207,7 @@ lines — copy it and swap in whatever loop you already run.
 
 | Package | What it is |
 | --- | --- |
-| [`@orchestral/core`](packages/orchestral-core) | The vocabulary and contracts: `Pattern` / `ModelCapability` / `Alternative`, `Job` / `JobStore` / `Runtime`, the default capability router, and the pattern registry. No execution engine, no provider SDK. |
+| [`@orchestral/core`](packages/orchestral-core) | The vocabulary and contracts: `Pattern` / `ModelCapability` / `Alternative`, `Job` / `JobStore` / `Runtime`, and the pattern registry. No execution engine, no provider SDK. The batteries sit one level down, on their own entries: `@orchestral/core/memory` (the three `InMemory*` stores) and `@orchestral/core/routing` (the default capability router). |
 | [`@orchestral/patterns`](packages/orchestral-patterns) | The first-party pattern catalog: one atomic pattern per capability, plus meta pipelines (storyboarding, script-to-video, best-of-N selection, the short-form deliverables, …) with their prompts inlined. |
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
 | [`@orchestral/plan`](packages/orchestral-plan) | A pipeline authored as data: the wire schema a model fills, `validatePlan` (every problem in a DAG before any of it spends), `planToMeta` (the DAG executed as an ordinary meta) and `preflightPlan` (every step routed, nothing run). Depends on core and nothing else. |

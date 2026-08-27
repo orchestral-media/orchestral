@@ -22,9 +22,7 @@ import { extname } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import {
   AskUserConfirmPayloadSchema,
-  createDefaultCapabilityRouter,
   formatRoutingExplanation,
-  InMemoryJobStore,
   PatternRegistry,
   type Alternative,
   type AskUserConfirmAnswer,
@@ -34,6 +32,8 @@ import {
   type JobSpec,
   type ResolvedAssetRef,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createImageToImagePattern,
   createImageToImageViaCaptionPattern,

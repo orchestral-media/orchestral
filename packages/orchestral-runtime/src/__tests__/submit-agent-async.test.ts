@@ -6,7 +6,7 @@ import type {
   JobSpec,
   PatternRegistry,
 } from '@orchestral/core'
-import { InMemoryJobStore } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 

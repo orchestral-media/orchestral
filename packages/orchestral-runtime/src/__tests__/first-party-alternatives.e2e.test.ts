@@ -28,11 +28,11 @@ import type {
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore,
   PatternRegistry,
   buildAssetIndex,
   resolveAssetReferences,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 import {
   createAutomaticSpeechRecognitionPattern,
   createImageToImagePattern,

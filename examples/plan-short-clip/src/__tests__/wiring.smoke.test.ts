@@ -15,12 +15,12 @@
 // each mock's `call` counting how often the runtime actually reached a model.
 
 import {
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
   silentDiagnosticsLogger,
   type PatternId,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createImageToVideoPattern,
   createTextGenerationPattern,

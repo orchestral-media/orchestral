@@ -44,7 +44,8 @@ import type {
   ModelCapability,
   PatternId,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 // Retrieval is a host seam now, so a suite that asserts on what find_pattern
 // returns has to wire one. The first-party implementation is the right choice
 // here: these tests pin the corpus scoping dispatchAgent hands OVER, and a

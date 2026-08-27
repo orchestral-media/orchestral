@@ -13,10 +13,10 @@
 
 import {
   auditOutputsSchema,
-  InMemoryJobStore,
   toJsonSchema,
   type PatternId,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 import {
   createPlanMeta,
   planToMeta,

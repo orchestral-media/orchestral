@@ -25,8 +25,9 @@ import { existsSync } from 'node:fs'
 import { createRequire, register } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-// The published packages and their single published entry (`.`). Each
-// package's publishConfig.exports declares only `.` → ./dist/index.js.
+// The published packages and their `.` entry. Every package's
+// publishConfig.exports declares `.` → ./dist/index.js; core additionally
+// declares two subpaths, listed separately below.
 const PACKAGES = [
   { name: '@orchestral/core', dir: 'orchestral-core' },
   { name: '@orchestral/discovery', dir: 'orchestral-discovery' },
@@ -44,17 +45,34 @@ const PACKAGES = [
   { name: '@orchestral/adapters-ai-sdk', dir: 'orchestral-adapters-ai-sdk' },
 ]
 
-const distUrlFor = (dir) =>
-  new URL(`../packages/${dir}/dist/index.js`, import.meta.url)
+// The subpath entries core publishes alongside `.`. Same contract one level
+// down: publishConfig.exports maps each to its own dist bundle, so each needs
+// its own existence check, its own hook mapping, and its own import. They are
+// not optional extras — the runtime dist carries a bare `import … from
+// "@orchestral/core/routing"` (it throws NoModelForCapabilityError), so a
+// missing mapping breaks the dispatch flow below, not just these assertions.
+const SUBPATH_ENTRIES = [
+  { name: '@orchestral/core/memory', dir: 'orchestral-core', file: 'memory' },
+  { name: '@orchestral/core/routing', dir: 'orchestral-core', file: 'routing' },
+]
+
+const entryUrlFor = (dir, file) =>
+  new URL(`../packages/${dir}/dist/${file}.js`, import.meta.url)
+
+const distUrlFor = (dir) => entryUrlFor(dir, 'index')
 
 // Fail readably (before any import) if a dist is missing — the script assumes a
 // built tree. This is the guard that turns "forgot to build" into a clear
 // message instead of a raw ERR_MODULE_NOT_FOUND.
-const missing = PACKAGES.filter((p) => !existsSync(distUrlFor(p.dir)))
+const ALL_ENTRIES = [
+  ...PACKAGES.map((p) => ({ name: p.name, url: distUrlFor(p.dir) })),
+  ...SUBPATH_ENTRIES.map((s) => ({ name: s.name, url: entryUrlFor(s.dir, s.file) })),
+]
+const missing = ALL_ENTRIES.filter((e) => !existsSync(e.url))
 if (missing.length > 0) {
   console.error('smoke:dist — missing build artifacts:\n')
-  for (const p of missing) {
-    console.error(`  ✗ ${p.name}: ${fileURLToPath(distUrlFor(p.dir))} not found`)
+  for (const e of missing) {
+    console.error(`  ✗ ${e.name}: ${fileURLToPath(e.url)} not found`)
   }
   console.error(
     '\nBuild the packages first, then re-run:\n' +
@@ -71,9 +89,10 @@ if (missing.length > 0) {
 // the top-level ones imported below — to the same dist URLs keeps a single
 // module instance per package. The hook source is a self-contained data: URL module; the URL
 // map is baked in as JSON so the (separate-thread) hook needs no other plumbing.
-const specifierToDist = Object.fromEntries(
-  PACKAGES.map((p) => [p.name, distUrlFor(p.dir).href]),
-)
+const specifierToDist = Object.fromEntries([
+  ...PACKAGES.map((p) => [p.name, distUrlFor(p.dir).href]),
+  ...SUBPATH_ENTRIES.map((s) => [s.name, entryUrlFor(s.dir, s.file).href]),
+])
 const hookSource = `
 const MAP = ${JSON.stringify(specifierToDist)}
 export async function resolve(specifier, context, nextResolve) {
@@ -99,6 +118,8 @@ function check(pkg, label, ok) {
 // Import the published dist directly by file URL (top-level entries); the hook
 // covers each package's transitive `@orchestral/*` imports.
 const core = await import(distUrlFor('orchestral-core').href)
+const coreMemory = await import(entryUrlFor('orchestral-core', 'memory').href)
+const coreRouting = await import(entryUrlFor('orchestral-core', 'routing').href)
 const discovery = await import(distUrlFor('orchestral-discovery').href)
 const patterns = await import(distUrlFor('orchestral-patterns').href)
 const plan = await import(distUrlFor('orchestral-plan').href)
@@ -112,8 +133,14 @@ console.log('smoke:dist — exercising built dist/index.js of the published pack
 //    below can't run, so bail early with a precise message.
 console.log('exports:')
 check('@orchestral/core', 'PatternRegistry is a constructor', typeof core.PatternRegistry === 'function')
-check('@orchestral/core', 'InMemoryJobStore is a constructor', typeof core.InMemoryJobStore === 'function')
-check('@orchestral/core', 'createDefaultCapabilityRouter is a function', typeof core.createDefaultCapabilityRouter === 'function')
+// The subpath entries are the shape claim, so assert the shape: exactly the
+// three stores on /memory, the router plus its two errors on /routing. A symbol
+// leaking in from the barrel — or the barrel re-growing one of these — would
+// make the split cosmetic, and nothing else in the published artifact notices.
+check('@orchestral/core/memory', 'exports exactly the three in-memory stores', Object.keys(coreMemory).sort().join(',') === 'InMemoryAssetStore,InMemoryJobStore,InMemoryTranscriptStore')
+check('@orchestral/core/routing', 'exports the router and its two errors', Object.keys(coreRouting).sort().join(',') === 'ModelExcludedError,NoModelForCapabilityError,createDefaultCapabilityRouter')
+check('@orchestral/core/routing', 'createDefaultCapabilityRouter is a function', typeof coreRouting.createDefaultCapabilityRouter === 'function')
+check('@orchestral/core', 'the barrel no longer answers for either', core.InMemoryJobStore === undefined && core.createDefaultCapabilityRouter === undefined)
 check('@orchestral/patterns', 'createTextToImagePattern is a function', typeof patterns.createTextToImagePattern === 'function')
 check('@orchestral/patterns', 'TEXT_TO_IMAGE_PATTERN_ID === "text-to-image"', patterns.TEXT_TO_IMAGE_PATTERN_ID === 'text-to-image')
 check('@orchestral/patterns', 'TextToImageOutputSchema.parse is a function', typeof patterns.TextToImageOutputSchema?.parse === 'function')
@@ -191,9 +218,9 @@ try {
   const registry = new core.PatternRegistry()
   registry.add(patterns.createTextToImagePattern())
 
-  const router = core.createDefaultCapabilityRouter({ getModels: inlineImageModels() })
+  const router = coreRouting.createDefaultCapabilityRouter({ getModels: inlineImageModels() })
   const rt = new runtime.InlineRuntime({
-    store: new core.InMemoryJobStore(),
+    store: new coreMemory.InMemoryJobStore(),
     registry,
     router,
     onJobCreated: (id) =>
@@ -265,9 +292,9 @@ try {
     }),
   )
   const rt = new runtime.InlineRuntime({
-    store: new core.InMemoryJobStore(),
+    store: new coreMemory.InMemoryJobStore(),
     registry,
-    router: core.createDefaultCapabilityRouter({
+    router: coreRouting.createDefaultCapabilityRouter({
       getModels: (cap) => [envelope].filter((env) => env.capabilities.includes(cap)),
     }),
     onJobCreated: (id) =>
@@ -325,9 +352,9 @@ try {
     }),
   )
   const rt = new runtime.InlineRuntime({
-    store: new core.InMemoryJobStore(),
+    store: new coreMemory.InMemoryJobStore(),
     registry,
-    router: core.createDefaultCapabilityRouter({
+    router: coreRouting.createDefaultCapabilityRouter({
       getModels: (cap) => [envelope].filter((env) => env.capabilities.includes(cap)),
     }),
   })
