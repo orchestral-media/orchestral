@@ -489,6 +489,7 @@ export function boundedText(max: number): z.ZodString;
 // @public
 export function buildAlwaysLoadDescriptors(patterns: Iterable<Pattern>, opts?: {
     deriveProviderOptionsZod?: (id: string, baseSchema: z.ZodObject<z.ZodRawShape>) => z.ZodObject<z.ZodRawShape> | undefined;
+    surface?: 'chatTurn' | 'agentLoop';
 }): AgentToolDescriptor[];
 
 // @public
@@ -557,10 +558,7 @@ export interface CtxStepFn {
 export const DEFAULT_AGENT_FINISH_SPEC: AgentFinishSpec;
 
 // @public
-export const DEFAULT_SUBAGENT_BLOCKLIST: {
-    readonly idPrefixes: readonly string[];
-    readonly patternIds: readonly PatternId[];
-};
+export const DEFAULT_SUBAGENT_BLOCKLIST: SubagentBlocklist;
 
 // @public (undocumented)
 export function defaultAgentFinishCompose(finish: DefaultAgentFinishInput, facts: AgentRunFacts): DefaultAgentFinishOutput;
@@ -1058,6 +1056,9 @@ export type ManifestErrorCode =
 | 'MANIFEST_EXPORT_NOT_A_FACTORY'
 /** The factory ran but produced a different id / kind than declared. */
 | 'MANIFEST_PATTERN_MISMATCH';
+
+// @public
+export function matchSubagentBlocklist(id: PatternId, blocklist?: SubagentBlocklist): 'prefix' | 'id' | null;
 
 // @public
 export const metaEnvelopeShape: {
@@ -1851,6 +1852,14 @@ export type StopConditionDescriptor = {
 
 // @public (undocumented)
 export type StripReason = 'data-url' | 'binary-run' | 'control-chars';
+
+// @public
+export interface SubagentBlocklist {
+    // (undocumented)
+    readonly idPrefixes: readonly string[];
+    // (undocumented)
+    readonly patternIds: readonly PatternId[];
+}
 
 // @public
 export const SUPPORTED_MODEL_SPEC_VERSIONS: readonly ModelSpecVersion[];

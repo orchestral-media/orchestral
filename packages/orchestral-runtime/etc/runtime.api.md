@@ -46,6 +46,10 @@ export interface AgentAssetBridge {
         passedIn: readonly ResolvedAssetRef[];
         inheritFromContextId?: string;
     }): string | null;
+    handlesFor?(args: {
+        contextId: string;
+        assetIds: readonly string[];
+    }): readonly string[];
     recordedAssetIds(contextId: string): readonly string[];
     recordOutput(args: {
         contextId: string;

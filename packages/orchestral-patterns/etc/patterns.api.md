@@ -6,10 +6,12 @@
 
 import { Alternative } from '@orchestral/core';
 import { AtomicPattern } from '@orchestral/core';
+import type { AtomicPatternId } from '@orchestral/core';
 import { DerivedReferences } from '@orchestral/core';
 import { DispatchAudience } from '@orchestral/core';
 import { ExecutionContext } from '@orchestral/core';
 import { MetaPattern } from '@orchestral/core';
+import type { MetaPatternId } from '@orchestral/core';
 import { Pattern } from '@orchestral/core';
 import { PatternExposure } from '@orchestral/core';
 import { PatternFn } from '@orchestral/core';
@@ -239,6 +241,12 @@ export const ExplainerShortOutputSchema: z.ZodObject<{
 
 // @alpha
 export type ExplainerShortPromptOverrides = Partial<Record<keyof typeof EXPLAINER_SHORT_DEFAULT_PROMPTS, string>>;
+
+// @alpha
+export const FIRST_PARTY_PATTERN_IDS: Readonly<{
+    atomic: readonly AtomicPatternId[];
+    meta: readonly MetaPatternId[];
+}>;
 
 // @public
 export function firstAsset<A extends {
