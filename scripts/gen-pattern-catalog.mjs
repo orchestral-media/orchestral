@@ -43,6 +43,8 @@ const required = [
   ['@orchestral/core', distUrl('orchestral-core')],
   ['@orchestral/patterns', distUrl('orchestral-patterns')],
   ['@orchestral/patterns (types)', distUrl('orchestral-patterns', 'index.d.ts')],
+  ['@orchestral/plan', distUrl('orchestral-plan')],
+  ['@orchestral/plan (types)', distUrl('orchestral-plan', 'index.d.ts')],
 ]
 const missing = required.filter(([, url]) => !existsSync(url))
 if (missing.length > 0) {
@@ -58,11 +60,17 @@ if (missing.length > 0) {
   process.exit(1)
 }
 
-// patterns' dist externalizes `@orchestral/core` as a bare specifier, which in
-// this workspace resolves to core's src/index.ts (unrunnable TS). Same resolve
-// hook as scripts/smoke-dist.mjs: point it at core's dist instead.
+// patterns' dist externalizes `@orchestral/core` and `@orchestral/plan` as bare
+// specifiers, which in this workspace resolve to those packages' src/index.ts
+// (unrunnable TS). Same resolve hook as scripts/smoke-dist.mjs: point each at
+// its dist instead. `@orchestral/plan` is on the list because patterns imports
+// `createPlanMeta` from it to register `meta_plan`, which is a row in the table
+// below.
 const hookSource = `
-const MAP = ${JSON.stringify({ '@orchestral/core': distUrl('orchestral-core').href })}
+const MAP = ${JSON.stringify({
+  '@orchestral/core': distUrl('orchestral-core').href,
+  '@orchestral/plan': distUrl('orchestral-plan').href,
+})}
 export async function resolve(specifier, context, nextResolve) {
   if (Object.hasOwn(MAP, specifier)) return { url: MAP[specifier], shortCircuit: true }
   return nextResolve(specifier, context)
@@ -75,7 +83,13 @@ const patterns = await import(distUrl('orchestral-patterns').href)
 
 // ── host-op prerequisites, read off the emitted .d.ts ──────────────────────
 
-const dts = readFileSync(distUrl('orchestral-patterns', 'index.d.ts'), 'utf8')
+// Both rollups, concatenated: `meta_plan`'s factory is declared in
+// @orchestral/plan and re-exported by this package, so its parameter list —
+// which is where the host-op column comes from — is only in the plan rollup.
+const dts = [
+  readFileSync(distUrl('orchestral-patterns', 'index.d.ts'), 'utf8'),
+  readFileSync(distUrl('orchestral-plan', 'index.d.ts'), 'utf8'),
+].join('\n')
 
 /** `export declare type XMetaDeps = Pick<MetaCommonDeps, 'a' | 'b'> & {...}` */
 const depsTypeToOps = new Map()

@@ -14,9 +14,9 @@
 // bare `import ... from "@orchestral/core"`. In this workspace that specifier
 // resolves to core's src/index.ts (unrunnable TS) — the exact "dist links to
 // dist" path a consumer of the published packages relies on is untested. A
-// module resolve hook (below) redirects the three `@orchestral/*` specifiers to
-// their dist builds, simulating the post-publish resolution without touching
-// any package.json.
+// module resolve hook (below) redirects every `@orchestral/*` specifier to its
+// dist build, simulating the post-publish resolution without touching any
+// package.json.
 //
 // Run `pnpm smoke:dist` (builds first) or `node scripts/smoke-dist.mjs` against
 // an already-built tree (CI reuses the api-surface build).
@@ -31,6 +31,11 @@ const PACKAGES = [
   { name: '@orchestral/core', dir: 'orchestral-core' },
   { name: '@orchestral/discovery', dir: 'orchestral-discovery' },
   { name: '@orchestral/patterns', dir: 'orchestral-patterns' },
+  // Listed because patterns' dist carries a bare `import ... from
+  // "@orchestral/plan"` (it registers `meta_plan` from the plan package's
+  // factory). Left out of this table that specifier would resolve to the new
+  // package's src TS and crash the run.
+  { name: '@orchestral/plan', dir: 'orchestral-plan' },
   { name: '@orchestral/runtime', dir: 'orchestral-runtime' },
   { name: '@orchestral/agent', dir: 'orchestral-agent' },
   // The AI SDK adapters are a leaf on the same version line. Their dist
@@ -63,8 +68,8 @@ if (missing.length > 0) {
 // Redirect bare `@orchestral/*` specifiers to the built dist. Without this, the
 // transitive `@orchestral/core` import inside patterns'/runtime's dist resolves
 // to core's src/index.ts (TS) and crashes. Mapping every specifier — including
-// the top-level three — to the same dist URLs keeps a single module instance
-// per package. The hook source is a self-contained data: URL module; the URL
+// the top-level ones imported below — to the same dist URLs keeps a single
+// module instance per package. The hook source is a self-contained data: URL module; the URL
 // map is baked in as JSON so the (separate-thread) hook needs no other plumbing.
 const specifierToDist = Object.fromEntries(
   PACKAGES.map((p) => [p.name, distUrlFor(p.dir).href]),
@@ -96,6 +101,7 @@ function check(pkg, label, ok) {
 const core = await import(distUrlFor('orchestral-core').href)
 const discovery = await import(distUrlFor('orchestral-discovery').href)
 const patterns = await import(distUrlFor('orchestral-patterns').href)
+const plan = await import(distUrlFor('orchestral-plan').href)
 const runtime = await import(distUrlFor('orchestral-runtime').href)
 const agent = await import(distUrlFor('orchestral-agent').href)
 const adapters = await import(distUrlFor('orchestral-adapters-ai-sdk').href)
@@ -111,6 +117,14 @@ check('@orchestral/core', 'createDefaultCapabilityRouter is a function', typeof 
 check('@orchestral/patterns', 'createTextToImagePattern is a function', typeof patterns.createTextToImagePattern === 'function')
 check('@orchestral/patterns', 'TEXT_TO_IMAGE_PATTERN_ID === "text-to-image"', patterns.TEXT_TO_IMAGE_PATTERN_ID === 'text-to-image')
 check('@orchestral/patterns', 'TextToImageOutputSchema.parse is a function', typeof patterns.TextToImageOutputSchema?.parse === 'function')
+check('@orchestral/plan', 'planToMeta is a function', typeof plan.planToMeta === 'function')
+check('@orchestral/plan', 'validatePlan is a function', typeof plan.validatePlan === 'function')
+check('@orchestral/plan', 'preflightPlan is a function', typeof plan.preflightPlan === 'function')
+// The catalog registers meta_plan from @orchestral/patterns, whose manifest
+// names `createPlanMeta` — a factory that is now the plan package's. So the
+// patterns dist must reach the plan dist through the bare specifier above, and
+// this is the assertion that the cross-package import actually links.
+check('@orchestral/patterns', 'createPlanMeta is @orchestral/plan\'s', patterns.createPlanMeta === plan.createPlanMeta)
 check('@orchestral/runtime', 'InlineRuntime is a constructor', typeof runtime.InlineRuntime === 'function')
 check('@orchestral/discovery', 'PatternSearchIndex is a constructor', typeof discovery.PatternSearchIndex === 'function')
 check('@orchestral/discovery', 'handleFindPattern is a function', typeof discovery.handleFindPattern === 'function')

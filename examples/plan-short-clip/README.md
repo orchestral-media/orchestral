@@ -3,7 +3,7 @@
 The same three-step pipeline [`examples/incremental-rerun`](../incremental-rerun)
 hand-writes as a `compose()`, here written as **data**:
 [`src/short-clip.plan.json`](./src/short-clip.plan.json) is the whole pipeline,
-and [`planToMeta`](../../packages/orchestral-patterns/src/meta/plan/index.ts)
+and [`planToMeta`](../../packages/orchestral-plan/src/interpreter.ts)
 walks it with the registry in hand and returns an ordinary `MetaPattern`.
 Nothing about the runtime knows it is a plan — `origin: 'plan'` records where it
 came from, and nothing gates on it.

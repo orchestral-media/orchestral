@@ -10,7 +10,7 @@ import type { Pattern } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
 import type { RegistryEntry } from '@orchestral/core';
 import type { ResolveContext } from '@orchestral/core';
-import { z } from 'zod';
+import type { z } from 'zod';
 
 // @public
 export const DEFAULT_SEARCH_K = 5;

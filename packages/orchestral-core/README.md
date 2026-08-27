@@ -163,8 +163,8 @@ const contactSheet: MetaPattern<Input, Output> = {
     )
     return {
       assetIds: outs.map((o) => o.assets[0].assetId),
-      // `sumCosts` (from @orchestral/patterns) is null if any step left cost
-      // unreported — a partial sum would read as a confident total.
+      // `sumCosts` is null if any step left cost unreported — a partial sum
+      // would read as a confident total.
       cost: sumCosts(outs.map((o) => o.cost)),
       latencyMs: Date.now() - startedAt,
     }

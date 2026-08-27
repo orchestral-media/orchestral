@@ -19,6 +19,12 @@ It ships two tiers, all building on `@orchestral/core`:
   (product ad, UGC testimonial, explainer short, product photo pack), the
   caption → re-render image-edit fallback, and `meta_plan` — the one-shot plan
   interpreter that runs an LLM-authored step list (a JSON DAG) as one job.
+  The interpreter itself is
+  [`@orchestral/plan`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-plan);
+  this package depends on it to register `meta_plan`, and re-exports the
+  `createPlanMeta` factory its own manifest names. To build or preflight a plan
+  of your own — `planToMeta`, `validatePlan`, `preflightPlan` — import
+  `@orchestral/plan` directly.
 
 That is the whole catalog — nine metas, on purpose. The long-form
 novel → video pipeline (script planning, prose chunking, novel-to-events,

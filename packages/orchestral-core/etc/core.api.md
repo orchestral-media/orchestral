@@ -161,6 +161,17 @@ export type AlternativeAppliesWhen =
     kind: 'always';
 };
 
+// @public
+export interface AlternativeSelectionDeps {
+    // (undocumented)
+    registry: PatternRegistry;
+    // (undocumented)
+    router: CapabilityRouter;
+}
+
+// @public
+export function applicableAlternatives<I, O>(deps: AlternativeSelectionDeps, atomic: AtomicPattern<I, O>, ctx: ResolveContext, requiredTags: readonly ModelTag[], requestedSemantics: readonly Semantics[]): readonly Alternative<unknown, unknown>[];
+
 // @public (undocumented)
 export interface Artifact {
     // (undocumented)
@@ -303,9 +314,6 @@ export interface AskUserRequest<TPayload = unknown> {
     payload: TPayload;
     sessionId?: string;
 }
-
-// @public
-export function assertPlanValid(dag: PlanDag, lookup: PlanPatternLookup, opts?: PlanValidateOptions): void;
 
 // @public
 export function assertSupportedModelSpecVersion(model: {
@@ -482,6 +490,16 @@ export interface AtomicPatternInit<I = unknown, O = unknown> {
 
 // @public
 export function auditOutputsSchema(schema: ZodType): OutputsSchemaAudit;
+
+// @public
+export interface AvailableAlternative {
+    description: string;
+    id: string;
+    // (undocumented)
+    losses?: readonly Semantics[];
+    preserves?: readonly Semantics[];
+    targetPatternId: PatternId;
+}
 
 // @public
 export function boundedText(max: number): z.ZodString;
@@ -1404,151 +1422,8 @@ export type PermissionResult = {
     remedy?: 'reauthorize' | 'reduce-scope' | 'manual';
 };
 
-// @public (undocumented)
-export const PLAN_ASSET_REF_RE: RegExp;
-
-// @public (undocumented)
-export const PLAN_STEP_ID_RE: RegExp;
-
-// @public (undocumented)
-export const PLAN_VALUE_REF_RE: RegExp;
-
-// @public (undocumented)
-export type PlanDag = z.infer<typeof PlanDagSchema>;
-
-// @public (undocumented)
-export const PlanDagSchema: z.ZodObject<{
-    description: z.ZodOptional<z.ZodString>;
-    steps: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
-        pattern: z.ZodString;
-        input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
-        retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
-            kind: z.ZodLiteral<"none">;
-        }, z.core.$strict>, z.ZodObject<{
-            kind: z.ZodLiteral<"exponential">;
-            maxAttempts: z.ZodNumber;
-            baseMs: z.ZodNumber;
-            maxMs: z.ZodOptional<z.ZodNumber>;
-        }, z.core.$strict>, z.ZodObject<{
-            kind: z.ZodLiteral<"fixed">;
-            maxAttempts: z.ZodNumber;
-            delayMs: z.ZodNumber;
-        }, z.core.$strict>], "kind">>;
-    }, z.core.$strict>>;
-    output: z.ZodObject<{
-        assets: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            from: z.ZodString;
-            label: z.ZodString;
-        }, z.core.$strict>>>;
-        values: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
-    }, z.core.$strict>;
-}, z.core.$strict>;
-
 // @public
-export class PlanInvalidError extends Error {
-    constructor(problems: readonly PlanProblem[]);
-    // (undocumented)
-    readonly code = "PLAN_INVALID";
-    // (undocumented)
-    readonly details: {
-        problems: readonly PlanProblem[];
-    };
-}
-
-// @public (undocumented)
-export type PlanOutput = z.infer<typeof PlanOutputSchema>;
-
-// @public
-export const PlanOutputSchema: z.ZodObject<{
-    assets: z.ZodArray<z.ZodObject<{
-        assetId: z.ZodString;
-        modality: z.ZodEnum<{
-            image: "image";
-            audio: "audio";
-            video: "video";
-        }>;
-        url: z.ZodOptional<z.ZodString>;
-        label: z.ZodString;
-    }, z.core.$strict>>;
-    values: z.ZodRecord<z.ZodString, z.ZodString>;
-    steps: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
-        pattern: z.ZodString;
-        cost: z.ZodNullable<z.ZodNumber>;
-    }, z.core.$strict>>;
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-}, z.core.$strict>;
-
-// @public
-export type PlanPatternLookup = Pick<PatternRegistry, 'get' | 'getEntry'>;
-
-// @public
-export interface PlanProblem {
-    // (undocumented)
-    code: PlanProblemCode;
-    details?: Record<string, unknown>;
-    // (undocumented)
-    message: string;
-    path: (string | number)[];
-    stepId?: string;
-}
-
-// @public
-export type PlanProblemCode = 'PLAN_SCHEMA' | 'PLAN_STEP_ID_DUPLICATE' | 'PLAN_STEP_ID_RESERVED' | 'PLAN_REF_SYNTAX' | 'PLAN_REF_UNKNOWN_STEP' | 'PLAN_REF_FORWARD' | 'PLAN_REF_PATH_UNKNOWN' | 'PLAN_REF_INTO_ASSETS' | 'PLAN_REF_INPUT_NOT_ALLOWED' | 'PLAN_PARAM_UNKNOWN' | 'PLAN_REF_IN_LITERAL' | 'PLAN_PATTERN_NOT_FOUND' | 'PLAN_PATTERN_KIND_AGENT' | 'PLAN_PATTERN_SELF' | 'PLAN_PATTERN_ONE_SHOT' | 'PLAN_PATTERN_NOT_EXPOSED' | 'PLAN_PATTERN_NOT_ALLOWED' | 'PLAN_ASSET_PRODUCER_NONE' | 'PLAN_ASSET_LABEL_UNSUPPORTED' | 'PLAN_SLOT_UNKNOWN' | 'PLAN_SLOT_MODALITY' | 'PLAN_SLOT_CARDINALITY' | 'PLAN_SLOT_DUAL_SOURCE' | 'PLAN_SLOT_REQUIRED_UNBOUND' | 'PLAN_STEP_INPUT_INVALID' | 'PLAN_STEP_UNUSED' | 'PLAN_OUTPUT_LABEL_DUPLICATE' | 'PLAN_INPUT_NOT_SERIALISABLE';
-
-// @public
-export function planRefine(lookup: PlanPatternLookup, opts?: PlanValidateOptions): (dag: PlanDag, ctx: z.core.$RefinementCtx<PlanDag>) => void;
-
-// @public (undocumented)
-export type PlanRetry = z.infer<typeof PlanRetrySchema>;
-
-// @public (undocumented)
-export const PlanRetrySchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
-    kind: z.ZodLiteral<"none">;
-}, z.core.$strict>, z.ZodObject<{
-    kind: z.ZodLiteral<"exponential">;
-    maxAttempts: z.ZodNumber;
-    baseMs: z.ZodNumber;
-    maxMs: z.ZodOptional<z.ZodNumber>;
-}, z.core.$strict>, z.ZodObject<{
-    kind: z.ZodLiteral<"fixed">;
-    maxAttempts: z.ZodNumber;
-    delayMs: z.ZodNumber;
-}, z.core.$strict>], "kind">;
-
-// @public (undocumented)
-export type PlanStep = z.infer<typeof PlanStepSchema>;
-
-// @public (undocumented)
-export const PlanStepSchema: z.ZodObject<{
-    id: z.ZodString;
-    pattern: z.ZodString;
-    input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
-    retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
-        kind: z.ZodLiteral<"none">;
-    }, z.core.$strict>, z.ZodObject<{
-        kind: z.ZodLiteral<"exponential">;
-        maxAttempts: z.ZodNumber;
-        baseMs: z.ZodNumber;
-        maxMs: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strict>, z.ZodObject<{
-        kind: z.ZodLiteral<"fixed">;
-        maxAttempts: z.ZodNumber;
-        delayMs: z.ZodNumber;
-    }, z.core.$strict>], "kind">>;
-}, z.core.$strict>;
-
-// @public
-export interface PlanValidateOptions {
-    allow?: readonly PatternId[];
-    audience?: DispatchAudience;
-    inputs?: z.ZodObject;
-    selfId?: PatternId;
-}
+export function pickAlternative<I, O>(deps: AlternativeSelectionDeps, atomic: AtomicPattern<I, O>, ctx: ResolveContext, requiredTags: readonly ModelTag[], requestedSemantics: readonly Semantics[]): Alternative<I, O> | null;
 
 // @public
 export interface PrimaryPath<I = unknown> {
@@ -1580,6 +1455,9 @@ export interface QuerySpec {
     // (undocumented)
     mode: 'latestOfModality' | 'latestBatchOfModality';
 }
+
+// @public
+export function readRequiresSemantics(input: unknown): readonly Semantics[];
 
 // @alpha
 export interface RecordAssetInput {
@@ -1628,6 +1506,9 @@ export interface ResolveContext {
     // (undocumented)
     tier?: 'fast' | 'balanced' | 'premium';
 }
+
+// @public
+export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext;
 
 // @public
 export interface ResolvedAssetRef {
@@ -1862,6 +1743,9 @@ export interface SubagentBlocklist {
 }
 
 // @public
+export function sumCosts(costs: readonly (number | null | undefined)[]): number | null;
+
+// @public
 export const SUPPORTED_MODEL_SPEC_VERSIONS: readonly ModelSpecVersion[];
 
 // @public
@@ -1869,6 +1753,9 @@ export type SystemPromptContext<P = unknown> = Omit<DispatchContext<P>, 'assets'
 
 // @public (undocumented)
 export function toAssetUri(handle: string): string;
+
+// @public
+export function toAvailableAlternative(alt: Alternative<unknown, unknown>): AvailableAlternative;
 
 // @public
 export function toJsonSchema<T>(zodSchema: ZodType<T>): JsonSchema;
@@ -1926,9 +1813,6 @@ export type Unsubscribe = () => void;
 
 // @public
 export function urlField(max?: number): z.ZodString;
-
-// @public
-export function validatePlan(dag: PlanDag, lookup: PlanPatternLookup, opts?: PlanValidateOptions): PlanProblem[];
 
 // @public
 export const whenAlways: AlternativeAppliesWhen;

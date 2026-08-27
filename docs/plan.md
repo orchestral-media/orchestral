@@ -36,8 +36,10 @@ and `parallel`, which is why it needs none.
 
 ### Schema
 
-Lives in `packages/orchestral-core/src/plan.ts`, beside the other wire schema
-the model fills (`DispatchPatternInputSchema`, `dispatch-pattern.ts:25-38`).
+Lives in `packages/orchestral-plan/src/plan.ts`, beside the walk that refuses a
+bad DAG and the interpreter that runs a good one. (It shipped in
+`@orchestral/core` first, next to `DispatchPatternInputSchema`; it moved when the
+`$ref` walk it defines turned out to have three copies.)
 Every shape is chosen to survive `z.toJSONSchema(…, { target: 'draft-2020-12' })`
 (`packages/orchestral-core/src/schema.ts:26-42`), which is how `find_pattern`
 renders it (`packages/orchestral-discovery/src/find-pattern.ts:599-600`):
@@ -503,7 +505,7 @@ Closing that requires the inner meta to opt in, which is its author's call.
 ## Three forms
 
 One primitive, `planToMeta(dag, opts: PlanToMetaOptions): PlanMetaPattern`,
-in `packages/orchestral-patterns/src/meta/plan/`:
+in `packages/orchestral-plan/src/interpreter.ts`:
 
 ```ts
 export interface PlanToMetaOptions {
@@ -515,18 +517,18 @@ export interface PlanToMetaOptions {
 }
 ```
 
-It lives in `@orchestral/patterns`, not core, because labels are a patterns
-convention (`meta-utils.ts:79-95`), `sumCosts` is documented as living there
-(`output-envelope.ts:52-55`), and core is the contract (DESIGN.md:490-504):
-only the wire schema, the regexes, `PlanProblem` and `validatePlan` stay in
-core, as `FindPatternInputSchema` does for discovery. The incremental-rerun
-example already depends on patterns, so a persisted plan package doing the
-same is not a new burden.
+It lives in `@orchestral/plan`, with the schema, the walk and the preflight.
+Core keeps the vocabulary those four consume — `producedAssetShape`'s `label`,
+`metaEnvelopeShape.cost` and the `sumCosts` rule that reads it, `PatternRegistry`
+— and nothing plan-shaped. `@orchestral/patterns` depends on the package to
+register `meta_plan`, and re-exports `createPlanMeta` because its own manifest
+names that factory; a host that builds a plan of its own imports
+`@orchestral/plan` directly.
 
 **One-shot — `meta_plan`.** A shipped pattern whose input *is* the DAG:
 
 ```ts
-// packages/orchestral-patterns/src/meta/plan/index.ts
+// packages/orchestral-plan/src/interpreter.ts
 export const PLAN_PATTERN_ID = 'meta_plan' as const
 export function createPlanMeta(ops: { getPattern: (id: PatternId) => Pattern | undefined },
                                init: { audience?: DispatchAudience } = {}): MetaPattern<PlanDag, PlanOutput> {
@@ -619,12 +621,12 @@ segment, `registry.ts:106-112`).
 ```jsonc
 // package.json
 { "name": "orchestral-pattern-short-clip", "keywords": ["orchestral-pattern"],
-  "peerDependencies": { "@orchestral/core": ">=0.1 <0.2", "@orchestral/patterns": ">=0.1 <0.2" },
+  "peerDependencies": { "@orchestral/core": ">=0.2 <0.3", "@orchestral/plan": ">=0.2 <0.3" },
   "orchestral": { "patterns": [
     { "id": "meta_short-clip", "kind": "meta", "export": "createShortClip", "requiredOps": ["getPattern"] } ] } }
 ```
 ```ts
-import { planToMeta } from '@orchestral/patterns'
+import { planToMeta } from '@orchestral/plan'
 import plan from './short-clip.plan.json' with { type: 'json' }
 export function createShortClip(ops: { getPattern: (id: PatternId) => Pattern | undefined }) {
   return planToMeta(plan, {
@@ -666,11 +668,12 @@ model raw ids. `steps[]` therefore carries no `assetId`, `url` or
 
 ## Preflight
 
-A pure host function in `@orchestral/runtime` — it must be, because the
-`ResolveContext` the runtime routes with comes from
-`InlineRuntimeInit.resolveCtxProvider: (spec: JobSpec) => ResolveContext`
-(`inline.ts:277, 284`) and `applicableAlternatives` is runtime-internal
-(`alternatives.ts:60-78, 240-248`); core cannot import either.
+A pure host function in `@orchestral/plan`. The two things it cannot invent —
+the `ResolveContext` the runtime routes with, and which declared alternative
+applies — arrive as parameters: the host hands it the same `ResolveCtxProvider`
+it gave `InlineRuntimeInit`, and `applicableAlternatives` is core's
+(`alternative-select.ts`), shared with the runtime's ALTERNATIVES_NOT_ENABLED
+diagnostic so the two cannot disagree.
 
 ```ts
 export function preflightPlan(dag: PlanDag, deps: {
@@ -833,7 +836,7 @@ has, and it needs the sandbox DESIGN.md:35-50 refuses.
 **Instead.** A transform is a `text-generation` step; a decision is a shipped
 meta called as one step (`$hero.assets[label=winner]`); a dynamic width is
 authored as a fixed one.
-**Where.** `packages/orchestral-core/src/plan.ts` (the three regexes);
+**Where.** `packages/orchestral-plan/src/plan.ts` (the three regexes);
 `validatePlan` rules 4 and 9.
 
 <!-- DESIGN: plan-doc-no-evaluation -->
@@ -932,6 +935,11 @@ without replay.
 ## Implementation order
 
 Dependency order; each step leaves the tree green.
+
+The paths below are the ones the feature first landed on, kept as written: the
+plan feature has since moved whole into `@orchestral/plan` (schema, walk,
+interpreter and preflight), so read steps 3–5 as a record of the original build
+rather than as a map of the tree.
 
 1. `packages/orchestral-core/src/execution-context.ts` — `StepOptions.identity` (+8).
    `packages/orchestral-core/src/job.ts` — `JobSpec.stepKey`, IDENTITY-group doc at :80-96, fix the `META_STEP_FAILED` sentence at :250 (+12).

@@ -11,11 +11,11 @@ import { AssetEvent } from '@orchestral/core';
 import { AssetNeed } from '@orchestral/core';
 import { AssetReferences } from '@orchestral/core';
 import { AssetResolutionError } from '@orchestral/core';
+import { AvailableAlternative } from '@orchestral/core';
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core';
 import type { Capability } from '@orchestral/core';
 import type { CapabilityRouter } from '@orchestral/core';
 import type { DiagnosticsLogger } from '@orchestral/core';
-import type { DispatchAudience } from '@orchestral/core';
 import type { DispatchContext } from '@orchestral/core';
 import type { DispatchMiddleware } from '@orchestral/core';
 import type { Job } from '@orchestral/core';
@@ -25,18 +25,13 @@ import type { JobStore } from '@orchestral/core';
 import type { ModelTag } from '@orchestral/core';
 import type { PatternId } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
-import type { PlanDag } from '@orchestral/core';
-import type { PlanProblem } from '@orchestral/core';
 import type { ResolveContext } from '@orchestral/core';
+import type { ResolveCtxProvider } from '@orchestral/core';
 import { ResolvedAssetRef } from '@orchestral/core';
 import type { RetryPolicy } from '@orchestral/core';
-import type { RoutingExplanation } from '@orchestral/core';
 import type { Runtime } from '@orchestral/core';
-import type { Semantics } from '@orchestral/core';
 import type { TranscriptStore } from '@orchestral/core';
-import type { UnavailabilityReason } from '@orchestral/core';
 import type { Unsubscribe } from '@orchestral/core';
-import type { z } from 'zod';
 
 // @alpha
 export interface AgentAssetBridge {
@@ -127,15 +122,7 @@ export interface AgentRunImpl {
 // @public
 export type AgentToolDescriptor = AgentToolDescriptor_2;
 
-// @public
-export interface AvailableAlternative {
-    description: string;
-    id: string;
-    // (undocumented)
-    losses?: readonly Semantics[];
-    preserves?: readonly Semantics[];
-    targetPatternId: PatternId;
-}
+export { AvailableAlternative }
 
 // @public
 export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string;
@@ -155,9 +142,6 @@ export interface DeriveIdempotencyKeyInput {
 
 // @alpha (undocumented)
 export function forkExecutionContext<P = unknown>(parent: DispatchContext<P>, overrides: Partial<DispatchContext<P>>): DispatchContext<P>;
-
-// @public
-export function formatPlanPreflight(report: PlanPreflightReport): string;
 
 // @public (undocumented)
 export class IdempotencyNotSerialisableError extends Error {
@@ -214,72 +198,6 @@ export interface InlineRuntimeInit {
     transientRetry?: TransientRetryConfig;
 }
 
-// @public
-export interface PlanPreflightDeps {
-    // (undocumented)
-    allow?: readonly PatternId[];
-    alternatives?: 'off' | 'auto';
-    audience?: DispatchAudience;
-    // (undocumented)
-    inputs?: z.ZodObject;
-    // (undocumented)
-    registry: PatternRegistry;
-    resolveCtx?: ResolveCtxProvider;
-    // (undocumented)
-    router: CapabilityRouter;
-    // (undocumented)
-    selfId?: PatternId;
-    sessionId?: string;
-}
-
-// @public
-export interface PlanPreflightReport {
-    levels: readonly string[][];
-    ok: boolean;
-    problems: readonly PlanProblem[];
-    // (undocumented)
-    steps: readonly PlanPreflightStep[];
-    unsatisfiable: readonly string[];
-}
-
-// @public
-export interface PlanPreflightStep {
-    // (undocumented)
-    id: string;
-    // (undocumented)
-    kind: 'atomic' | 'meta';
-    level: number;
-    // (undocumented)
-    pattern: PatternId;
-    // (undocumented)
-    routing: PlanStepRouting;
-}
-
-// @public
-export type PlanStepRouting = {
-    kind: 'selected';
-    model: string;
-    by: string;
-    explanation?: RoutingExplanation;
-} | {
-    kind: 'unsatisfiable';
-    reason: UnavailabilityReason;
-    explanation?: RoutingExplanation;
-    alternative?: PreflightAlternative;
-} | {
-    kind: 'opaque';
-    plannedDispatches?: readonly PatternId[];
-    nested?: PlanPreflightReport;
-};
-
-// @public
-export type PreflightAlternative = AvailableAlternative & {
-    wouldFire: boolean;
-};
-
-// @public
-export function preflightPlan(dag: PlanDag, deps: PlanPreflightDeps): PlanPreflightReport;
-
 // @alpha (undocumented)
 export function resolveAssets(input: {
     references?: AssetReferences;
@@ -291,8 +209,7 @@ export function resolveAssets(input: {
     error: AssetResolutionError;
 };
 
-// @public
-export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext;
+export { ResolveCtxProvider }
 
 // @public
 export interface TransientFailureInfo {
