@@ -18,7 +18,7 @@
 //   • satisfiability filter applied here so the LLM doesn't see
 //     Patterns whose modelTags no provider can satisfy
 
-import { z } from 'zod'
+import type { z } from 'zod'
 
 import type {
   Capability,

@@ -3,7 +3,7 @@
 // or as inline blocks (parseJsonWithSchema) across the meta/*/index.ts files.
 // One copy here keeps them from drifting apart.
 
-import { z } from 'zod'
+import type { z } from 'zod'
 import { boundedText, producedAssetShape, toJsonSchema, type ProducedAssetModality } from '@orchestral/core'
 
 // Schemas passed here are module-level constants, so this cache is effectively

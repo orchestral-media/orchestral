@@ -10,7 +10,7 @@
 // `execute` closure (find_pattern / dispatch_pattern run the library's handler;
 // host tools are executed by the host itself).
 
-import { z } from 'zod'
+import type { z } from 'zod'
 
 import { DispatchPatternInputSchema } from './dispatch-pattern'
 import { FindPatternInputSchema } from './find-pattern-schema'
