@@ -839,7 +839,29 @@ export class InlineRuntime implements Runtime {
 
     // Short-circuit path: skip dispatch entirely, mark done with the
     // supplied output. Used by cache-hit middleware.
+    //
+    // The supplied value still meets the Pattern's `outputs` schema. It is
+    // standing in for what an adapter would have returned — it lands in
+    // `job.output` and, for a child job, in the next step's input — so it makes
+    // that adapter's claim and answers to that adapter's gate. Anything else
+    // leaves one exit where "every string field is bounded, so an unbounded
+    // blob is unrepresentable" is a declaration rather than a fact. A cache
+    // entry the schema now rejects is a stale entry, and failing loudly is
+    // what a host wants over serving it.
+    //
+    // `runOnErrorChain` runs before `markErrored`, as on the dispatch path, and
+    // it deliberately starts at 0: the middleware that supplied the value is
+    // the one that has to hear its entry was refused, or it serves the same
+    // bytes on the next call.
     if (shortCircuit) {
+      try {
+        this.assertOutputConforms(pattern, shortCircuit.output)
+      } catch (err) {
+        const e = normaliseError(err)
+        await this.runOnErrorChain(id, e)
+        await this.markErrored(id, e)
+        throw err instanceof Error ? err : new Error(`${e.code}: ${e.message}`)
+      }
       await this.store.update(id, {
         status: 'done',
         output: shortCircuit.output,
@@ -1377,9 +1399,12 @@ export class InlineRuntime implements Runtime {
    * would vanish between the adapter and `job.output`. The question asked
    * here is "does this conform", never "what would it look like if it did".
    *
-   * The agent kind is not checked here: its output is composed from a finish
-   * payload the finish tool already validated (or an `outputExtractor` result
-   * already parsed), so a second pass would only re-run the same schema.
+   * The agent kind is not checked on the dispatch path: its output is composed
+   * from a finish payload the finish tool already validated (or an
+   * `outputExtractor` result already parsed), so a second pass would only
+   * re-run the same schema. A middleware short-circuit is the exception —
+   * no finish tool ran there, so a supplied output answers to this gate
+   * whatever the Pattern's kind.
    */
   private assertOutputConforms(pattern: Pattern, output: unknown): void {
     if (this.outputValidation === 'off') return

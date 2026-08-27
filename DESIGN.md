@@ -434,7 +434,10 @@ and `InlineRuntime` holds every atomic and meta *output* to that schema at the
 dispatch exit (does this output conform?) — one the schema rejects fails the job
 with `OUTPUT_SCHEMA_MISMATCH`, carrying the zod issues and the raw output, so a
 70 KiB completion stops at the adapter that produced it instead of reaching the
-next step or `job.output`. The gate sits outside the retry and fallback loops
+next step or `job.output`. A middleware `short-circuit` passes the same gate —
+the value it supplies stands in for an adapter's return, so a cache entry the
+schema no longer accepts fails the job rather than being served as this
+Pattern's output. The gate sits outside the retry and fallback loops
 (a mismatch is a contract violation, not a provider failure) and returns the
 adapter's object rather than zod's reshaped copy. The agent path validates
 through its finish tool. `InlineRuntimeInit.outputValidation: 'off'` is the

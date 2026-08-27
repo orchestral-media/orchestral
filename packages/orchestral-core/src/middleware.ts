@@ -28,7 +28,11 @@ export interface DispatchMiddleware {
    * resolves any model. Can:
    *   - return { kind: 'continue' } with an optionally modified spec
    *   - return { kind: 'short-circuit', output } to skip dispatch entirely
-   *     (e.g. cache hit). The Job is marked done with the supplied output.
+   *     (e.g. cache hit). The Job is marked done with the supplied output —
+   *     after that output meets the Pattern's `outputs` schema, the same gate
+   *     an adapter's return passes. A cache entry the schema rejects fails the
+   *     job with OUTPUT_SCHEMA_MISMATCH instead of standing in for a dispatch.
+   *     `afterDispatch` does not run on this path: there was no dispatch.
    *   - return { kind: 'reject', code, message } to reject the request
    *     before any provider is touched (e.g. content moderation).
    *
