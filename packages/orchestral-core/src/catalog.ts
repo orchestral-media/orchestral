@@ -32,6 +32,16 @@ export type NamespaceId =
   | (string & {}) // host extension escape hatch
 
 /**
+ * The shape of a sub-agent blocklist. Named so the guards that judge against
+ * one can spell their parameter, and so a host widening the default has a type
+ * to widen it into.
+ */
+export interface SubagentBlocklist {
+  readonly idPrefixes: readonly string[]
+  readonly patternIds: readonly PatternId[]
+}
+
+/**
  * Default blocklist that prevents sub-agent recursion.
  *
  * Every `dispatchAgent` entry point adds these Pattern ids / prefixes to the
@@ -57,16 +67,6 @@ export type NamespaceId =
  * Same idea as denylisting the agent-dispatch tool itself to stop a sub-agent
  * from spawning further agents.
  */
-/**
- * The shape of a sub-agent blocklist. Named so the guards that judge against
- * one can spell their parameter, and so a host widening the default has a type
- * to widen it into.
- */
-export interface SubagentBlocklist {
-  readonly idPrefixes: readonly string[]
-  readonly patternIds: readonly PatternId[]
-}
-
 export const DEFAULT_SUBAGENT_BLOCKLIST: SubagentBlocklist = {
   idPrefixes: ['agent_'],
   patternIds: [],
