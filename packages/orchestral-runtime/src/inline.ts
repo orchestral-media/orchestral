@@ -57,18 +57,21 @@ import type {
   PatternId,
   PatternRegistry,
   ResolveContext,
+  ResolveCtxProvider,
   ResolvedAssetRef,
   RetryPolicy,
   Runtime,
-  Semantics,
   TranscriptStore,
   Unsubscribe,
   DispatchResult,
 } from '@orchestral/core'
 import {
+  applicableAlternatives,
   assertSupportedModelSpecVersion,
   consoleDiagnosticsLogger,
   NoModelForCapabilityError,
+  pickAlternative,
+  readRequiresSemantics,
 } from '@orchestral/core'
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core'
 
@@ -92,12 +95,7 @@ import {
   countAgentAncestors,
   dispatchAgent,
 } from './agent-dispatch'
-import {
-  AlternativesNotEnabledError,
-  applicableAlternatives,
-  pickAlternative,
-  runAlternative,
-} from './alternatives'
+import { AlternativesNotEnabledError, runAlternative } from './alternatives'
 
 /**
  * Cap on retained agent envelopes. `getAgentEnvelope` is a read-after-settle
@@ -126,29 +124,6 @@ function stepAssets(
       typeof (a as { modality?: unknown }).modality === 'string',
   )
   return usable.length > 0 ? usable : undefined
-}
-
-/**
- * The semantic dimensions the caller asked this dispatch to preserve, read off
- * the input's `requiresSemantics` field. This is the caller's half of
- * `appliesWhen: { kind: 'preserves-required' }`: core/alternative.ts sets the
- * convention that a Pattern wanting that member exposes
- * `requiresSemantics?: Semantics[]` on its inputs, and the runtime compares
- * whatever the caller filled against the alternative's `semantics`.
- *
- * Read off the input rather than demanded of every schema because the field
- * is opt-in per Pattern — one appliesWhen kind must not force a field onto the
- * input schema of every Pattern that will never declare such a row. That also
- * makes this the one place the value is untyped: the input has passed the
- * Pattern's zod schema, but `requiresSemantics` is convention, not schema, so
- * a missing or malformed value means "nothing required" and never a throw.
- * Anything that is not an array is ignored; non-string entries are dropped.
- */
-function readRequiresSemantics(input: unknown): readonly Semantics[] {
-  if (typeof input !== 'object' || input === null) return []
-  const raw = (input as { requiresSemantics?: unknown }).requiresSemantics
-  if (!Array.isArray(raw)) return []
-  return raw.filter((s): s is Semantics => typeof s === 'string')
 }
 
 /**
@@ -274,13 +249,11 @@ function classifyTransient(
   }
 }
 
-/**
- * Host-supplied builder for the ResolveContext given a JobSpec. Called once
- * per dispatch so the host can read the live session row / project defaults
- * at resolution time. Keeps host-specific override layers (node / session /
- * global) outside this package's interface.
- */
-export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext
+// `ResolveCtxProvider` is @orchestral/core's (runtime.ts): the same provider
+// `InlineRuntimeInit` takes below is what @orchestral/plan's `preflightPlan`
+// takes, so the report names the model the run would pick. Re-exported here so
+// this package's barrel still carries it.
+export type { ResolveCtxProvider }
 
 
 export interface InlineRuntimeInit {

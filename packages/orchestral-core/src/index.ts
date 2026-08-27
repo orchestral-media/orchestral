@@ -176,6 +176,7 @@ export type { OutputsSchemaAudit } from './output-fields'
 export {
   dispatchEnvelopeShape,
   metaEnvelopeShape,
+  sumCosts,
   producedAssetShape,
   type ProducedAssetModality,
 } from './output-envelope'
@@ -260,6 +261,19 @@ export {
   whenPreservesRequired,
   whenAlways,
 } from './alternative-builders'
+// Whether a declared path APPLIES is contract (a read of `appliesWhen` against
+// the registry and the router); whether an applying path is TAKEN is runtime
+// policy. Both @orchestral/runtime's ALTERNATIVES_NOT_ENABLED diagnostic and
+// @orchestral/plan's preflight report the paths not taken, and they read the
+// same evaluation from here rather than each other's copy.
+export {
+  applicableAlternatives,
+  pickAlternative,
+  readRequiresSemantics,
+  toAvailableAlternative,
+  type AlternativeSelectionDeps,
+  type AvailableAlternative,
+} from './alternative-select'
 
 // ── Registry ─────────────────────────────────────────────────────────────
 export { PatternRegistry } from './registry'
@@ -328,7 +342,7 @@ export type {
   Unsubscribe,
 } from './job-store'
 export { InMemoryJobStore } from './job-store-memory'
-export type { Runtime } from './runtime'
+export type { Runtime, ResolveCtxProvider } from './runtime'
 export type {
   DispatchContext,
   SystemPromptContext,

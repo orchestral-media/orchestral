@@ -1,37 +1,39 @@
-// Cross-Pattern fallback: selecting a declared `Alternative` and dispatching
-// through it.
+// Cross-Pattern fallback: TAKING a declared `Alternative`, and the refusal
+// that names the ones not taken.
 //
-// Whether a redirect happens at all is `InlineRuntimeInit.alternatives`, and
-// it defaults to 'off' — these functions are what the two modes share. Under
-// 'off' the dispatch path calls `applicableAlternatives` only to name the
-// paths it declined on `AlternativesNotEnabledError`; under 'auto' it calls
-// `pickAlternative` and then `runAlternative`. Selection is synchronous and
-// does no IO beyond `CapabilityRouter.checkSatisfiable`.
+// Whether a redirect happens at all is `InlineRuntimeInit.alternatives`, and it
+// defaults to 'off'. Under 'off' the dispatch path calls
+// `applicableAlternatives` only to name the paths it declined on
+// `AlternativesNotEnabledError`; under 'auto' it calls `pickAlternative` and
+// then `runAlternative` below.
+//
+// Selection itself — `applicableAlternatives` / `pickAlternative` /
+// `toAvailableAlternative` — is @orchestral/core's (alternative-select.ts): it
+// is a pure read of the registry's declarations and the router's satisfiability
+// screen, and @orchestral/plan's preflight reports the same paths from the same
+// evaluation. What stays here is what taking one needs — a dispatcher, a
+// JobStore, an event fanout — none of which core has.
 
 import type {
   Alternative,
-  AlternativeAppliesWhen,
-  AtomicPattern,
   Capability,
-  CapabilityRouter,
   DispatchContext,
   JobEvent,
   JobSpec,
   JobStore,
-  ModelTag,
   Pattern,
   PatternId,
-  PatternRegistry,
-  ResolveContext,
-  Semantics,
   UnavailabilityReason,
 } from '@orchestral/core'
+import {
+  toAvailableAlternative,
+  type AlternativeSelectionDeps,
+  type AvailableAlternative,
+} from '@orchestral/core'
 
-/** What selecting an alternative needs: the declarations, and satisfiability. */
-export interface AlternativeSelectionDeps {
-  registry: PatternRegistry
-  router: CapabilityRouter
-}
+// Re-exported so a host that narrows on ALTERNATIVES_NOT_ENABLED's diagnostic
+// reads the payload type off this package's barrel, where the error is.
+export type { AvailableAlternative }
 
 /** Selection, plus what taking the path needs. */
 export interface RunAlternativeDeps extends AlternativeSelectionDeps {
@@ -51,82 +53,6 @@ export interface RunAlternativeDeps extends AlternativeSelectionDeps {
     metaSharedState: undefined,
     parentCtx: DispatchContext | undefined,
   ) => Promise<unknown>
-}
-
-/**
- * Every declared alternative whose `appliesWhen` matches, in declaration
- * order. Used under `alternatives: 'off'` to report the paths not taken.
- */
-export function applicableAlternatives<I, O>(
-  deps: AlternativeSelectionDeps,
-  atomic: AtomicPattern<I, O>,
-  ctx: ResolveContext,
-  requiredTags: readonly ModelTag[],
-  requestedSemantics: readonly Semantics[],
-): readonly Alternative<unknown, unknown>[] {
-  const alternatives = deps.registry.getEntry(atomic.id)?.alternatives ?? []
-  return alternatives.filter((alt) =>
-    appliesWhen(
-      deps,
-      alt.appliesWhen,
-      ctx,
-      atomic.id as Capability,
-      requiredTags,
-      requestedSemantics,
-    ),
-  )
-}
-
-/**
- * Pick the first registered alternative whose appliesWhen matches.
- * Synchronous; no IO beyond Router.checkSatisfiable. Callers gate this on
- * `alternativesMode === 'auto'` — a match is only ever taken when the host
- * opted in.
- */
-export function pickAlternative<I, O>(
-  deps: AlternativeSelectionDeps,
-  atomic: AtomicPattern<I, O>,
-  ctx: ResolveContext,
-  requiredTags: readonly ModelTag[],
-  requestedSemantics: readonly Semantics[],
-): Alternative<I, O> | null {
-  const alternatives = deps.registry.getEntry(atomic.id)?.alternatives ?? []
-  if (alternatives.length === 0) return null
-  for (const alt of alternatives) {
-    if (
-      appliesWhen(
-        deps,
-        alt.appliesWhen,
-        ctx,
-        atomic.id as Capability,
-        requiredTags,
-        requestedSemantics,
-      )
-    ) {
-      return alt as Alternative<I, O>
-    }
-  }
-  return null
-}
-
-function appliesWhen(
-  deps: AlternativeSelectionDeps,
-  cond: AlternativeAppliesWhen,
-  ctx: ResolveContext,
-  cap: Capability,
-  fallbackTags: readonly ModelTag[],
-  requestedSemantics: readonly Semantics[],
-): boolean {
-  switch (cond.kind) {
-    case 'always':
-      return true
-    case 'capability-unavailable': {
-      const tags = cond.requiredTags ?? fallbackTags
-      return !deps.router.checkSatisfiable(cap, tags, ctx).ok
-    }
-    case 'preserves-required':
-      return cond.semantics.some((s) => requestedSemantics.includes(s))
-  }
 }
 
 export async function runAlternative<TIn, TOut>(
@@ -200,49 +126,6 @@ export async function runAlternative<TIn, TOut>(
     parentCtx,
   )
   return alt.via.mapOutput(childOutput) as TOut
-}
-
-/** One declared alternative the dispatch declined to take, as reported. */
-export interface AvailableAlternative {
-  /** `Alternative.id` — unique within the parent Pattern's list. */
-  id: string
-  /** `Alternative.description` — human-readable path summary. */
-  description: string
-  /** `Alternative.via.patternId` — submit this to take the path by hand. */
-  targetPatternId: PatternId
-  /**
-   * `Alternative.preserves` / `Alternative.losses`, verbatim. The whole point
-   * of refusing-with-the-path-named is that the host can put the trade-off in
-   * front of a user before deciding; a diagnostic that names the path but not
-   * what it gives up sends the host back to the registry to look it up by id.
-   * The `job:alternative-selected` event on the `'auto'` path already carries
-   * both — the default `'off'` path must not be the less informative one.
-   */
-  preserves?: readonly Semantics[]
-  losses?: readonly Semantics[]
-}
-
-/**
- * `Alternative` → {@link AvailableAlternative}, the one projection every
- * "paths not taken" surface reports. Two of them exist — the
- * ALTERNATIVES_NOT_ENABLED diagnostic below and `preflightPlan` — and they must
- * not drift: a preflight that advertised a path with different metadata than
- * the failure would carry is a report about a different system.
- *
- * `preserves` / `losses` are spread conditionally so an alternative that
- * declares neither produces neither key, rather than two `undefined`s a host
- * has to filter out of a rendered trade-off.
- */
-export function toAvailableAlternative(
-  alt: Alternative<unknown, unknown>,
-): AvailableAlternative {
-  return {
-    id: alt.id,
-    description: alt.description,
-    targetPatternId: alt.via.patternId,
-    ...(alt.preserves ? { preserves: alt.preserves } : {}),
-    ...(alt.losses ? { losses: alt.losses } : {}),
-  }
 }
 
 /** One sentence, both in the message and on the structured diagnostic. */

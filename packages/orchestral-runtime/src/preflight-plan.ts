@@ -59,7 +59,7 @@ import {
   applicableAlternatives,
   toAvailableAlternative,
   type AvailableAlternative,
-} from './alternatives'
+} from '@orchestral/core'
 import type { ResolveCtxProvider } from './inline'
 
 // ── The report ──────────────────────────────────────────────────────────
