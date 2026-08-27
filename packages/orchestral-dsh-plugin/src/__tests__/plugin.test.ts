@@ -113,6 +113,34 @@ function atomic(
 }
 
 /**
+ * A minimal AgentPattern. Hand-rolled rather than factory-built: the only
+ * thing under test is that the `agent_` prefix routes, and the registry
+ * backfills the default finish trio when an agent declares neither `finish`
+ * nor `loop.outputExtractor` nor `outputs`.
+ */
+function agentPattern(id: string, exposure: Pattern['exposure']) {
+  return {
+    kind: 'agent' as const,
+    id,
+    description: `${id} pattern`,
+    exposureMode: 'always-load' as const,
+    ...(exposure === undefined ? {} : { exposure }),
+    primary: {
+      tool: {
+        description: `call ${id}`,
+        inputs: z.object({ task: z.string() }),
+      },
+      modelTags: [],
+    },
+    loop: {
+      system: 'probe',
+      toolPatternIds: [],
+      modelTags: [],
+    },
+  }
+}
+
+/**
  * `PatternRegistry.register` is generic per Pattern, so a heterogeneous list of
  * concretely-typed Patterns (a `Pattern<TextToImageInput, …>` next to a
  * `Pattern<{prompt:string}, …>`) has no common assignable element type — the
@@ -238,6 +266,44 @@ describe('tool registration', () => {
     )
     expect(registered.map((t) => t.name)).toEqual(['text-to-image'])
     expect(registered[0]?.description).toMatch(/image from a text prompt/i)
+  })
+
+  it('applies the sub-agent blocklist on the agentLoop surface', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          atomic('visible', 'tool'),
+          agentPattern('agent_probe', { chatTurn: true, agentLoop: true }),
+        ),
+        surface: 'agentLoop',
+      }),
+    )
+
+    // orchestral's own agentLoop catalog is exposure AND the recursion guard
+    // (catalog.ts calls the `agent_` prefix match "a normative contract, not a
+    // coincidence of naming"). Running only the first gate here would make the
+    // bridge strictly more permissive than the surface it claims to mirror.
+    expect(registered.map((t) => t.name)).toEqual(['visible'])
+  })
+
+  it('leaves an agent pattern reachable on the chatTurn surface', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          agentPattern('agent_probe', { chatTurn: true, agentLoop: true }),
+        ),
+      }),
+    )
+
+    // The blocklist is a SUB-AGENT guard, not a global ban: a top-level turn
+    // delegating to an agent is exactly what `agent_*` exists for.
+    expect(registered.map((t) => t.name)).toEqual(['agent_probe'])
   })
 })
 
