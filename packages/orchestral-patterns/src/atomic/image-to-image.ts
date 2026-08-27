@@ -12,12 +12,13 @@
 // find_pattern render time based on the resolved top-1 model.
 
 import { z } from 'zod'
-import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, producedAssetShape, whenCapabilityUnavailable, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'
-import {
-  IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
-  type ImageToImageViaCaptionInput,
-  type ImageToImageViaCaptionOutput,
-} from './image-to-image-via-caption'
+import { createPatternFn, defineAtomicPattern, dispatchEnvelopeShape, producedAssetShape, type AtomicPattern, type Alternative, type AssetNeed, type DerivedReferences } from '@orchestral/core'
+// atomic → meta, and only for this: an Alternative describes the chain it
+// redirects into, so it is authored beside that chain and imported here as a
+// finished object. The edge is the Alternative relation itself — nothing on
+// this Pattern's primary path touches the meta, and the meta does not import
+// back (src/__tests__/atomic-directory-contract.test.ts holds both halves).
+import { VIA_CAPTION_ALTERNATIVE } from '../meta/image-to-image-via-caption'
 
 // ── primary input schema ────────────────────────────────────────────────
 // The base carries NO ai-sdk-shaped fields — only `prompt` + `references`
@@ -80,73 +81,11 @@ export const IMAGE_TO_IMAGE_PATTERN_ID = 'image-to-image'
 
 export interface ImageToImagePatternInit {
   /**
-   * Replaces the first-party fallback path below. Pass `[]` to run with no
-   * fallback at all (an unavailable capability then fails the job).
+   * Replaces the first-party `via-caption` path this factory mounts by
+   * default (authored in `../meta/image-to-image-via-caption`). Pass `[]` to
+   * run with no fallback at all (an unavailable capability then fails the job).
    */
   alternatives?: readonly Alternative<ImageToImageInput, ImageToImageOutput>[]
-}
-
-/**
- * First-party degradation path: with no image-to-image model in the catalog,
- * approximate the edit by captioning the source image and re-rendering that
- * caption together with the edit instruction
- * (`meta_image-to-image-via-caption`). Only style descriptors survive the
- * round-trip — subject identity and composition do not — and an inpaint `mask`
- * has no meaning on the redirect target, which regenerates the whole frame.
- *
- * Declaring the path does not take it: @orchestral/runtime only redirects when
- * constructed with `alternatives: 'auto'`, and raises
- * ALTERNATIVE_PATTERN_NOT_REGISTERED in that mode if the target is not
- * registered alongside this Pattern. Under the default `'off'` the dispatch
- * fails with ALTERNATIVES_NOT_ENABLED, which names this path rather than
- * running it, so the target need not be registered for that failure to be
- * well-formed.
- */
-const VIA_CAPTION_ALTERNATIVE: Alternative<
-  ImageToImageInput,
-  ImageToImageOutput
-> = {
-  id: 'via-caption',
-  description:
-    'No image-to-image model is available: caption the source image, then re-render it from that caption plus the edit instruction. Subject identity and composition are lost, and a mask is ignored — the whole frame is regenerated.',
-  appliesWhen: whenCapabilityUnavailable(),
-  preserves: ['style'],
-  // `mask-guidance` is listed because the redirect silently has no use for the
-  // `mask` slot — see mapInput below. A caller that asked for a masked edit
-  // gets a full-frame regeneration, and the degradation notice must say so.
-  losses: ['subject-identity', 'composition', 'mask-guidance'],
-  via: {
-    patternId: IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
-    mapInput: (input): ImageToImageViaCaptionInput => ({
-      // The edit instruction is the whole of the parent's intent; the source
-      // image rides along in the dispatch context, which the runtime forwards
-      // to the redirect target unchanged.
-      //
-      // The `mask` slot is intentionally not projected: the target has no mask
-      // input to project it onto, because captioning and re-rendering replaces
-      // the whole frame — there is no preserved region for a mask to protect.
-      // The `mask-guidance` loss above is what makes that visible.
-      editPrompt: input.prompt,
-      // Draft resolution: the source image's dimensions are not part of the
-      // parent input, so a 2048 render would be a guess, not a match.
-      tier: 'preview',
-    }),
-    mapOutput: (childOutput): ImageToImageOutput => {
-      const out = childOutput as ImageToImageViaCaptionOutput
-      // Lossless projection — the meta envelope is a superset of this
-      // Pattern's. `degraded` is dropped: the degradation is already reported
-      // out-of-band by the runtime's `job:alternative-selected` event, which
-      // carries this entry's `losses`.
-      return {
-        modality: 'image',
-        assets: out.assets,
-        cost: out.cost,
-        latencyMs: out.latencyMs,
-        model: out.model,
-        provider: out.provider,
-      }
-    },
-  },
 }
 
 export function createImageToImagePattern(
@@ -172,6 +111,8 @@ export function createImageToImagePattern(
     // source[] required (≥1 source image; multi-source fusion covers style
     // transfer); mask (optional single, for inpaint).
     assetNeeds: ASSET_NEEDS,
+    // One first-party path: `via-caption` — what it preserves and loses is
+    // declared on the entry itself, in the meta it redirects into.
     alternatives: init.alternatives ?? [VIA_CAPTION_ALTERNATIVE],
   })
 }

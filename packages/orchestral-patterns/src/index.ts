@@ -110,6 +110,9 @@ export {
   type TextGenerationOutput,
 } from './atomic/text-generation'
 
+// ── First-party meta pipelines ───────────────────────────────────────────
+// Agent-kind patterns are NOT here: they live in the optional @orchestral/agent
+// package. This catalog is atomic + meta only.
 export {
   IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
   ImageToImageViaCaptionInputSchema,
@@ -117,11 +120,8 @@ export {
   createImageToImageViaCaptionPattern,
   type ImageToImageViaCaptionInput,
   type ImageToImageViaCaptionOutput,
-} from './atomic/image-to-image-via-caption'
+} from './meta/image-to-image-via-caption'
 
-// ── First-party meta pipelines ───────────────────────────────────────────
-// Agent-kind patterns are NOT here: they live in the optional @orchestral/agent
-// package. This catalog is atomic + meta only.
 export {
   SCRIPT2VIDEO_PATTERN_ID,
   ScriptToVideoInputSchema,

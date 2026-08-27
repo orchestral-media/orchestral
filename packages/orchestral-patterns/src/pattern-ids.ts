@@ -7,11 +7,11 @@
 // this instead of re-typing the literals: a second hand-written copy is what
 // let the orchestrator's tool list drift once already.
 //
-// Grouped by the `kind` the package.json manifest declares, NOT by source
-// directory: `meta_image-to-image-via-caption` is authored under atomic/ but
-// ships as kind:'meta', because the id prefix is what routes it to the
-// meta-pipelines namespace. Order inside each group is the manifest's, so
-// splicing the groups yields a stable catalog order a reviewer can diff.
+// Grouped by the `kind` the package.json manifest declares — the id prefix
+// (`meta_...` vs the bare atomic id) is what routes a pattern to its group,
+// independent of which directory under src/ happens to author it. Order
+// inside each group is the manifest's, so splicing the groups yields a stable
+// catalog order a reviewer can diff.
 //
 // Imported from the leaf modules rather than from './index' (which imports
 // this file). The whole catalog is string constants, so a bundler that keeps
@@ -21,7 +21,6 @@ import type { AtomicPatternId, MetaPatternId } from '@orchestral/core'
 
 import { AUTOMATIC_SPEECH_RECOGNITION_PATTERN_ID } from './atomic/automatic-speech-recognition'
 import { IMAGE_TO_IMAGE_PATTERN_ID } from './atomic/image-to-image'
-import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from './atomic/image-to-image-via-caption'
 import { IMAGE_TO_TEXT_PATTERN_ID } from './atomic/image-to-text'
 import { IMAGE_TO_VIDEO_PATTERN_ID } from './atomic/image-to-video'
 import { TEXT_GENERATION_PATTERN_ID } from './atomic/text-generation'
@@ -32,6 +31,7 @@ import { TEXT_TO_VIDEO_PATTERN_ID } from './atomic/text-to-video'
 import { VIDEO_TO_VIDEO_PATTERN_ID } from './atomic/video-to-video'
 import { EXPLAINER_SHORT_PATTERN_ID } from './meta/explainer-short'
 import { IMAGE_BEST_OF_N_PATTERN_ID } from './meta/image-best-of-n'
+import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from './meta/image-to-image-via-caption'
 import { PLAN_PATTERN_ID } from './meta/plan'
 import { PRODUCT_AD_SHORT_PATTERN_ID } from './meta/product-ad-short'
 import { PRODUCT_PHOTO_PACK_PATTERN_ID } from './meta/product-photo-pack'

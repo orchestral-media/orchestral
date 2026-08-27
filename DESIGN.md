@@ -220,7 +220,7 @@ behaviour".
 the shipped list outright. With none, the job fails with the router's
 `NO_MODEL_FOR_CAPABILITY` "instead of quietly producing something adjacent".
 **Where.** `packages/orchestral-core/README.md:278-288`;
-`packages/orchestral-patterns/src/atomic/image-to-image.ts:89-103`,
+`packages/orchestral-patterns/src/meta/image-to-image-via-caption/index.ts:89-103`,
 `automatic-speech-recognition.ts:143-145`, `text-to-speech.ts:87-93`,
 `text-to-video.ts:97-104`, `image-to-text.ts:120-124`.
 

@@ -11,7 +11,7 @@ import { createImageToImagePattern } from '../atomic/image-to-image'
 import {
   IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
   createImageToImageViaCaptionPattern,
-} from '../atomic/image-to-image-via-caption'
+} from '../meta/image-to-image-via-caption'
 
 function makeCtx(seen: Record<string, unknown>[]) {
   return {
