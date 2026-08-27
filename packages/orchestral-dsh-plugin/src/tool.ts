@@ -246,9 +246,12 @@ export function buildPatternTool(opts: BuildToolOptions): ToolDefinition {
       // used — plus the derived session — buys isolation at exactly the layer
       // that wanted it. The cost is that the job row carries no `sessionId`,
       // so a `JobQueryFilter.sessionId` will not find these rows by a dsh
-      // session the host never named; naming one via `resolveJobContext` is how
-      // a host that wants that asks for it, and then it also says which asset
-      // ledger it means.
+      // session the host never named; `ctx.sessionId` likewise stays
+      // `undefined` in the pre-fork permission context and in the
+      // `DispatchContext` handed to adapters for dsh-dispatched jobs, matching
+      // pre-branch behavior. Naming one via `resolveJobContext` is how a host
+      // that wants that asks for it, and then it also says which asset ledger
+      // it means.
       const derivedSessionId = exec.agent?.id
       if (jobCtx.sessionId === undefined && derivedSessionId !== undefined) {
         spec.idempotencyKey = deriveIdempotencyKey({

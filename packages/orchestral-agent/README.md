@@ -48,8 +48,8 @@ const runtime = new InlineRuntime({
 ## Register the tools it names, or narrow the list
 
 The shipped `loop.toolPatternIds` is the whole first-party catalog minus
-`meta_plan` — all 18 ids in `FIRST_PARTY_PATTERN_IDS` (the orchestrator plans as
-it goes, so a second static planner would be two planners). That list is a
+`meta_plan` — 18 of the 19 ids in `FIRST_PARTY_PATTERN_IDS` (the orchestrator
+plans as it goes, so a second static planner would be two planners). That list is a
 declaration the runtime now holds you to: dispatching the agent against a
 registry missing any of those ids fails the job with
 `AGENT_TOOL_PATTERN_NOT_REGISTERED` before the loop starts, naming what is
