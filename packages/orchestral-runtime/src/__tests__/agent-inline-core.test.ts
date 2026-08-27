@@ -15,6 +15,12 @@ const storyboardMeta = { id: 'meta_storyboard', kind: 'meta', exposureMode: 'alw
   outputs: z.object({}), compose: async () => ({}) } as unknown as Pattern
 const plainMeta = { id: 'meta_plain', kind: 'meta',
   tool: { description: 'x', inputs: z.object({}) }, outputs: z.object({}), compose: async () => ({}) } as unknown as Pattern
+const agentToolAtomic = { id: 'video-to-frames', kind: 'atomic', exposure: 'agent-tool', exposureMode: 'always-load',
+  primary: { tool: { description: 'split a video into frames', inputs: z.object({ handle: z.string() }) } },
+  outputs: z.object({}) } as unknown as Pattern
+const hostOnlyAtomic = { id: 'data-migration', kind: 'atomic', exposure: 'no-tool', exposureMode: 'always-load',
+  primary: { tool: { description: 'host-direct only', inputs: z.object({}) } },
+  outputs: z.object({}) } as unknown as Pattern
 
 describe('buildAgentInlineCore', () => {
   it('renders only the allowlisted always-load patterns as direct tools, returning the inline tools plus the ids to exclude', () => {
@@ -28,5 +34,15 @@ describe('buildAgentInlineCore', () => {
   it('an always-load pattern outside the allowlist is not inlined (scope is the allowlist only)', () => {
     const r = buildAgentInlineCore(['meta_plain'] as PatternId[], reg([t2i, storyboardMeta, plainMeta]))
     expect(r.descriptors).toHaveLength(0)
+  })
+  it("inlines an exposure:'agent-tool' pattern — this catalog is the agent loop's, not chat-turn's", () => {
+    const r = buildAgentInlineCore(['video-to-frames'] as PatternId[], reg([agentToolAtomic]))
+    expect(r.descriptors.map((d) => d.name)).toEqual(['video-to-frames'])
+    expect([...r.inlineIds]).toEqual(['video-to-frames'])
+  })
+  it("does not inline an exposure:'no-tool' pattern even when the allowlist names it and it is always-load", () => {
+    const r = buildAgentInlineCore(['data-migration'] as PatternId[], reg([hostOnlyAtomic]))
+    expect(r.descriptors).toHaveLength(0)
+    expect(r.inlineIds.size).toBe(0)
   })
 })

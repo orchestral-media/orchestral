@@ -81,3 +81,68 @@ describe('buildAlwaysLoadDescriptors', () => {
     expect(buildAlwaysLoadDescriptors([hostOnlyAgent])).toHaveLength(0)
   })
 })
+
+// exposure is the negative filter, exposureMode is the load strategy — they
+// compose in that order. Without the first half, a Pattern hidden from every
+// LLM catalog still got promoted into the tool table here while find_pattern
+// dropped it: two paths, opposite answers.
+describe('buildAlwaysLoadDescriptors — exposure gate', () => {
+  const alwaysLoadAtomic = (id: string, exposure?: unknown): Pattern =>
+    ({
+      id,
+      kind: 'atomic',
+      exposureMode: 'always-load',
+      ...(exposure !== undefined ? { exposure } : {}),
+      primary: {
+        tool: { description: `d:${id}`, inputs: z.object({ prompt: z.string() }) },
+      },
+      outputs: z.object({}),
+    }) as unknown as Pattern
+
+  it("does not inline an always-load atomic marked exposure:'no-tool'", () => {
+    expect(buildAlwaysLoadDescriptors([alwaysLoadAtomic('secret_op', 'no-tool')])).toHaveLength(0)
+  })
+
+  it('does not inline an always-load atomic whose object-form exposure closes the surface', () => {
+    const p = alwaysLoadAtomic('half_open', { chatTurn: false, agentLoop: true })
+    expect(buildAlwaysLoadDescriptors([p])).toHaveLength(0)
+  })
+
+  it("an unnamed surface fails closed: {} exposes nothing (resolveExposure's own rule)", () => {
+    expect(buildAlwaysLoadDescriptors([alwaysLoadAtomic('unnamed', {})])).toHaveLength(0)
+  })
+
+  it("surface:'agentLoop' inlines an agent-tool Pattern that the chat-turn surface hides", () => {
+    const p = alwaysLoadAtomic('video-to-frames', 'agent-tool')
+    expect(buildAlwaysLoadDescriptors([p])).toHaveLength(0)
+    const forLoop = buildAlwaysLoadDescriptors([p], { surface: 'agentLoop' })
+    expect(forLoop.map((d) => d.name)).toEqual(['video-to-frames'])
+  })
+
+  it('the default surface is chat-turn, so an undeclared exposure still inlines', () => {
+    const out = buildAlwaysLoadDescriptors([alwaysLoadAtomic('text-to-image')])
+    expect(out.map((d) => d.name)).toEqual(['text-to-image'])
+  })
+
+  it('the gate applies to meta and agent kinds too', () => {
+    const meta = {
+      id: 'meta_internal',
+      kind: 'meta',
+      exposureMode: 'always-load',
+      exposure: 'no-tool',
+      tool: { description: 'internal pipeline', inputs: z.object({}) },
+      outputs: z.object({}),
+      compose: async () => ({}),
+    } as unknown as Pattern
+    const agent = {
+      id: 'agent_internal',
+      kind: 'agent',
+      exposureMode: 'always-load',
+      exposure: 'no-tool',
+      primary: { tool: { description: 'internal agent', inputs: z.object({}) } },
+      outputs: z.object({}),
+      loop: { system: '', toolPatternIds: [], modelTags: [] },
+    } as unknown as Pattern
+    expect(buildAlwaysLoadDescriptors([meta, agent])).toHaveLength(0)
+  })
+})

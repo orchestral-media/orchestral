@@ -91,6 +91,11 @@ const CHILD_FAILURE_RETHROWN_CODES: ReadonlySet<string> = new Set([
  * buildCatalogDescriptors); the host only prepends host tools. With no
  * deriveProviderOptionsZod, this falls back to the base schema (a degraded but
  * acceptable mode).
+ *
+ * The surface is `'agentLoop'`: this catalog is the subagent's, so an
+ * `exposure: 'agent-tool'` Pattern belongs here and a chat-turn-only one does
+ * not. Same gate find_pattern applies for `audience: 'agent-loop'`, so the two
+ * halves of the subagent's catalog agree on who is visible.
  */
 export function buildAgentInlineCore(
   whitelist: readonly PatternId[],
@@ -101,7 +106,7 @@ export function buildAgentInlineCore(
     const p = registry.get(id)
     if (p) patterns.push(p)
   }
-  const descriptors = buildAlwaysLoadDescriptors(patterns)
+  const descriptors = buildAlwaysLoadDescriptors(patterns, { surface: 'agentLoop' })
   const inlineIds = new Set<PatternId>(descriptors.map((d) => d.name as PatternId))
   return { descriptors, inlineIds }
 }

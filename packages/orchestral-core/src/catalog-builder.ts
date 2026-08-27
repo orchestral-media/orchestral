@@ -15,6 +15,7 @@ import { z } from 'zod'
 import { DispatchPatternInputSchema } from './dispatch-pattern'
 import { FindPatternInputSchema } from './find-pattern-schema'
 import type { Pattern } from './pattern'
+import { resolveExposure } from './pattern'
 
 // zod v4 native JSON-Schema serialiser. The find_pattern / dispatch_pattern
 // schemas are owned by this package, so serialising them here is a
@@ -102,11 +103,18 @@ export function buildCatalogDescriptors(
 }
 
 /**
- * Build first-class tool descriptors for atomics opted into `exposureMode:
- * 'always-load'`. The host prepends these into the chat-turn catalog so the
- * LLM can call e.g. `text-to-image({...})` in one hop, bypassing find_pattern
- * → dispatch_pattern. Tool name === patternId, so the host routes the call
- * straight into the dispatch execution chain (no `pattern_id` arg needed).
+ * Build first-class tool descriptors for Patterns opted into `exposureMode:
+ * 'always-load'` AND visible on `opts.surface`. The host prepends these into
+ * the chat-turn catalog so the LLM can call e.g. `text-to-image({...})` in one
+ * hop, bypassing find_pattern → dispatch_pattern. Tool name === patternId, so
+ * the host routes the call straight into the dispatch execution chain (no
+ * `pattern_id` arg needed).
+ *
+ * The two fields compose in one order and only one: `exposure` decides whether
+ * this surface may see the Pattern at all, `exposureMode` decides how it is
+ * reached once it may. Promotion is not a way around the filter — a Pattern the
+ * author hid from a surface is not promoted onto it, which is also the answer
+ * find_pattern and the dsh bridge give for the same Pattern.
  *
  * Same byte-stable / IPC-safe contract as buildCatalogDescriptors (pure data,
  * no closures). When `deriveProviderOptionsZod` is supplied, it returns the
@@ -126,10 +134,21 @@ export function buildAlwaysLoadDescriptors(
       id: string,
       baseSchema: z.ZodObject<z.ZodRawShape>,
     ) => z.ZodObject<z.ZodRawShape> | undefined
+    /**
+     * Which LLM catalog is being assembled. Defaults to `'chatTurn'`: that is
+     * this builder's stated job, and of the two LLM surfaces it is the narrower
+     * one (`'agent-tool'` is agentLoop-only), so a caller that has not said
+     * which catalog it is filling fails closed rather than open. The agent loop
+     * says `'agentLoop'` — see buildAgentInlineCore in @orchestral/runtime.
+     */
+    surface?: 'chatTurn' | 'agentLoop'
   } = {},
 ): AgentToolDescriptor[] {
+  const surface = opts.surface ?? 'chatTurn'
   const out: AgentToolDescriptor[] = []
   for (const p of patterns) {
+    // Exposure first, mode second. Reading exposureMode alone was the bypass.
+    if (!resolveExposure(p.exposure)[surface]) continue
     if (p.exposureMode !== 'always-load') continue
     if (p.kind === 'atomic') {
       let inputs: unknown = p.primary.tool.inputs
