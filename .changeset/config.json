@@ -8,6 +8,7 @@
       "@orchestral/discovery",
       "@orchestral/runtime",
       "@orchestral/patterns",
+      "@orchestral/plan",
       "@orchestral/agent",
       "@orchestral/adapters-ai-sdk"
     ]
