@@ -84,7 +84,7 @@ export const PlanStepSchema = z.strictObject({
     .min(1)
     .max(128)
     .describe(
-      'A pattern_id from find_pattern (use "select:<id>" to fetch its inputSchema first). Never an agent_* id and never meta_plan.',
+      "A registered pattern_id; fetch its inputSchema through your catalog's discovery tool before writing the step. Never an agent_* id and never meta_plan.",
     ),
   input: z
     .record(z.string(), z.unknown())

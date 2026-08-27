@@ -22,6 +22,14 @@
 //
 // The last two bind `$input` to the factory's own `inputs` schema; the
 // one-shot has no parameters, so `$input` is refused there by rule 8.
+//
+// Its behaviour tests are NOT in this package. `packages/orchestral-patterns/
+// src/__tests__/meta-plan.test.ts` and `meta-planned-dispatches.test.ts` are
+// where a walked plan is actually executed, because executing one needs a real
+// runtime and a populated registry — both of which live downstream of
+// @orchestral/plan, which depends only on core. What this package's own
+// `__tests__` hold is everything provable without them: the schema, the
+// validation walk, `$ref` parsing, and preflight pricing.
 
 import {
   parallel,
@@ -71,8 +79,8 @@ export const PLAN_TOOL_DESCRIPTION =
   'as data and the runtime executes them in dependency order, in parallel ' +
   'where possible, caching completed steps across re-runs in this session. Use ' +
   'it when you already know the whole pipeline instead of calling patterns one ' +
-  'at a time. First call find_pattern for every pattern you intend to use ' +
-  '(query `select:text-to-image,image-to-video`, or `meta_*`) and copy each ' +
+  'at a time. First look up every pattern you intend to use through your ' +
+  "catalog's discovery tool and copy each " +
   "step's `input` from its primary.inputSchema — this tool does not know the " +
   "step schemas. Reference an earlier step's value with `$<stepId>.<path>` as " +
   'a whole string (e.g. `"prompt": "$describe.text"`; text-generation\'s text ' +
