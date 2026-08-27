@@ -19,9 +19,16 @@
 // This package's only runtime dependency surface is zod + the workspace ones.
 
 // ── First-party AgentPattern ─────────────────────────────────────────────
+// Shipped as an overridable default, not a fixture: the prompt constant, the
+// prompt-override type and the init are all exported, so adjusting this
+// agent's tone, tool universe or abort policy costs a factory argument rather
+// than a fork — the same deal @orchestral/patterns gives every shipped meta.
 export {
   AGENT_ORCHESTRATOR_PATTERN_ID,
+  ORCHESTRATOR_DEFAULT_PROMPTS,
   OrchestratorInputSchema,
   createOrchestratorAgent,
+  type OrchestratorAgentInit,
   type OrchestratorInput,
+  type OrchestratorPromptOverrides,
 } from './orchestrator'

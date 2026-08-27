@@ -26,6 +26,7 @@ import {
 import {
   createOrchestratorAgent,
   AGENT_ORCHESTRATOR_PATTERN_ID,
+  ORCHESTRATOR_DEFAULT_PROMPTS,
 } from '../orchestrator'
 import { ORCHESTRATOR_SYSTEM_PROMPT } from '../orchestrator/prompts'
 
@@ -179,23 +180,73 @@ describe('agent_orchestrator', () => {
     }
   })
 
-  it('flags long-running sub-dispatches via asyncToolPatternIds (subset of toolPatternIds)', () => {
+  it('declares no asyncToolPatternIds — one catalog, because it never runs in async mode', () => {
     const agent = createOrchestratorAgent()
 
-    expect(agent.loop.asyncToolPatternIds).toEqual([
-      'meta_script2video',
-      'meta_image-best-of-n',
-      'meta_storyboard',
-      'meta_product-ad-short',
-      'meta_product-photo-pack',
-      'meta_ugc-testimonial',
-      'meta_explainer-short',
-    ])
+    // The second catalog filter only engages at defaultExecutionMode ===
+    // 'async', which this pattern deliberately never sets. A list that cannot
+    // be reached is a list nothing keeps honest: the old one claimed to route
+    // long-running sub-dispatches through async fan-out, which is not what the
+    // field does (it prunes a catalog) and not what this agent does (it has
+    // one catalog).
+    expect('asyncToolPatternIds' in agent.loop).toBe(false)
+    expect('defaultExecutionMode' in agent).toBe(false)
+  })
 
-    const toolSet = new Set(agent.loop.toolPatternIds)
-    for (const t of agent.loop.asyncToolPatternIds!) {
-      expect(toolSet.has(t)).toBe(true)
-    }
+  it('exports its default prompt and merges an override without dropping the rest', () => {
+    // Same treatment every shipped meta gets (*_DEFAULT_PROMPTS + a `prompts`
+    // override merged by resolvePrompts): tone / house style / localization is
+    // a consumer decision, and the alternative here was forking a package
+    // whose entire content is this declaration.
+    expect(ORCHESTRATOR_DEFAULT_PROMPTS.orchestratorSystem).toBe(
+      ORCHESTRATOR_SYSTEM_PROMPT,
+    )
+    expect(Object.isFrozen(ORCHESTRATOR_DEFAULT_PROMPTS)).toBe(true)
+
+    const custom = createOrchestratorAgent({
+      prompts: { orchestratorSystem: 'CUSTOM ORCHESTRATOR CONTRACT' },
+    })
+    const rendered = (custom.loop.system as (i: unknown, c: unknown) => string)(
+      { description: 'd', prompt: 'p', style: 'noir' },
+      {},
+    )
+    // The override replaces the cached prefix …
+    expect(rendered.indexOf('CUSTOM ORCHESTRATOR CONTRACT')).toBe(0)
+    expect(rendered).not.toContain('You CANNOT see the pixels/frames/audio')
+    // … and the per-dispatch suffix, which is factory machinery rather than
+    // prompt content, survives it.
+    expect(rendered).toContain('## RUN PARAMETERS (this dispatch)')
+    expect(rendered).toContain('Overall style: noir')
+
+    // An empty override map changes nothing (resolvePrompts semantics).
+    const untouched = createOrchestratorAgent({ prompts: {} })
+    expect(
+      (untouched.loop.system as (i: unknown, c: unknown) => string)(
+        { description: 'd', prompt: 'p' },
+        {},
+      ).indexOf(ORCHESTRATOR_SYSTEM_PROMPT),
+    ).toBe(0)
+  })
+
+  it('lets the host narrow the tool universe and take back abort policy', () => {
+    // Both are host policy the package only picked a default for (P2): which
+    // Patterns this deployment will pay for, and whether the dispatching turn
+    // ending should kill the run.
+    const narrowed = createOrchestratorAgent({
+      toolPatternIds: ['text-to-image', 'meta_storyboard'],
+      abortMode: 'inherit',
+    })
+    expect(narrowed.loop.toolPatternIds).toEqual([
+      'text-to-image',
+      'meta_storyboard',
+    ])
+    expect(narrowed.loop.abortMode).toBe('inherit')
+
+    // Defaults are untouched by another call's init — the factory must not
+    // share mutable state between agents.
+    const plain = createOrchestratorAgent()
+    expect(plain.loop.abortMode).toBe('independent')
+    expect(plain.loop.toolPatternIds.length).toBeGreaterThan(2)
   })
 
   it('does not declare a stopWhen — the host owns the stop policy', () => {
