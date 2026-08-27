@@ -7,7 +7,11 @@
     "tsconfigFilePath": "<projectFolder>/tsconfig.json"
   },
 
-  "apiReport": { "enabled": false },
+  "apiReport": {
+    "enabled": true,
+    "reportFolder": "<projectFolder>/etc",
+    "reportFileName": "core-routing.api.md"
+  },
 
   "docModel": { "enabled": false },
   "dtsRollup": {
@@ -24,7 +28,7 @@
     "extractorMessageReporting": {
       "default": { "logLevel": "warning" },
       "ae-missing-release-tag": { "logLevel": "none" },
-      "ae-forgotten-export": { "logLevel": "none" }
+      "ae-forgotten-export": { "logLevel": "none", "addToApiReportFile": false }
     },
     "tsdocMessageReporting": {
       "default": { "logLevel": "none" }
