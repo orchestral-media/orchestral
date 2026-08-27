@@ -457,7 +457,11 @@ it is projected HERE, on both paths … rather than left for a host to remember.
 `projectToolOutputForModel` drops `assetId` / `url` and rebuilds `assets[]` from
 the handle whitelist — "the verifiable assertion point for the no-assetId
 invariant" — then `sanitizeToolOutput` scrubs `data:` URLs and binary runs. The
-symmetric refusal matters as much: "`InlineRuntime.dispatch()` deliberately
+failure branch answers to the same rule by translation rather than projection:
+a failed child's partial work reaches the loop as `produced_handles` this
+context can name, or as a bare `produced_count`, never as the raw ids the
+host-facing `JobError.producedAssets` keeps. The symmetric refusal matters as
+much: "`InlineRuntime.dispatch()` deliberately
 does NOT do this: it returns to the host, which needs the real assetIds and
 URLs."
 **Instead.** The model sees an opaque handle plus an `asset://` URI; the host

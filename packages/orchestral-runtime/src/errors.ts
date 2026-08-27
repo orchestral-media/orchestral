@@ -10,8 +10,10 @@ export function normaliseError(err: unknown, defaultCode?: string): JobError {
     const code =
       (err as { code?: string }).code ?? defaultCode ?? 'DISPATCH_EXECUTE_FAILED'
     // A dispatchAgent whole-run failure throws an Error carrying the assetIds
-    // produced before it failed; preserve them onto the JobError so the parent
-    // can reference the partial output in its failure tool-result.
+    // produced before it failed; preserve them onto the JobError so the host
+    // can salvage that partial output. A parent agent's model never sees these
+    // ids — agent-dispatch translates them into its own context's handles
+    // before they reach a tool-result.
     const produced = (err as { producedAssets?: readonly string[] }).producedAssets
     // Structured failure facts stamped upstream (the host gateway attaches
     // httpStatus from the wire; the dispatch loop stamps failedModel; the

@@ -133,7 +133,8 @@ export function buildAgentInlineCore(
  *   • **No finish-tool deliverable resolution.** Handles named in the finish
  *     tool are not validated or resolved (`resolveHandles`).
  *   • **No partial-result salvage.** A failed run reports no produced-so-far
- *     assetIds (`recordedAssetIds`).
+ *     assetIds (`recordedAssetIds`), and a failed child dispatch tells the loop
+ *     only how many assets survived, never their handles (`handlesFor`).
  *
  * Substrate-only tests and hosts whose agents never touch assets can leave it
  * out; anything that expects an agent to hand assets between its own tool
@@ -211,6 +212,23 @@ export interface AgentAssetBridge {
   /** assetIds recorded in a context so far — used to surface partial results
    *  when a run fails. */
   recordedAssetIds(contextId: string): readonly string[]
+
+  /**
+   * The handles this context can name for `assetIds` — the reverse direction
+   * of `resolveHandles`, and the only way an assetId the host holds becomes
+   * something a loop may be told about. Optional: a host whose ledger cannot
+   * answer leaves it out, and a failed dispatch reports how many assets exist
+   * instead of what they are called.
+   *
+   * Returns only the ids this context names, in any order. An id with no
+   * handle here is absent from the result, never a placeholder — a fabricated
+   * handle is one the loop would hand to a dispatch that then fails
+   * resolution, which is worse than being told a count.
+   */
+  handlesFor?(args: {
+    contextId: string
+    assetIds: readonly string[]
+  }): readonly string[]
 }
 
 /**
@@ -1232,14 +1250,44 @@ deps: AgentDispatchDeps,
               delete rest.rawOutput
               if (Object.keys(rest).length > 0) details = sanitizeToolOutput(rest)
             }
+            // Partial work from a child that failed. `producedAssets` is the
+            // host-facing carrier — real assetIds — and the model's asset
+            // language is handles, so the ids are translated here rather than
+            // echoed. An assetId in this result would be both unusable (the
+            // loop cannot reference one) and the exact leak
+            // `projectToolOutputForModel` exists to prevent on the success
+            // path; `rawOutput` two blocks up is dropped for the same reason.
+            //
+            // Only assets THIS context can name become handles. A sub-agent's
+            // rows usually live in its own ledger and cannot be named from
+            // here, so those are a count: "there is partial work you cannot
+            // address" is honest and still actionable (the loop can dispatch
+            // again rather than assume it produced nothing), while an id it can
+            // neither resolve nor cite is not.
+            const producedIds = jobError?.producedAssets ?? []
+            let producedHandles: readonly string[] = []
+            if (producedIds.length > 0 && deps.agentAssetBridge?.handlesFor) {
+              try {
+                producedHandles = deps.agentAssetBridge.handlesFor({
+                  contextId: agentContextId,
+                  assetIds: producedIds,
+                })
+              } catch (err) {
+                // A host lookup that throws must not turn a tool-result the
+                // loop can act on into a throw that kills the run.
+                deps.logger.warn(
+                  `[dispatchAgent] agentAssetBridge.handlesFor failed for ${fullId}:`,
+                  err,
+                )
+              }
+            }
             return {
               code: 'SUBAGENT_TOOL_FAILED',
               pattern_id: fullId,
               error_class: errorClass,
               ...(jobError?.code ? { inner_code: jobError.code } : {}),
-              ...(jobError?.producedAssets?.length
-                ? { produced_assets: jobError.producedAssets }
-                : {}),
+              ...(producedHandles.length ? { produced_handles: producedHandles } : {}),
+              ...(producedIds.length ? { produced_count: producedIds.length } : {}),
               message: jobError?.message ?? 'inner pattern dispatch failed',
               ...(details ? { details } : {}),
               hint:

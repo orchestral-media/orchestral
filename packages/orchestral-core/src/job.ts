@@ -27,9 +27,12 @@ export interface JobError {
   cause?: unknown
   details?: unknown
   /**
-   * assetIds an AgentPattern produced before failing. Lets the parent
-   * reference partial work in the failure tool-result. Set by the runtime when
-   * a dispatchAgent throw carries `producedAssets`; absent for non-agent jobs.
+   * assetIds an AgentPattern produced before failing — the host-facing fact,
+   * for a caller that can resolve an id against its own store. It is NOT what
+   * a parent agent shows its model: that tool-result carries handles the loop
+   * can actually cite (`produced_handles`), or a bare count when this agent's
+   * context cannot name them. Set by the runtime when a dispatchAgent throw
+   * carries `producedAssets`; absent for non-agent jobs.
    */
   producedAssets?: readonly string[]
 }
