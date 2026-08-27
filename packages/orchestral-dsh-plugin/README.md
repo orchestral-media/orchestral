@@ -19,6 +19,17 @@ is repaired — the orchestral packages, their consumers, and their published AP
 
 Treat any pressure to "just add a small dsh-shaped hook in core" as the bug it is.
 
+## Not published
+
+This package is `"private": true`. npm refuses to publish it, and that refusal is a property of the
+package rather than of three files elsewhere agreeing to skip it — the root `ci:publish` `--filter` and
+the changesets `ignore` entry remain, now as redundant belt-and-braces rather than the only gates. The
+publish scaffolding (`publishConfig`, `files`, `prepack`) is kept intact on purpose: the bridge is meant
+to ship one day, against a dsh that has stopped breaking.
+
+**Deleting that one line is the act of publishing it**, and it should show up in a diff as exactly that —
+a deliberate, reviewable change, not a side effect of someone loosening a filter.
+
 ## Compatibility
 
 | | |

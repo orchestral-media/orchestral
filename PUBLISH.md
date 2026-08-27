@@ -308,8 +308,17 @@ The bridge is a leaf package on its own version line: it depends on
 it *after* the `@orchestral/*` line it pins, and only when you mean to — a
 deepseek-harness release can break it without anything else in this repo
 changing, which is exactly why it does not share the version line.
+The root `ci:publish` `--filter "!@orchestral/dsh-plugin"` and the changesets `ignore` entry stay where
+they are; with the manifest flag in place they are redundant, and redundancy is what you want on the
+"don't ship it" side.
+
+The package carries `"private": true`, so npm refuses it until that line is removed. That is the point:
+publishing this bridge is a one-line, reviewable edit to its own manifest, not a filter someone loosened
+elsewhere. Remove the flag in the same commit as the publish, and put it back if the publish was a
+one-off.
 
 ```sh
+# 1. delete `"private": true` from packages/orchestral-dsh-plugin/package.json
 pnpm --filter @orchestral/dsh-plugin publish --access public
 ```
 
