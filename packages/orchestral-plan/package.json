@@ -1,6 +1,6 @@
 {
   "name": "@orchestral/plan",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The plan feature, whole: the wire schema a model fills to author a pipeline as data, the walk that lists every problem before a plan spends, the interpreter that executes a DAG as a meta, and the preflight that routes every step without running one. Depends on @orchestral/core and nothing else.",
   "license": "Apache-2.0",
   "engines": {

@@ -1,6 +1,6 @@
 {
   "name": "@orchestral/patterns",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Orchestral first-party Pattern catalog — atomic capabilities + builtin meta pipelines with inlined prompts. Depends on @orchestral/core.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
