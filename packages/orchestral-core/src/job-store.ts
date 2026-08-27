@@ -41,6 +41,27 @@ export interface JobStore {
    * event when it dedupes.
    */
   insertIfAbsent(job: Job): Promise<Job>
+  /**
+   * Unconditional patch of an existing row. Throws JOB_NOT_FOUND if `id`
+   * doesn't exist.
+   *
+   * Conformance requirement: judge every write with
+   * `nextJobState(prevStatus, nextStatus)` and emit the JobEvent type it
+   * returns. That function is the state machine — which moves are legal
+   * (a terminal row never moves again; nothing goes back to 'queued') and
+   * which lifecycle event each legal move produces — and @orchestral/core
+   * exports it precisely so a durable store does not re-derive either half
+   * from prose. A refusal is a caller bug, not a no-op: throw
+   * JOB_STORE_ILLEGAL_TRANSITION and leave the row AND the subscribers
+   * untouched. A store that quietly writes done -> running emits a
+   * `job:started` after `job:completed`, which no subscriber can tell apart
+   * from a job that is genuinely running again.
+   *
+   * A patch that does not change the status is an output / metadata write
+   * rather than a lifecycle move: legal on any row, terminal included, and
+   * surfaced as 'job:output'. `job:progress` is the runtime's, fed by real
+   * provider fractions — never a store's to emit.
+   */
   update(id: string, patch: Partial<Job>): Promise<void>
   /**
    * Status-guarded update: applies `patch` only if the job's current status

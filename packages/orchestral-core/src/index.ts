@@ -343,6 +343,13 @@ export type {
   JobQueryFilter,
   Unsubscribe,
 } from './job-store'
+// The job state machine, and the reason it sits on the contracts entry rather
+// than next to the store that consumes it: every durable host JobStore has to
+// judge its writes with it. The legality table and the transition -> event map
+// live here and nowhere else, so a host is not re-deriving either half from a
+// dev-only implementation's private switch.
+export { JOB_TERMINAL_STATUSES, nextJobState } from './job-state'
+export type { JobLifecycleEventType, JobTransition } from './job-state'
 export type { Runtime, ResolveCtxProvider } from './runtime'
 export type {
   DispatchContext,

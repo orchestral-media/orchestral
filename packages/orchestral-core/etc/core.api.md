@@ -809,6 +809,9 @@ export interface Job<TInput = unknown, TOutput = unknown> {
     updatedAt: number;
 }
 
+// @public
+export const JOB_TERMINAL_STATUSES: readonly JobStatus[];
+
 // @public (undocumented)
 export interface JobError {
     cause?: unknown;
@@ -890,6 +893,9 @@ export type JobEvent<TInput = unknown, TOutput = unknown> = {
 // @public
 export type JobKind = 'pattern' | 'agent';
 
+// @public
+export type JobLifecycleEventType = 'job:submitted' | 'job:started' | 'job:completed' | 'job:failed' | 'job:cancelled' | 'job:stale' | 'job:output';
+
 // @public (undocumented)
 export interface JobQueryFilter {
     // (undocumented)
@@ -942,9 +948,18 @@ export interface JobStore {
     // (undocumented)
     query(filter?: JobQueryFilter): Promise<readonly Job[]>;
     subscribe?(callback: (event: JobEvent) => void): Unsubscribe;
-    // (undocumented)
     update(id: string, patch: Partial<Job>): Promise<void>;
 }
+
+// @public
+export type JobTransition = {
+    readonly ok: true;
+    readonly event: JobLifecycleEventType;
+} | {
+    readonly ok: false;
+    readonly code: 'JOB_STORE_ILLEGAL_TRANSITION';
+    readonly reason: string;
+};
 
 // @public
 export interface JsonSchema {
@@ -1147,6 +1162,9 @@ export type ModelTag =
 
 // @public
 export type NamespaceId = 'image-gen' | 'video-gen' | 'audio-gen' | 'text-gen' | 'meta-pipelines' | 'sub-agents' | 'uncategorized' | (string & {});
+
+// @public
+export function nextJobState(prev: JobStatus | null, next: JobStatus): JobTransition;
 
 // @public
 export type OnStrip = (info: {

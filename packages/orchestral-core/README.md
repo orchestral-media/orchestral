@@ -145,7 +145,16 @@ swap; the third is the call adapter:
 
 - **`JobStore`** — where job rows live. `InMemoryJobStore` (from
   `@orchestral/core/memory`) ships for dev/test; a host supplies a durable store
-  (e.g. a SQLite-backed one) for production.
+  (e.g. a SQLite-backed one) for production. A store you write does not also get
+  to invent the job state machine: judge every status write with the exported
+  `nextJobState(prevStatus, nextStatus)` and emit the `JobEvent` type it names.
+  It answers both halves — which moves are legal (a terminal row never moves
+  again; nothing goes back to `queued`; a same-status patch is an output write,
+  legal even on a settled row) and which lifecycle event each legal move
+  produces — so the two facts a subscriber depends on are read from one function
+  rather than re-derived per store. A refusal is a caller bug: throw
+  `JOB_STORE_ILLEGAL_TRANSITION` and leave the row and the subscribers
+  untouched.
 - **`CapabilityRouter`** — which model answers a capability. Use
   `createDefaultCapabilityRouter` (from `@orchestral/core/routing`) and inject
   `getModels` (the candidate envelopes) plus an optional `getCapabilityOrder`
@@ -321,7 +330,10 @@ below the root one. Moving to production means replacing two implementations —
 **the `InlineRuntime` construction does not change**, only what you hand it:
 
 - **`InMemoryJobStore` → a durable `JobStore`** (e.g. your host's
-  `SqliteJobStore`). Same `JobStore` interface; jobs now survive a restart.
+  `SqliteJobStore`). Same `JobStore` interface; jobs now survive a restart. The
+  one thing to port rather than reinvent is the state machine: call
+  `nextJobState` from your `insert` / `update` / `conditionalUpdate` exactly as
+  `InMemoryJobStore` does.
 - **`createDefaultCapabilityRouter`'s `getModels` → a DB-backed lookup.** The dev
   example reads a static in-memory registry; a host points `getModels` at its own
   model table and wires `getCapabilityOrder` to its enablement state. The router

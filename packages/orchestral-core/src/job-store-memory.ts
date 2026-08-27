@@ -3,7 +3,9 @@
 //
 // Reference implementation of the storage-agnostic half of the `JobStore`
 // contract — a durable host store must reproduce all of it:
-//   • eventForTransition — the lifecycle / 'job:submitted' / 'job:output' map
+//   • nextJobState — the store does NOT own the state machine: it imports the
+//     legality table + transition -> event map from job-state.ts and throws
+//     JOB_STORE_ILLEGAL_TRANSITION on a refusal
 //   • findByIdempotencyKey / insertIfAbsent — queued|running|done
 //     canonical-only dedup policy, and the same atomic dedup-or-create
 //   • JOB_STORE_INVALID_STATUS — rejected on the way in, before any lookup,
@@ -18,6 +20,7 @@
 
 import type { Job, JobEvent, JobStatus } from './job'
 import type { JobQueryFilter, JobStore, Unsubscribe } from './job-store'
+import { illegalTransitionError, lifecycleEvent, nextJobState } from './job-state'
 
 const VALID_STATUSES: readonly JobStatus[] = [
   'queued',
@@ -40,43 +43,6 @@ function assertJobStatus(status: unknown): asserts status is JobStatus {
 // returns the same narrow `JobKind` for an unset key.
 function normalizeJobKind(job: Job): Job {
   return job.jobKind === undefined ? { ...job, jobKind: 'pattern' } : job
-}
-
-/**
- * Decide which JobEvent type matches a status transition. The store always
- * carries a snapshot of the post-transition Job, so subscribers never need
- * to refetch. Returns null when the update doesn't map to any meaningful
- * event (e.g. a backward transition into 'queued').
- *
- * Progress / artifact signals are NOT produced here; those come from
- * provider-side CallEvents in
- * the runtime. The store only emits lifecycle transitions and the
- * column-level 'job:output' update.
- */
-function eventForTransition(prev: JobStatus | null, next: Job): JobEvent | null {
-  // First write — Job appeared as 'queued'.
-  if (prev === null) return { type: 'job:submitted', job: next }
-  if (prev === next.status) {
-    // Same-status row update (an output write before running -> done lands, or
-    // a metadata patch). Surface as 'job:output'; 'job:progress' is reserved
-    // for real provider-fraction signals fed through CallEvents.onProgress.
-    return { type: 'job:output', job: next }
-  }
-  switch (next.status) {
-    case 'running':
-      return { type: 'job:started', job: next }
-    case 'done':
-      return { type: 'job:completed', job: next }
-    case 'error':
-      return { type: 'job:failed', job: next }
-    case 'cancelled':
-      return { type: 'job:cancelled', job: next }
-    case 'stale':
-      return { type: 'job:stale', job: next }
-    // Backward transition into 'queued' from another status is degenerate.
-    default:
-      return null
-  }
 }
 
 /**
@@ -127,9 +93,16 @@ export class InMemoryJobStore implements JobStore {
     // normalizeJobKind also folds an omitted jobKind to 'pattern' the same way
     // the sqlite DEFAULT does, so reads + emitted events stay store-agnostic.
     const stored = normalizeJobKind({ ...job })
+    // Route the first write through the state machine too, so this store has
+    // exactly one door to it. `prev === null` is legal from any status, but
+    // saying so here rather than inlining 'job:submitted' is what keeps the
+    // knowledge in one file.
+    const first = nextJobState(null, stored.status)
+    if (!first.ok) {
+      throw illegalTransitionError(stored.id, null, stored.status, first.reason)
+    }
     this.jobs.set(stored.id, stored)
-    const event = eventForTransition(null, stored)
-    if (event) this.emit(event)
+    this.emit(lifecycleEvent(first.event, stored))
     return { ...stored }
   }
 
@@ -146,9 +119,14 @@ export class InMemoryJobStore implements JobStore {
       updatedAt: patch.updatedAt ?? Date.now(),
     })
     assertJobStatus(merged.status)
+    // Legality before persistence: a refused write must leave no trace, so both
+    // the map write and the fanout sit behind this check.
+    const transition = nextJobState(prevStatus, merged.status)
+    if (!transition.ok) {
+      throw illegalTransitionError(id, prevStatus, merged.status, transition.reason)
+    }
     this.jobs.set(id, merged)
-    const event = eventForTransition(prevStatus, merged)
-    if (event) this.emit(event)
+    this.emit(lifecycleEvent(transition.event, merged))
   }
 
   async conditionalUpdate(
@@ -170,9 +148,16 @@ export class InMemoryJobStore implements JobStore {
       updatedAt: patch.updatedAt ?? Date.now(),
     })
     assertJobStatus(merged.status)
+    // The ifStatus guard answers "is this still the row I meant?"; it does not
+    // make the move legal. A matched guard still goes through the state
+    // machine, and a refusal throws rather than returning false — false means
+    // "the row moved on", which a caller retries; an illegal move is a bug.
+    const transition = nextJobState(prevStatus, merged.status)
+    if (!transition.ok) {
+      throw illegalTransitionError(id, prevStatus, merged.status, transition.reason)
+    }
     this.jobs.set(id, merged)
-    const event = eventForTransition(prevStatus, merged)
-    if (event) this.emit(event)
+    this.emit(lifecycleEvent(transition.event, merged))
     return true
   }
 

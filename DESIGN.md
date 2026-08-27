@@ -292,12 +292,16 @@ never re-attached or re-run." The contract makes that a rule for every
 substrate: "This is abandonment with bookkeeping, on every substrate: a
 substrate that can genuinely resume lost work should expose that as its own
 call rather than hiding resumption behind this one, so a caller can always read
-the returned rows as dead." The cost: there is no durable queue, and a parked
-`ctx.askUser` does not survive a restart either.
+the returned rows as dead." "Terminal" there is enforced rather than asserted:
+`nextJobState` refuses every move out of `stale` — out of any of the four
+settlements — so a store cannot quietly write an abandoned row back to
+`running` and re-present dead work as live. The cost: there is no durable
+queue, and a parked `ctx.askUser` does not survive a restart either.
 **Instead.** Call `abandonOrphanedJobs()` at process start, subscribe to
 `job:stale`, and resubmit what matters — idempotency makes a resubmit cheap
 when the prior row succeeded.
 **Where.** `packages/orchestral-core/src/runtime.ts` (DESIGN: abandonment-with-bookkeeping);
+`packages/orchestral-core/src/job-state.ts` (DESIGN: terminal-status-never-moves);
 `packages/orchestral-runtime/CHANGELOG.md` (DESIGN: changelog-no-durable-queue);
 `packages/orchestral-runtime/src/__tests__/abandon-orphaned-jobs.test.ts` ("transitions orphaned running/queued rows to stale and returns them").
 
