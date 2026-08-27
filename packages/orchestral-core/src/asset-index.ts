@@ -33,7 +33,8 @@ export function mintHandle(modality: AssetKind, priorCountOfModality: number): s
  * rather than the AssetKind set, so no kind name is spelled out here and a
  * new kind needs no edit.
  *
- * Module-level export for asset-store.ts; not re-exported from index.ts.
+ * Module-level export for its own unit tests; the ledgers reach this rule
+ * through mintNext. Not re-exported from index.ts.
  */
 export function parseMintedHandle(handle: string, modality: AssetKind): number | undefined {
   const prefix = `${modality}_`
@@ -59,7 +60,8 @@ export function parseMintedHandle(handle: string, modality: AssetKind): number |
  * repair the ledger without regexing the message. Order in `assetIds` is
  * binding order: the asset that held the handle first, then the one refused.
  *
- * Module-level export for asset-store.ts; not re-exported from index.ts.
+ * Module-level export for its own unit tests; the ledgers reach this rule
+ * through mintNext. Not re-exported from index.ts.
  */
 export function handleCollisionError(
   handle: string,
@@ -73,6 +75,56 @@ export function handleCollisionError(
     ),
     { code: 'HANDLE_COLLISION', details: { handle, modality, assetIds: [first, second] } },
   )
+}
+
+/**
+ * The handle-minting rule, in one place. Both ledgers call it: buildAssetIndex
+ * below (replaying a host's persisted records) and InMemoryAssetStore.record
+ * (the live write path). A durable host replays the store's records through
+ * the index, so the two cannot be allowed to disagree — and the only way to
+ * guarantee that is for there to be one rule, not two that must be kept equal.
+ *
+ * Three rules, in this order:
+ * - a supplied handle that replays one of OUR mints for this modality
+ *   (`image_2`) pins `seq` to that ordinal and pulls the count up to it, so the
+ *   next fresh mint lands past it instead of on top of it. Advancing by count
+ *   alone was the bug: replay `image_2` into an empty ledger, mint once, and
+ *   the fresh mint is `image_2` too — the replayed asset vanishes behind it
+ *   with no symptom.
+ * - any other supplied name (`cat.png`, `hero-shot`, an assetId, another
+ *   modality's mint) is opaque and takes the next slot, exactly as an
+ *   unannotated event would
+ * - a handle already bound to a DIFFERENT asset is HANDLE_COLLISION, thrown
+ *   before anything is returned, so a caller that mutates only on success
+ *   leaves its store exactly as it was
+ *
+ * `boundAssetIdOf` is a lookup rather than a value because the handle to look
+ * up is what this function computes; passing a value would put half the rule
+ * back in both callers. It is still pure — same inputs, same result.
+ *
+ * `nextCount` is the caller's new high-water mark for this modality; the caller
+ * owns where that number lives (a Map keyed by modality, or by context and
+ * modality), which is the only thing left that differs between the two.
+ *
+ * Module-level export for asset-store.ts; not re-exported from index.ts.
+ */
+export function mintNext(args: {
+  priorCount: number
+  modality: AssetKind
+  assetId: string
+  supplied: string | undefined
+  /** Current owner of a candidate handle in the caller's ledger, or undefined if free. */
+  boundAssetIdOf?: (handle: string) => string | undefined
+}): { handle: string; seq: number; nextCount: number } {
+  const { priorCount, modality, assetId, supplied } = args
+  const replayed = supplied === undefined ? undefined : parseMintedHandle(supplied, modality)
+  const seq = replayed ?? priorCount + 1
+  const handle = supplied ?? mintHandle(modality, priorCount)
+  const bound = args.boundAssetIdOf?.(handle)
+  if (bound !== undefined && bound !== assetId) {
+    throw handleCollisionError(handle, modality, bound, assetId)
+  }
+  return { handle, seq, nextCount: Math.max(priorCount, seq) }
 }
 
 /**
@@ -101,25 +153,21 @@ export function buildAssetIndex(events: ReadonlyArray<AssetEvent>): AssetIndex {
   for (const e of sorted) {
     const m = e.annotation.modality
     const prior = counts.get(m) ?? 0
-    const supplied = e.annotation.handle
-    // A replayed mint pins its own ordinal; everything else takes the next
-    // slot. Advancing by event count alone was the bug: replay `image_2` into
-    // an empty ledger, then mint once, and the fresh mint is `image_2` too —
-    // the replayed asset vanishes behind it with no symptom.
-    const replayed = supplied === undefined ? undefined : parseMintedHandle(supplied, m)
-    const sequence = replayed ?? prior + 1
-    counts.set(m, Math.max(prior, sequence))
+    const { handle, seq, nextCount } = mintNext({
+      priorCount: prior,
+      modality: m,
+      assetId: e.annotation.assetId,
+      supplied: e.annotation.handle,
+      boundAssetIdOf: (h) => byHandle.get(h)?.assetId,
+    })
+    counts.set(m, nextCount)
     const entry: AssetLedgerEntry = {
-      handle: supplied ?? mintHandle(m, prior),
+      handle,
       assetId: e.annotation.assetId,
       modality: m,
-      sequence,
+      sequence: seq,
       ...(e.annotation.label !== undefined ? { label: e.annotation.label } : {}),
       ...(e.batchId !== undefined ? { batchId: e.batchId } : {}),
-    }
-    const prev = byHandle.get(entry.handle)
-    if (prev !== undefined && prev.assetId !== entry.assetId) {
-      throw handleCollisionError(entry.handle, m, prev.assetId, entry.assetId)
     }
     byHandle.set(entry.handle, entry) // same asset: later (higher orderHint) wins
     ordered.push(entry)

@@ -4,7 +4,7 @@
 // InMemoryAssetStore uses an in-process Map (dev/test only — dropped when the
 // process exits). This mirrors the "interface + default implementation"
 // layering of JobStore / TranscriptStore.
-import { handleCollisionError, mintHandle, parseMintedHandle } from './asset-index'
+import { mintNext } from './asset-index'
 import type { AssetKind } from './asset-index.types'
 
 /**
@@ -115,17 +115,13 @@ export class InMemoryAssetStore implements AssetStore {
   }
 
   /**
-   * Mint a seq + handle for a referenceable asset (advances the count). A
-   * supplied value wins (capability off / upload filename). Same rules as
-   * buildAssetIndex, because a durable host replays this store's records
-   * through that function and the two must agree:
-   * - a supplied handle that replays one of our own mints for this modality
-   *   (`image_2`) pins seq to that ordinal and pulls the counter up to it, so
-   *   the next fresh mint lands past it instead of on top of it
-   * - any other supplied name (`cat.png`, an assetId) takes the next slot
-   * - a supplied handle already bound to a DIFFERENT asset in this context is
-   *   HANDLE_COLLISION. Checked before anything is written, so a refused
-   *   record leaves the store exactly as it was.
+   * Mint a seq + handle for a referenceable asset (advances the count). The
+   * rule itself is mintNext in asset-index.ts — one rule, called from both
+   * ledgers — and all that is left here is where this store keeps its two
+   * numbers: the per-(context, modality) high-water mark, and the handle→record
+   * binding mintNext checks against. Nothing is written unless the mint is
+   * accepted, so a refused record (HANDLE_COLLISION) leaves the store exactly
+   * as it was.
    */
   private mint(
     contextId: string,
@@ -135,14 +131,14 @@ export class InMemoryAssetStore implements AssetStore {
   ): { seq: number; handle: string } {
     const mk = `${contextId}::${modality}`
     const prior = this.mintCount.get(mk) ?? 0
-    const replayed = supplied === undefined ? undefined : parseMintedHandle(supplied, modality)
-    const seq = replayed ?? prior + 1
-    const handle = supplied ?? mintHandle(modality, prior)
-    const bound = this.byHandle.get(this.handleKey(contextId, handle))
-    if (bound !== undefined && bound.assetId !== assetId) {
-      throw handleCollisionError(handle, modality, bound.assetId, assetId)
-    }
-    this.mintCount.set(mk, Math.max(prior, seq))
+    const { handle, seq, nextCount } = mintNext({
+      priorCount: prior,
+      modality,
+      assetId,
+      supplied,
+      boundAssetIdOf: (h) => this.byHandle.get(this.handleKey(contextId, h))?.assetId,
+    })
+    this.mintCount.set(mk, nextCount)
     return { seq, handle }
   }
 
