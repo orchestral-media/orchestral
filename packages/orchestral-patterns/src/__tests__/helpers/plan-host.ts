@@ -13,8 +13,6 @@
 // Not a test file (no `.test.ts` suffix) — vitest's include pattern skips it.
 
 import {
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
   silentDiagnosticsLogger,
   type Capability,
@@ -26,6 +24,8 @@ import {
   type Pattern,
   type PatternId,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import { InlineRuntime, type InlineRuntimeInit } from '@orchestral/runtime'
 import { MODEL_SPEC_VERSION } from '@orchestral/core'
 import { vi, type MockInstance } from 'vitest'
@@ -305,12 +305,12 @@ export interface PlanHostInit {
 
 export function makePlanHost(init: PlanHostInit = {}): PlanHost {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextGenerationPattern())
-  registry.add(createTextToImagePattern())
-  registry.add(createImageToVideoPattern())
-  registry.add(createImageToTextPattern())
-  if (init.bestOfN === true) registry.add(createImageBestOfNMeta())
-  for (const pattern of init.extra ?? []) registry.add(pattern)
+  registry.register(createTextGenerationPattern())
+  registry.register(createTextToImagePattern())
+  registry.register(createImageToVideoPattern())
+  registry.register(createImageToTextPattern())
+  if (init.bestOfN === true) registry.register(createImageBestOfNMeta())
+  for (const pattern of init.extra ?? []) registry.register(pattern)
 
   const models = createMockModels(
     init.latencyMs === undefined ? {} : { latencyMs: init.latencyMs },

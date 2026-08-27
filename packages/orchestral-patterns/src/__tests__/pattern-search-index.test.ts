@@ -31,7 +31,7 @@ function freshRegistry(patterns: readonly Pattern[]): PatternRegistry {
   for (const p of patterns) {
     // PatternRegistry.add expands variants/alternatives into getEntry attachments.
     // factories return PatternBase subclasses that satisfy it.
-    registry.add(p as never)
+    registry.register(p as never)
   }
   return registry
 }

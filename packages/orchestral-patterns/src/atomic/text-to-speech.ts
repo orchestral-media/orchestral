@@ -90,6 +90,7 @@ export function createTextToSpeechPattern(
     // of those words spoken, and `voiceClone` has no counterpart there (that
     // pattern declares no assetNeeds at all). No `losses` entry can state that
     // honestly — what goes missing is speech itself, which is the capability.
+    // DESIGN: tts-no-fallback
     alternatives: init.alternatives,
     // voiceClone (optional single audio); opt-in via UI, no auto-follow.
     assetNeeds: ASSET_NEEDS,

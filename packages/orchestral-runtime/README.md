@@ -61,7 +61,10 @@ example.
 - **Every output is held to its schema.** At the dispatch exit, an atomic or
   meta output that `pattern.outputs` rejects fails the job with
   `OUTPUT_SCHEMA_MISMATCH`; `error.details` names the pattern and the zod
-  issues and carries `rawOutput`, since the call was already paid for. A
+  issues and carries `rawOutput`, since the call was already paid for. An
+  output a middleware short-circuits with meets the same gate whatever the
+  Pattern's kind — it stands in for what an adapter would have returned, and no
+  finish tool ran there to have checked it. A
   conforming output is returned as the adapter produced it — unknown keys and
   all — never zod's parsed copy. `InlineRuntimeInit.outputValidation: 'off'`
   skips the check, for a migration window over adapters the host does not
@@ -137,6 +140,8 @@ Comparable orchestration libraries surveyed at the time of writing all fail
 explicitly here and leave the substitution to the caller; so does this one, by
 default.
 
+<!-- DESIGN: readme-alternatives-off-by-default -->
+
 What you get instead is a failure that names the paths you turned down. When the
 capability cannot be served **and** a declared alternative's `appliesWhen`
 matches, the job fails with a structured `JobError`:
@@ -187,13 +192,44 @@ Two boundaries worth knowing:
   is the actionable one there, so it is rethrown verbatim rather than restated
   as a routing-policy code.
 
+## Retrieval is a seam, so `find_pattern` is conditional
+
+This runtime ships no search and depends on no search library. An agent loop
+gets a `find_pattern` tool only when the host injects something that can answer
+one:
+
+```ts
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
+
+const runtime = new InlineRuntime({
+  store, registry, router, agentRunImpl,
+  patternSearch: createPatternSearch(registry, { router }),
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
+})
+```
+
+`patternSearch` is a `PatternSearch` (the contract lives in
+`@orchestral/core`), so a host on its own embeddings or a hosted search service
+implements it instead — the same shape of decision `agentRunImpl` and
+`ModelCapability.call` already leave to the host.
+
+Leave it out — the default — and the loop's catalog is its always-load inline
+core plus `dispatch_pattern`, with no `find_pattern` descriptor at all, and the
+guards below stop pointing the model at a tool it does not have. An agent whose
+`loop.toolPatternIds` are all `exposureMode: 'always-load'` is unaffected: those
+Patterns are direct tools and were never reached by searching. An agent that was
+meant to discover Patterns will not — advertising a tool whose only possible
+answer is "no retrieval wired" spends prompt-prefix bytes and buys a round-trip
+the model cannot complete.
+
 ## Refused agent tool calls are observable
 
 An agent loop can name any registered pattern id — with two-stage discovery it
-only ever sees `find_pattern` and `dispatch_pattern`, so the catalog cannot
-express "you may not call X". Three guards enforce that at dispatch time, in
-order: the ancestor cycle check, the `loop.toolPatternIds` allowlist, and the
-default sub-agent blocklist.
+sees only the router tools (`dispatch_pattern`, plus `find_pattern` when a
+`patternSearch` seam is wired), so the catalog cannot express "you may not call
+X". Three guards enforce that at dispatch time, in order: the ancestor cycle
+check, the `loop.toolPatternIds` allowlist, and the default sub-agent
+blocklist.
 
 A refusal is **not** a failed job. The guard returns a structured tool-result so
 the loop reads it and picks a different `pattern_id`; the job still settles
@@ -236,6 +272,20 @@ to the verdict that caused it. Two boundaries:
   message kind is `tool-result`, so recording one would add `role: 'tool'` turns
   to the resume seed and change what a resumed model sees. The event stream
   carries the audit trail; resume stays as described below.
+
+An unsatisfiable allowlist is the opposite case, and it fails the job:
+`AGENT_TOOL_PATTERN_NOT_REGISTERED` is thrown while the tool catalog is being
+built, before the loop starts, when `loop.toolPatternIds` names a pattern id
+the registry does not have. The error names the agent and the missing ids —
+register those Patterns, or narrow the allowlist. It is not a refusal because
+there is no model to hand it to and nothing for a model to do differently: a
+refusal answers a call the LLM chose to make, while this answers a declaration
+its author wrote. Skipping the absent id instead would shrink the catalog under
+an unchanged system prompt, so the agent keeps being told to use tools it does
+not have and finds out one wasted turn at a time. Blocklisted ids are the
+exception and are skipped silently — a blocked id was never going to be callable
+whether or not it is registered, so naming one is an authoring no-op rather than
+an unmet declaration.
 
 ## Resume fidelity
 

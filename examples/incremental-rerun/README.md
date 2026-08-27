@@ -187,7 +187,8 @@ interrupted work re-runs rather than returning a half-finished row.
 ## What's host territory vs. what ships in the box
 
 - **`JobStore` and `CapabilityRouter`** are the zero-dependency defaults,
-  `InMemoryJobStore` and `createDefaultCapabilityRouter`. Nothing to implement;
+  `InMemoryJobStore` (`@orchestral/core/memory`) and
+  `createDefaultCapabilityRouter` (`@orchestral/core/routing`). Nothing to implement;
   the dedup lives in the store contract every host implementation must honour.
 - **`ModelCapability.call`** is host territory. Here it is three mocks in
   [`src/mock-models.ts`](./src/mock-models.ts); in a real host it is the

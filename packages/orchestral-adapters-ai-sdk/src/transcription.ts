@@ -14,6 +14,7 @@ import {
   buildRecord,
   dispatchEnvelope,
   providerOptionsFor,
+  requireSourceAsset,
   resolveIdentity,
 } from './envelope'
 
@@ -81,14 +82,13 @@ export function fromTranscriptionModel(
     }),
     async call<I, O>(input: I, ctx: DispatchContext): Promise<DispatchResult<O>> {
       const fields = asRecord(input)
-      const source = ctx.assets?.find((ref) => ref.slot === SOURCE_SLOT)
-      if (!source) {
-        throw new Error(
-          `automatic-speech-recognition call: no resolved asset in slot "${SOURCE_SLOT}" on ctx.assets — the runtime fills it from input.references.${SOURCE_SLOT}`,
-        )
-      }
-      const audio = await options.loadAudio(source, ctx)
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const audio = await requireSourceAsset<AudioSource>(
+        ctx,
+        SOURCE_SLOT,
+        { name: 'loadAudio', load: options.loadAudio },
+        'automatic-speech-recognition',
+      )
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const startedAt = Date.now()
       const result = await transcribe({

@@ -3,8 +3,14 @@
 // or as inline blocks (parseJsonWithSchema) across the meta/*/index.ts files.
 // One copy here keeps them from drifting apart.
 
-import { z } from 'zod'
-import { boundedText, producedAssetShape, type ProducedAssetModality } from '@orchestral/core'
+import type { z } from 'zod'
+import { boundedText, producedAssetShape, toJsonSchema, type ProducedAssetModality } from '@orchestral/core'
+
+// `sumCosts` moved to @orchestral/core, next to `metaEnvelopeShape.cost` whose
+// null rule it implements — @orchestral/plan's interpreter aggregates the same
+// way and must not carry a second copy. Re-exported so this package's surface
+// and every `import { sumCosts } from '../_shared/meta-utils'` are unchanged.
+export { sumCosts } from '@orchestral/core'
 
 // Schemas passed here are module-level constants, so this cache is effectively
 // a per-schema compute-once — the same object identity recurs every call.
@@ -18,12 +24,13 @@ const jsonSchemaCache = new WeakMap<z.ZodType, unknown>()
  * as immutable. Mutating the result poisons the cache for the process
  * lifetime, including the copies the shipped metas feed to text-generation.
  * (Named `-Cached` to keep it distinct from `@orchestral/core`'s uncached
- * `toJsonSchema`, which has a different return type.)
+ * `toJsonSchema`, which this now wraps — the memo is the only thing this adds,
+ * so the bytes are core's, not a second rendering of them.)
  */
 export const toJsonSchemaCached = (s: z.ZodType): unknown => {
   const cached = jsonSchemaCache.get(s)
   if (cached !== undefined) return cached
-  const rendered = z.toJSONSchema(s, { target: 'draft-2020-12' })
+  const rendered = toJsonSchema(s)
   jsonSchemaCache.set(s, rendered)
   return rendered
 }
@@ -134,39 +141,6 @@ export function assetIdByLabel(
     throw new Error(`${errLabel} produced no asset labelled "${label}"`)
   }
   return hit.assetId
-}
-
-/**
- * Total the `cost` values a compose() has collected from its sub-steps. Every
- * envelope's `cost` is `number | null` — `null` meaning the adapter behind that
- * call did not report one — and the aggregate keeps that distinction:
- *
- * - If ANY input is `null`, the result is `null`. A partial sum is more
- *   dangerous than no sum: it renders as a confident small number, which a
- *   host reads as the real total of a run that was in fact unpriced.
- * - `undefined` counts as 0 — a sub-step that did not run, or a value that was
- *   never a cost field, adds nothing.
- * - NaN / Infinity from a buggy adapter also count as 0. The runtime does not
- *   zod-validate dispatch outputs, so this is the last line of defence against
- *   one bad value poisoning every parent meta's aggregate.
- *
- * Takes an array rather than variadics so the call reads as what it is —
- * `sumCosts([a.cost, ...bs.map((b) => b.cost)])` — and a sub-total that is
- * already `number | null` feeds straight back in. Kept intentionally dumb — no
- * latency logic (metas measure wall time with Date.now() locally).
- */
-export function sumCosts(
-  costs: readonly (number | null | undefined)[],
-): number | null {
-  let total = 0
-  for (const cost of costs) {
-    if (cost === null) return null
-    // Number.isFinite guards NaN/Infinity from a buggy adapter — `?? 0` alone
-    // would let a single NaN poison the whole aggregate (and every parent meta
-    // summing it).
-    if (typeof cost === 'number' && Number.isFinite(cost)) total += cost
-  }
-  return total
 }
 
 /**

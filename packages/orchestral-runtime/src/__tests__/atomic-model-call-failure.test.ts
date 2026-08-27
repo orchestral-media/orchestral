@@ -35,10 +35,10 @@ import type {
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
-  ModelExcludedError,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
+import { ModelExcludedError } from '@orchestral/core/routing'
 
 import { InlineRuntime } from '../inline'
 

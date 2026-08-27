@@ -59,7 +59,9 @@ repo's `pnpm test:run`.
 ## What's host territory vs. what ships in the box
 
 - **`JobStore` and `CapabilityRouter`** use the zero-dependency defaults
-  (`InMemoryJobStore`, `createDefaultCapabilityRouter`). Nothing to implement.
+  (`InMemoryJobStore` from `@orchestral/core/memory`,
+  `createDefaultCapabilityRouter` from `@orchestral/core/routing`). Nothing to
+  implement.
 - **The tool's `ModelCapability.call`** (text-to-image) is
   `@orchestral/adapters-ai-sdk`'s `fromImageModel`, wrapped by the host-local
   [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts) exactly as in the atomic

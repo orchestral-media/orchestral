@@ -23,7 +23,8 @@ import type {
   ModelCapability,
   Modality,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 import { createTextGenerationPattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 
@@ -124,14 +125,14 @@ let registry: PatternRegistry
 beforeEach(() => {
   captured = []
   registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(
+  registry.register(
     createTextGenerationPattern() as unknown as Parameters<
-      typeof registry.add
+      typeof registry.register
     >[0],
   )
-  registry.add(
+  registry.register(
     createScriptPlanningMeta() as unknown as Parameters<
-      typeof registry.add
+      typeof registry.register
     >[0],
   )
 

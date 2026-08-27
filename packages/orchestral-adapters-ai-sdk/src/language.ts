@@ -101,7 +101,7 @@ export function fromLanguageModel(
       const topK = optionalNumber(fields, 'topK')
       const stopSequences = optionalStringArray(fields, 'stopSequences')
       const structured = readStructuredOutput(fields, 'text-generation')
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const startedAt = Date.now()
       const result = await generateText({

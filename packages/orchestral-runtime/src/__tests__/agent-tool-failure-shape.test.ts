@@ -31,16 +31,19 @@ import { z } from 'zod'
 import type {
   AgentPattern,
   CapabilityRouter,
+  ExecutionContext,
   MetaPattern,
   Modality,
   ModelCapability,
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
-  InMemoryTranscriptStore,
   PatternRegistry,
 } from '@orchestral/core'
+import {
+  InMemoryJobStore as MemoryJobStore,
+  InMemoryTranscriptStore,
+} from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 import type { AgentRunImpl } from '../agent-run'
@@ -378,5 +381,78 @@ describe('what still throws', () => {
     // The loop died where the throw happened: no tool result, no finish.
     expect(trace.results).toEqual([])
     expect(trace.finished).toBe(false)
+  })
+
+  it('a child the HOST cancelled directly also kills the loop, instead of coming back as a tool result', async () => {
+    // The cascade case above aborts the AGENT's signal, so `signal.aborted`
+    // answers before any error code is read. This is the case with only the
+    // code to go on: `cancelJob(childJobId)` aborts the child's controller and
+    // nothing else, so the parent's signal is clear and the thrown CANCELLED
+    // must carry `.code` to reach CHILD_FAILURE_RETHROWN_CODES. A bare
+    // `new Error('CANCELLED')` normalises to DISPATCH_EXECUTE_FAILED, the loop
+    // is handed SUBAGENT_TOOL_FAILED, and the model is invited to retry work
+    // the host just cancelled.
+    let releaseChild!: () => void
+    const childGate = new Promise<void>((r) => {
+      releaseChild = r
+    })
+    let enteredChild!: () => void
+    const childEntered = new Promise<void>((r) => {
+      enteredChild = r
+    })
+
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
+    registry.register(
+      {
+        id: 'meta_child',
+        kind: 'meta',
+        description: 'child the host cancels directly',
+        tool: { description: 'run the child', inputs: PROMPT_INPUT },
+        outputs: z.object({ ok: z.boolean() }),
+        // Parks on the gate, then touches ctx.compute: the abort guard at the
+        // top of runWithRetry is what throws once the cancel has landed.
+        async compose(_args: { input: unknown }, ctx: ExecutionContext) {
+          enteredChild()
+          await childGate
+          return ctx.compute('after-gate', async () => ({ ok: true }))
+        },
+      } as unknown as MetaPattern,
+    )
+    registry.register(callerAgent() as never)
+    const trace: LoopTrace = { results: [], finished: false }
+    const store = new MemoryJobStore()
+    const ids: string[] = []
+    const runtime = new InlineRuntime({
+      store: store as never,
+      registry,
+      router: makeRouter(),
+      agentRunImpl: makeRunImpl(['go'], trace),
+      logger: silentDiagnosticsLogger,
+      onJobCreated: (id) => ids.push(id),
+    })
+
+    const pending = runtime.submitJob({
+      patternId: 'agent_caller',
+      input: { prompt: 'start' },
+    })
+    await childEntered
+    // onJobCreated fires per dispatch in creation order: [agent, child].
+    expect(ids).toHaveLength(2)
+    const [agentJobId, childJobId] = ids
+
+    // Only the CHILD is cancelled — the agent's own controller is untouched.
+    await runtime.cancelJob(childJobId!)
+    releaseChild()
+    const job = await pending
+
+    expect((await store.get(childJobId!))?.status).toBe('cancelled')
+    // The loop died where the throw happened: no tool result, no finish.
+    expect(trace.results).toEqual([])
+    expect(trace.finished).toBe(false)
+    // The parent was not cancelled itself, so it fails — carrying the child's
+    // code rather than a generic dispatch failure.
+    expect(job.id).toBe(agentJobId)
+    expect(job.status).toBe('error')
+    expect(job.error?.code).toBe('CANCELLED')
   })
 })

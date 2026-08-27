@@ -52,6 +52,7 @@ type FirstPartyCapability = LiteralsOf<Capability>
 // the export rejects a union literal that is not an entry (the type collapses
 // to `never`, which the list cannot be assigned to). A literal added to one
 // and not the other therefore fails to compile on these lines.
+// DESIGN: capability-union-list-lock
 const FIRST_PARTY_CAPABILITY_LIST = [
   'text-generation',
   'summarization',

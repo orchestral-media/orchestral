@@ -24,7 +24,7 @@ import {
 
 function freshRegistry(patterns: readonly Pattern[]): PatternRegistry {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  for (const p of patterns) registry.add(p as never)
+  for (const p of patterns) registry.register(p as never)
   return registry
 }
 

@@ -32,6 +32,16 @@ export type NamespaceId =
   | (string & {}) // host extension escape hatch
 
 /**
+ * The shape of a sub-agent blocklist. Named so the guards that judge against
+ * one can spell their parameter, and so a host widening the default has a type
+ * to widen it into.
+ */
+export interface SubagentBlocklist {
+  readonly idPrefixes: readonly string[]
+  readonly patternIds: readonly PatternId[]
+}
+
+/**
  * Default blocklist that prevents sub-agent recursion.
  *
  * Every `dispatchAgent` entry point adds these Pattern ids / prefixes to the
@@ -47,19 +57,45 @@ export type NamespaceId =
  * the two must be changed together, and third-party agent authors MUST keep
  * the prefix.
  *
- * To let a sub-agent see a grand-agent, a Pattern author must opt in
- * explicitly via their own `loop.toolPatternIds`, overriding the default block
- * (see the catalog-builder allowOnly precedence).
+ * A Pattern author cannot opt back in. Listing an `agent_` id in
+ * `loop.toolPatternIds` narrows that agent's allowlist; it does not override
+ * this block, and `dispatchAgent` refuses such a call with SUBAGENT_BLOCKED
+ * whether or not it was listed. Letting a sub-agent see a grand-agent means
+ * judging against a different blocklist — this value is the only thing the
+ * guards read.
  *
  * Same idea as denylisting the agent-dispatch tool itself to stop a sub-agent
  * from spawning further agents.
+ * DESIGN: subagent-blocklist-prefix
  */
-export const DEFAULT_SUBAGENT_BLOCKLIST: {
-  readonly idPrefixes: readonly string[]
-  readonly patternIds: readonly PatternId[]
-} = {
+export const DEFAULT_SUBAGENT_BLOCKLIST: SubagentBlocklist = {
   idPrefixes: ['agent_'],
   patternIds: [],
+}
+
+/**
+ * Judge one Pattern id against a sub-agent blocklist — the single executable
+ * spelling of the prefix contract documented above.
+ *
+ * Three guards need this answer (the static catalog exclusion, the direct
+ * dispatch guard, and the declared-inner-dispatch guard, all in
+ * @orchestral/runtime's agent-dispatch), and each carried its own copy of the
+ * same two-line expression. A prefix rule that is "a normative contract, not a
+ * coincidence of naming" cannot live in three places, because a fourth path
+ * added later has three things to imitate and one of them to miss.
+ *
+ * The return value is exactly the `matched` field `job:tool-rejected` already
+ * reports, so a guard names the half that fired rather than recomputing it. A
+ * prefix hit wins over an exact-id hit: an id can be both, and the prefix is
+ * the broader statement about why it is refused.
+ */
+export function matchSubagentBlocklist(
+  id: PatternId,
+  blocklist: SubagentBlocklist = DEFAULT_SUBAGENT_BLOCKLIST,
+): 'prefix' | 'id' | null {
+  if (blocklist.idPrefixes.some((prefix) => id.startsWith(prefix))) return 'prefix'
+  if (blocklist.patternIds.includes(id)) return 'id'
+  return null
 }
 
 /**
@@ -106,6 +142,7 @@ const CAPABILITY_NAMESPACE: Readonly<Record<string, NamespaceId>> = {
  *
  * Naming prefix: underscore rather than colon — the tool-name regex
  * `[a-zA-Z0-9_-]` most providers enforce does not accept colons.
+ * DESIGN: infer-namespace-by-prefix
  */
 export function inferNamespace(id: PatternId): NamespaceId {
   if (id.startsWith('agent_')) return 'sub-agents'

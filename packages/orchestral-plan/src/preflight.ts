@@ -10,23 +10,27 @@
 //   if (report.problems.length) return showProblems(report.problems)
 //   if (await askUser.confirm({ body: formatPlanPreflight(report) })) submitJob(…)
 //
-// Why it lives in the runtime and not beside `validatePlan` in core, which is
-// where the rest of the plan contract is: it needs two things core cannot
-// reach.
+// It lives beside `validatePlan`, which it runs first, and beside the level
+// grouping the interpreter schedules with — one function, so a preflight can
+// never draw different stages than the run executes.
 //
-//   • The `ResolveContext` routing actually runs with comes from the HOST, as
-//     `InlineRuntimeInit.resolveCtxProvider: (spec: JobSpec) => ResolveContext`
-//     (inline.ts) — a runtime-owned seam. A preflight that made up its own
-//     empty ctx would silently drop the host's pins, rankings and exclusions
-//     and report a different model than the run would pick.
-//   • `applicableAlternatives` (alternatives.ts) is runtime-internal — not on
-//     this package's barrel, let alone core's. Reporting "nothing serves this,
-//     but a declared path would have" means evaluating `appliesWhen` with the
-//     same machinery the dispatch path evaluates it with, or the report
+// Two things it needs are the host's, not this package's, and both arrive as
+// parameters rather than as a dependency on @orchestral/runtime:
+//
+//   • The `ResolveContext` routing actually runs with. The host hands the SAME
+//     `ResolveCtxProvider` it gave `InlineRuntimeInit.resolveCtxProvider`; a
+//     preflight that made up its own empty ctx would silently drop the host's
+//     pins, rankings and exclusions and report a different model than the run
+//     would pick.
+//   • Which declared alternative applies. `applicableAlternatives` is core's
+//     now (alternative-select.ts) — evaluating `appliesWhen` is a read of the
+//     registry and the router, and both the runtime's ALTERNATIVES_NOT_ENABLED
+//     diagnostic and this report have to read the same one or the report
 //     advertises a path that would never fire.
 //
-// Both directions of the dependency are one-way: `@orchestral/runtime` depends
-// on `@orchestral/core`, never the reverse.
+// The dependency arrow is one-way and unchanged: this package depends on
+// @orchestral/core and nothing else.
+// DESIGN: preflight-prices-nothing
 
 import type {
   Alternative,
@@ -40,26 +44,22 @@ import type {
   Pattern,
   PatternId,
   PatternRegistry,
-  PlanDag,
-  PlanProblem,
   ResolveContext,
+  ResolveCtxProvider,
   RoutingExplanation,
-  Semantics,
   UnavailabilityReason,
 } from '@orchestral/core'
 import {
-  PLAN_ASSET_REF_RE,
-  PLAN_VALUE_REF_RE,
-  validatePlan,
+  applicableAlternatives,
+  readRequiresSemantics,
+  toAvailableAlternative,
+  type AvailableAlternative,
 } from '@orchestral/core'
 import type { z } from 'zod'
 
-import {
-  applicableAlternatives,
-  toAvailableAlternative,
-  type AvailableAlternative,
-} from './alternatives'
-import type { ResolveCtxProvider } from './inline'
+import type { PlanDag } from './plan'
+import { planLevels } from './refs'
+import { validatePlan, type PlanProblem } from './validate'
 
 // ── The report ──────────────────────────────────────────────────────────
 
@@ -72,6 +72,7 @@ import type { ResolveCtxProvider } from './inline'
  * (DESIGN.md), under which the dispatch fails with ALTERNATIVES_NOT_ENABLED
  * naming this path rather than taking it. A report that said "will fall back"
  * to a host running the default would be wrong about the one thing it is for.
+ * DESIGN: preflight-alternative-would-fire
  */
 export type PreflightAlternative = AvailableAlternative & {
   wouldFire: boolean
@@ -235,7 +236,10 @@ function preflight(
     return { ok: false, problems, steps: [], levels: [], unsatisfiable: [] }
   }
 
-  const { levels, levelOf } = computeLevels(dag)
+  const { levels: levelBuckets, levelOf } = planLevels(dag)
+  // The report names stages by step id; the interpreter schedules the steps
+  // themselves. Same grouping, one function.
+  const levels = levelBuckets.map((bucket) => bucket.map((step) => step.id))
   const steps: PlanPreflightStep[] = dag.steps.map((step) => ({
     id: step.id,
     pattern: step.pattern as PatternId,
@@ -363,25 +367,6 @@ function unsatisfiableRouting(
   }
 }
 
-/**
- * TWIN of `readRequiresSemantics` in inline.ts, which is the dispatch path's
- * copy and the definition of record. Duplicated rather than imported: inline.ts
- * is a value module whose graph is `InlineRuntime` plus agent-dispatch plus
- * `@orchestral/discovery`, and the whole claim preflight makes is that it needs
- * no runtime to answer. Six defensive lines are the cheaper coupling.
- *
- * Keep the two identical. The rule: `requiresSemantics` is convention on a
- * Pattern's inputs, not schema — one `appliesWhen` member must not force a
- * field onto every Pattern's schema — so anything that is not an array of
- * strings means "nothing required", and nothing here throws.
- */
-function readRequiresSemantics(input: unknown): readonly Semantics[] {
-  if (typeof input !== 'object' || input === null) return []
-  const raw = (input as { requiresSemantics?: unknown }).requiresSemantics
-  if (!Array.isArray(raw)) return []
-  return raw.filter((s): s is Semantics => typeof s === 'string')
-}
-
 // ── Meta: opaque, with what it declared about itself ────────────────────
 
 function routeMeta(
@@ -408,8 +393,9 @@ function routeMeta(
 
   // A meta that is itself a plan carries its DAG on a `plan` field, beside
   // `origin: 'plan'`, so a catalog UI can draw it and preflight can recurse.
-  // Read structurally: the field is stamped by the interpreter in
-  // @orchestral/patterns, which the runtime does not depend on.
+  // Read structurally rather than through `PlanMetaPattern`: any host that
+  // stamps the same two fields gets the expansion, whether or not the meta came
+  // from `planToMeta` (interpreter.ts).
   if (depth === 0 && meta.origin === 'plan') {
     const nested = (meta as { plan?: unknown }).plan
     if (looksLikePlanDag(nested)) {
@@ -459,83 +445,11 @@ function looksLikePlanDag(value: unknown): value is PlanDag {
  * A `tool.inputs` that is a plain ZodObject can bind `$input.<field>`; anything
  * else (a `.superRefine`d schema, a union) cannot, and passing it would break
  * `validatePlan`'s rule 8 rather than switch it off. Same `_def.type`
- * introspection plan-validate and find_pattern do.
+ * introspection validate.ts and find_pattern do.
  */
 function isZodObject(schema: unknown): schema is z.ZodObject {
   return (
     (schema as { _def?: { type?: string } } | undefined)?._def?.type === 'object'
-  )
-}
-
-// ── Levels ──────────────────────────────────────────────────────────────
-
-/**
- * `level(step) = 1 + max(level(dep))` over the step's backward references; a
- * step that references nothing is level 0. Steps sharing a level run
- * concurrently.
- *
- * TWIN of the level loop in `planToMeta` (@orchestral/patterns), which is the
- * one that actually schedules. Duplicated, not imported, for two reasons:
- * `@orchestral/patterns` is a devDependency of this package (a src import would
- * be a broken dependency at publish), and the rule is fifteen lines. If the
- * interpreter's grouping ever changes, this changes with it — a preflight that
- * draws different stages than the run executes is worse than no stage count.
- *
- * Safe to compute unguarded because it runs only after `validatePlan` returned
- * clean: every ref is backward, every target exists, ids are unique. A cycle is
- * unrepresentable in the grammar (array order IS the topological order), so the
- * fold below terminates by construction.
- */
-function computeLevels(dag: PlanDag): {
-  levels: string[][]
-  levelOf: Map<string, number>
-} {
-  const levelOf = new Map<string, number>()
-  const levels: string[][] = []
-  for (const step of dag.steps) {
-    let level = 0
-    for (const dep of dependenciesOf(step)) {
-      const depLevel = levelOf.get(dep)
-      if (depLevel !== undefined) level = Math.max(level, depLevel + 1)
-    }
-    levelOf.set(step.id, level)
-    // A hole is impossible — a level-N step needs a level-(N-1) dependency, so
-    // every stage below N already has an occupant — but filling forward costs
-    // nothing and keeps `levels` dense whatever the caller hands in.
-    while (levels.length <= level) levels.push([])
-    levels[level]?.push(step.id)
-  }
-  return { levels, levelOf }
-}
-
-/** The step ids this step references, from `input` value refs and `assets`. */
-function dependenciesOf(step: PlanDag['steps'][number]): Set<string> {
-  const deps = new Set<string>()
-  const visit = (value: unknown, depth: number): void => {
-    if (depth > 64) return
-    if (typeof value === 'string') {
-      const head = refHead(value)
-      // `$input` is the plan's own parameters, not a step.
-      if (head !== undefined && head !== 'input') deps.add(head)
-      return
-    }
-    if (Array.isArray(value)) {
-      for (const entry of value) visit(entry, depth + 1)
-      return
-    }
-    if (typeof value === 'object' && value !== null) {
-      for (const entry of Object.values(value)) visit(entry, depth + 1)
-    }
-  }
-  visit(step.input, 0)
-  visit(step.assets, 0)
-  return deps
-}
-
-/** The producing step id of a whole-string reference, or undefined. */
-function refHead(value: string): string | undefined {
-  return (
-    PLAN_VALUE_REF_RE.exec(value)?.[1] ?? PLAN_ASSET_REF_RE.exec(value)?.[1]
   )
 }
 

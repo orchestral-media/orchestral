@@ -4,11 +4,9 @@
 // one a `ctx.step` call written down as `{ id, pattern, input, assets }` with
 // `$`-references between them. This module is the *contract* half of that: the
 // three ref regexes, the DAG the model writes, and the fixed output envelope
-// every plan returns. It lives here, beside the other wire schema the model
-// fills (`DispatchPatternInputSchema`, dispatch-pattern.ts), because core is
-// the contract package — the interpreter that walks this data (`planToMeta`)
-// lives in @orchestral/patterns, where the label / cost conventions it needs
-// already are.
+// every plan returns. It lives beside the interpreter that walks it
+// (interpreter.ts) and the walk that refuses it (validate.ts): one feature, one
+// package, one definition of "what is a reference".
 //
 // Every shape is chosen to survive `toJsonSchema(…)` (schema.ts), which is how
 // find_pattern renders a tool's inputs to the model: `strictObject` (→
@@ -26,21 +24,21 @@
 //     whole find_pattern render down with it.
 //   • No graph rules. Uniqueness, backward-only references, slot modality and
 //     the registry lookups zod cannot express live in `validatePlan`
-//     (plan-validate.ts) and are repeated in `.describe()` copy so the model
+//     (validate.ts) and are repeated in `.describe()` copy so the model
 //     reads them where it reads the shape. A `.superRefine` is invisible to
 //     `toJsonSchema` (DESIGN.md's rule for refines), which is exactly why the
 //     walk has to be a separate, readable function rather than schema sugar.
 
 import { z } from 'zod'
 
-import { metaEnvelopeShape } from './output-envelope'
-import { assetIdField, boundedText, urlField } from './output-fields'
+import { assetIdField, boundedText, metaEnvelopeShape, urlField } from '@orchestral/core'
 
 // ── The three productions ───────────────────────────────────────────────
 
 // Identifiers start with a letter: no '/', the namespace separator
 // (meta-execution-context.ts:379-381); no '.', '$' or '[' (the ref grammar);
 // and "$5.99" in a prompt is never mistaken for a reference.
+// DESIGN: plan-ref-grammar
 export const PLAN_STEP_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const PLAN_VALUE_REF_RE =
   /^\$(input|[A-Za-z][A-Za-z0-9_-]{0,63})((\.[A-Za-z_][A-Za-z0-9_]{0,63})|(\[[0-9]{1,3}\]))+$/
@@ -86,7 +84,7 @@ export const PlanStepSchema = z.strictObject({
     .min(1)
     .max(128)
     .describe(
-      'A pattern_id from find_pattern (use "select:<id>" to fetch its inputSchema first). Never an agent_* id and never meta_plan.',
+      "A registered pattern_id; fetch its inputSchema through your catalog's discovery tool before writing the step. Never an agent_* id and never meta_plan.",
     ),
   input: z
     .record(z.string(), z.unknown())

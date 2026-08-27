@@ -23,10 +23,10 @@ import type {
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
   mintHandle,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime, type AgentAssetBridge } from '../inline'
 import type { AgentChatMessage, AgentRunImpl } from '../agent-run'
@@ -244,6 +244,15 @@ class FakeBridge implements AgentAssetBridge {
 
   recordedAssetIds(contextId: string): readonly string[] {
     return this.ledger(contextId).map((e) => e.assetId)
+  }
+
+  handlesFor(args: { contextId: string; assetIds: readonly string[] }): readonly string[] {
+    const l = this.ledger(args.contextId)
+    // Only what this context can name. An id from a child agent's own ledger
+    // is simply absent — the caller reports that as a count.
+    return args.assetIds
+      .map((assetId) => l.find((e) => e.assetId === assetId)?.handle)
+      .filter((h): h is string => h !== undefined)
   }
 }
 
@@ -491,13 +500,13 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     expect(err?.producedAssets).toEqual(['gen-asset'])
   })
 
-  it('SUBAGENT_TOOL_FAILED carries produced_assets when a dispatched child failed with partial assets (cached-error path)', async () => {
+  it('SUBAGENT_TOOL_FAILED reports a produced-asset COUNT when this context cannot name them (cached-error path)', async () => {
     // An agent dispatches `image-gen` as a tool. The child dispatch resolves
     // via the idempotency cache to an errored job whose JobError carries
     // producedAssets (the salvage carrier). The cached path returns
     // child.status === 'error' (NOT a fresh throw), so inline.ts onToolCall
-    // builds SUBAGENT_TOOL_FAILED — which must echo the child's producedAssets
-    // as `produced_assets`.
+    // builds SUBAGENT_TOOL_FAILED — which must translate the child's
+    // producedAssets into this context's handles, or report a bare count.
     //
     // The child is `image-gen` (not an `agent_*` id), so it clears the
     // DEFAULT_SUBAGENT_BLOCKLIST and is in the agent's loop.toolPatternIds
@@ -564,9 +573,106 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     })
     const job = await rt.submitJob({ patternId: 'agent_test', input: { prompt: 'go' } })
     expect(job.status).toBe('done') // agent loop self-corrects on the tool-result
-    const result = capture.results[0] as { code?: string; produced_assets?: readonly string[] }
+    const result = capture.results[0] as {
+      code?: string
+      produced_assets?: unknown
+      produced_handles?: unknown
+      produced_count?: number
+    }
     expect(result.code).toBe('SUBAGENT_TOOL_FAILED')
-    expect(result.produced_assets).toEqual(['partial-asset'])
+    // The child's partial work lives in ITS ledger, which this agent's context
+    // cannot name — so the loop is told there is one asset it cannot address,
+    // and is told nothing it could not use. The raw id stays on the child's
+    // JobError, where the host reads it.
+    expect(result.produced_count).toBe(1)
+    expect(result.produced_handles).toBeUndefined()
+    expect(result.produced_assets).toBeUndefined()
+    expect(JSON.stringify(result)).not.toContain('partial-asset')
+  })
+
+  it('SUBAGENT_TOOL_FAILED names partial work in handles when this context can resolve them', async () => {
+    // The first dispatch succeeds and the bridge records `gen-asset` into this
+    // agent's context as `image_1`. The second fails carrying that same id as
+    // partial work. The loop's asset language is handles, so the tool-result
+    // says `image_1` — a name it can put straight into a `references` slot —
+    // and the id it could neither cite nor resolve never reaches the wire.
+    const capture = { results: [] as unknown[] }
+    let calls = 0
+    const cap = {
+      modelId: 'fake:img',
+      provider: 'fake',
+      tags: [] as never[],
+      capabilities: ['image-gen'] as never[],
+      inputs: ['text'] as Modality[],
+      outputs: ['image'] as Modality[],
+      source: 'user' as const,
+      async call() {
+        calls++
+        if (calls === 1) {
+          return {
+            output: {
+              modality: 'image',
+              assets: [{ assetId: 'gen-asset', modality: 'image' }],
+            },
+          }
+        }
+        // A fresh throw (not the cached-error path) carrying partial work, the
+        // way a sub-agent's whole-run failure does.
+        throw Object.assign(new Error('gave up after one draft'), {
+          code: 'IMAGE_GEN_FAILED',
+          producedAssets: ['gen-asset'],
+        })
+      },
+    } as unknown as ModelCapability
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
+    registry.register(imageGen())
+    registry.register(agentTest())
+    const runImpl = makeRunImpl({
+      capture,
+      script: [
+        {
+          name: 'dispatch_pattern',
+          input: { pattern_id: 'image-gen', input: { prompt: 'a cat' } },
+          callId: 'tc-1',
+        },
+        {
+          name: 'dispatch_pattern',
+          input: { pattern_id: 'image-gen', input: { prompt: 'now a dog' } },
+          callId: 'tc-2',
+        },
+      ],
+    })
+    const rt = new InlineRuntime({
+      store: new MemoryJobStore() as never,
+      registry,
+      router: {
+        checkSatisfiable: () => ({ ok: true, candidates: [cap] }),
+        resolve: () => cap,
+      },
+      agentRunImpl: runImpl,
+      assetBridge: bridge,
+    })
+
+    const job = await rt.submitJob({ patternId: 'agent_test', input: { prompt: 'go' } })
+
+    expect(job.status).toBe('done')
+    const failure = capture.results[1] as {
+      code?: string
+      produced_handles?: readonly string[]
+      produced_count?: number
+      produced_assets?: unknown
+    }
+    expect(failure.code).toBe('SUBAGENT_TOOL_FAILED')
+    expect(failure.produced_handles).toEqual(['image_1'])
+    expect(failure.produced_count).toBe(1)
+    expect(failure.produced_assets).toBeUndefined()
+    // The same assertion the success path's projection is held to: no assetId
+    // anywhere on the wire the model reads.
+    expect(JSON.stringify(failure)).not.toContain('gen-asset')
+    // The host-facing carrier is untouched — the child row still has the id.
+    const rows = await (rt as unknown as { store: MemoryJobStore }).store.query()
+    const child = rows.find((r) => r.patternId === 'image-gen' && r.status === 'error')
+    expect(child?.error?.producedAssets).toEqual(['gen-asset'])
   })
 })
 

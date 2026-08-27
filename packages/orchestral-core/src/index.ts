@@ -2,6 +2,18 @@
 // Pattern + ModelCapability + Alternative three-layer model;
 // Pattern : Capability = 1:1; primary path + declarative Alternative fallbacks;
 // LLM-facing fields collected under `tool` sub-object.
+//
+// This entry is contracts and pure functions. The two batteries that used to
+// sit here answer from their own entries instead:
+//
+//   @orchestral/core/memory   InMemoryJobStore / InMemoryAssetStore /
+//                             InMemoryTranscriptStore — dev-and-test stores
+//   @orchestral/core/routing  createDefaultCapabilityRouter — one answer to
+//                             the CapabilityRouter interface below
+//
+// Neither is re-exported here. A deprecated alias would leave both spellings
+// resolvable and put "core is the vocabulary" back into prose, where it spent
+// its whole life being unfalsifiable.
 
 // ── Core vocabulary ──────────────────────────────────────────────────────
 export type { Capability } from './capability'
@@ -15,8 +27,13 @@ export type {
 } from './foundational'
 
 // ── Catalog namespace ────────────────────────────────────────────────────
-export type { NamespaceId } from './catalog'
-export { DEFAULT_SUBAGENT_BLOCKLIST, inferNamespace, resolveNamespace } from './catalog'
+export type { NamespaceId, SubagentBlocklist } from './catalog'
+export {
+  DEFAULT_SUBAGENT_BLOCKLIST,
+  inferNamespace,
+  matchSubagentBlocklist,
+  resolveNamespace,
+} from './catalog'
 
 // ── Pattern ──────────────────────────────────────────────────────────────
 // Capability branches are expressed by mounting assets via input.references
@@ -82,10 +99,25 @@ export {
 // tool calls against them. The retrieval that answers a validated
 // `find_pattern` call (BM25 index + `handleFindPattern`) is not a contract and
 // ships separately in `@orchestral/discovery`.
+// DESIGN: find-pattern-schema-stays-in-core
 export {
   FindPatternInputSchema,
   type FindPatternInput,
 } from './find-pattern-schema'
+// Who answers a validated find_pattern call. A contract only: the first-party
+// BM25 implementation ships in @orchestral/discovery (`createPatternSearch`),
+// and a host that replaces retrieval implements this instead. @orchestral/
+// runtime takes one as `InlineRuntimeInit.patternSearch`.
+export type {
+  PatternSearch,
+  PatternSearchRequest,
+} from './pattern-search'
+// One resolver for every by-id dispatch, LLM-facing or person-facing. The
+// `audience` argument picks the exposure flag it gates on; a slash command's
+// unqualified short name is a spelling of the id, not a surface, so it resolves
+// on the same path. There is no second entry point and no second error
+// vocabulary — which refusal a user saw used to depend on which one the host
+// happened to call.
 export {
   resolveDispatchTarget,
   isDispatchError,
@@ -93,43 +125,18 @@ export {
   type DispatchAudience,
   type DispatchPatternInput,
   type DispatchPatternError,
+  type ResolveDispatchOptions,
   type ResolvedDispatchTarget,
 } from './dispatch-pattern'
-export {
-  resolveSlashDispatch,
-  type SlashDispatchError,
-  type SlashDispatchResolution,
-} from './slash-dispatch'
 
 // ── Plan ─────────────────────────────────────────────────────────────────
-// The wire schema for a pipeline authored as data — a meta whose compose is a
-// list of `$`-referencing steps — plus the walk that lists everything wrong
-// with one before any of it is dispatched. Core carries the contract only: the
-// interpreter that executes a DAG (`planToMeta`) lives in
-// `@orchestral/patterns`, where the label and cost conventions it needs are.
-export {
-  PLAN_ASSET_REF_RE,
-  PLAN_STEP_ID_RE,
-  PLAN_VALUE_REF_RE,
-  PlanDagSchema,
-  PlanOutputSchema,
-  PlanRetrySchema,
-  PlanStepSchema,
-  type PlanDag,
-  type PlanOutput,
-  type PlanRetry,
-  type PlanStep,
-} from './plan'
-export {
-  assertPlanValid,
-  planRefine,
-  PlanInvalidError,
-  validatePlan,
-  type PlanPatternLookup,
-  type PlanProblem,
-  type PlanProblemCode,
-  type PlanValidateOptions,
-} from './plan-validate'
+// A plan — a meta whose compose is a list of `$`-referencing steps — is one
+// Pattern's wire format, not this library's vocabulary, so the whole feature
+// (schema, `validatePlan`, the interpreter, the preflight) is
+// `@orchestral/plan`. The primitive all four share, "read a `$ref` off a step's
+// input", used to be copied once per package; it is one function there now:
+//
+//   import { PlanDagSchema, validatePlan } from '@orchestral/plan'
 
 // ── Tool-output sanitizer (defense-in-depth) ─────────────────────────────
 export { sanitizeToolOutput } from './sanitize'
@@ -144,6 +151,7 @@ export type {
 // is the only boundary helper — call it explicitly when serializing outbound to
 // the LLM / IPC wire format. Raw JsonSchema authoring is intentionally not
 // supported (YAGNI; ensureZod + a dependency can be added later if needed).
+// DESIGN: to-json-schema-boundary-export
 export { toJsonSchema } from './schema'
 
 // ── Bounded output-field vocabulary (sanitizer companion) ────────────────
@@ -169,6 +177,7 @@ export type { OutputsSchemaAudit } from './output-fields'
 export {
   dispatchEnvelopeShape,
   metaEnvelopeShape,
+  sumCosts,
   producedAssetShape,
   type ProducedAssetModality,
 } from './output-envelope'
@@ -201,16 +210,15 @@ export type {
   CapabilityRouter,
   SatisfiableResult,
 } from './capability-router'
-// Default (storage-agnostic) router algorithm + the errors it throws. A host
-// injects `getModels` (wrapped envelopes) + `getCapabilityOrder` (enablement
-// gate) and reduces to a thin adapter; the (capability, tags, ctx) → model
-// selection lives here.
-export {
-  createDefaultCapabilityRouter,
-  NoModelForCapabilityError,
-  ModelExcludedError,
-  type DefaultCapabilityRouterDeps,
-} from './capability-router-default'
+// The default (storage-agnostic) implementation of that interface, and the two
+// errors it throws, ship one level down:
+//
+//   import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
+//
+// The interface is vocabulary; the (capability, tags, ctx) → model algorithm
+// behind it — the largest body of policy in this package — is one answer to it.
+// Keeping both on this barrel made "core is the vocabulary" a sentence no
+// import list could contradict.
 // Routing visibility: the structured dump `CapabilityRouter.explain` returns
 // (which model was dropped by which filter, the surviving order, what resolve
 // would do) plus a printable rendering of it. `explain` is optional on the
@@ -253,6 +261,19 @@ export {
   whenPreservesRequired,
   whenAlways,
 } from './alternative-builders'
+// Whether a declared path APPLIES is contract (a read of `appliesWhen` against
+// the registry and the router); whether an applying path is TAKEN is runtime
+// policy. Both @orchestral/runtime's ALTERNATIVES_NOT_ENABLED diagnostic and
+// @orchestral/plan's preflight report the paths not taken, and they read the
+// same evaluation from here rather than each other's copy.
+export {
+  applicableAlternatives,
+  pickAlternative,
+  readRequiresSemantics,
+  toAvailableAlternative,
+  type AlternativeSelectionDeps,
+  type AvailableAlternative,
+} from './alternative-select'
 
 // ── Registry ─────────────────────────────────────────────────────────────
 export { PatternRegistry } from './registry'
@@ -315,13 +336,22 @@ export type {
   AskUserFormAnswer,
   AskUserFormPayload,
 } from './ask-user'
+// The contract only. The dev-and-test implementation is `InMemoryJobStore`
+// from `@orchestral/core/memory`; production hosts owe the Runtime a durable
+// one, and this barrel is what they write against.
 export type {
   JobStore,
   JobQueryFilter,
   Unsubscribe,
 } from './job-store'
-export { InMemoryJobStore } from './job-store-memory'
-export type { Runtime } from './runtime'
+// The job state machine, and the reason it sits on the contracts entry rather
+// than next to the store that consumes it: every durable host JobStore has to
+// judge its writes with it. The legality table and the transition -> event map
+// live here and nowhere else, so a host is not re-deriving either half from a
+// dev-only implementation's private switch.
+export { JOB_TERMINAL_STATUSES, nextJobState } from './job-state'
+export type { JobLifecycleEventType, JobTransition } from './job-state'
+export type { Runtime, ResolveCtxProvider } from './runtime'
 export type {
   DispatchContext,
   SystemPromptContext,
@@ -347,11 +377,10 @@ export {
   agentInputSchema,
   type AgentBaseInput,
 } from './agent-input-schema'
-export {
-  InMemoryTranscriptStore,
-  type TranscriptMessage,
-  type TranscriptMessageWithAgent,
-  type TranscriptStore,
+export type {
+  TranscriptMessage,
+  TranscriptMessageWithAgent,
+  TranscriptStore,
 } from './transcript-store'
 export type { AgentDispatchEnvelope } from './agent-envelope'
 export type {
@@ -402,9 +431,6 @@ export type {
   QuerySpec,
   AssetIndex,
 } from './asset-index.types'
-export {
-  InMemoryAssetStore,
-} from './asset-store'
 export type {
   AssetStore,
   RecordAssetInput,

@@ -14,6 +14,7 @@ import type {
   Modality,
   ModelCapability,
   ModelTag,
+  ResolvedAssetRef,
 } from '@orchestral/core'
 import { assetIdField, MODEL_SPEC_VERSION } from '@orchestral/core'
 
@@ -34,6 +35,20 @@ export interface AdapterOptions {
    * `pinnedModel` / `rankedModels` match the ids the host actually stores.
    */
   modelId?: string
+  /**
+   * The key `providerOptions` is nested under on the wire. Default: the first
+   * `.`-separated segment of the AI SDK model's own `.provider`
+   * (`openai.image` → `openai`).
+   *
+   * Deliberately not `provider`: that one is the catalog's routing identity,
+   * and the host above is invited to overwrite it with a relay slug or an
+   * alias so `excludeModel` / `pinnedModel` match. Nesting per-call options
+   * under a slug no provider answers to is how they get dropped — the SDK
+   * hands each provider the key that names it and says nothing about the
+   * rest, so a wrong key is silence, not an error. Set this when the
+   * first-segment rule is wrong for the provider you registered.
+   */
+  sdkProviderKey?: string
   /** `ModelTag`s to declare on the envelope (e.g. `['fast']`). Default `[]`. */
   tags?: readonly ModelTag[]
   /** Routing tier, read when a caller passes `ResolveContext.tier`. */
@@ -76,6 +91,12 @@ export interface AiSdkModelLike {
 export interface ModelIdentity {
   readonly provider: string
   readonly modelId: string
+  /**
+   * Kept apart from `provider` because the two answer different questions:
+   * `provider` is the row a host's catalog routes on, this is the name the
+   * AI SDK's provider matches `providerOptions` against.
+   */
+  readonly sdkProviderKey: string
 }
 
 export function resolveIdentity(
@@ -85,6 +106,8 @@ export function resolveIdentity(
   return {
     provider: options.provider ?? model.provider,
     modelId: options.modelId ?? model.modelId,
+    sdkProviderKey:
+      options.sdkProviderKey ?? model.provider.split('.')[0] ?? model.provider,
   }
 }
 
@@ -194,6 +217,131 @@ function describeId(id: unknown): string {
   return `a ${id.length}-character string`
 }
 
+// ── Unmapped asset slots ──────────────────────────────────────────────────
+
+/**
+ * Refuse a dispatch whose resolved assets include a slot this adapter does not
+ * send to the provider.
+ *
+ * `text-to-image`'s `reference` / `control` and `text-to-speech`'s
+ * `voiceClone` change what the output MEANS — a caller who attached a
+ * reference face asked for that face, not for a plausible portrait. Dropping
+ * them silently is the one failure a host cannot see in the output it gets
+ * back. The generic mapping is still a guess (`generateImage`'s editing input
+ * and the voice-cloning APIs are provider-specific), so the adapter refuses
+ * instead of inventing one, and names the slot so the host knows exactly what
+ * its own adapter has to carry.
+ */
+export function refuseUnmappedAssetSlots(
+  ctx: DispatchContext,
+  capability: Capability,
+  mapped: readonly string[],
+): void {
+  const unmapped = [
+    ...new Set(
+      (ctx.assets ?? [])
+        .filter((ref) => !mapped.includes(ref.slot))
+        .map((ref) => ref.slot),
+    ),
+  ]
+  if (unmapped.length === 0) return
+  const slots = unmapped.map((slot) => JSON.stringify(slot)).join(', ')
+  throw Object.assign(
+    new Error(
+      `ASSET_SLOT_NOT_SUPPORTED: ${capability} call: this adapter does not send the resolved asset slot(s) ${slots} to the provider — write an adapter that does, wrap this one and add them, or drop the reference from the input to call this model without them`,
+    ),
+    { code: 'ASSET_SLOT_NOT_SUPPORTED' },
+  )
+}
+
+// ── Source assets ─────────────────────────────────────────────────────────
+
+/**
+ * The host hook that turns one resolved asset into bytes, plus the
+ * `AdapterOptions` field it arrived on. The name is carried so the failure
+ * message says `loadImage` / `loadAudio` — the thing the host actually wrote
+ * — rather than a generic "the loader".
+ */
+export interface SourceLoader<T> {
+  readonly name: string
+  readonly load: (ref: ResolvedAssetRef, ctx: DispatchContext) => Promise<T> | T
+}
+
+// One failure, one shape, one place. Left to each adapter, the same missing
+// source came out two ways: vision's carried a `.code` a host can branch on,
+// transcription's was a bare Error that reached the host as the generic
+// DISPATCH_EXECUTE_FAILED. Code attached rather than only prefixed because
+// `normaliseError` lifts `.code` onto `JobError.code`; the prefix is for the
+// human reading the message.
+function sourceRefs(
+  ctx: DispatchContext,
+  slot: string,
+  capability: Capability,
+): readonly ResolvedAssetRef[] {
+  const refs = (ctx.assets ?? []).filter((ref) => ref.slot === slot)
+  if (refs.length === 0) {
+    throw Object.assign(
+      new Error(
+        `NO_SOURCE_ASSET: ${capability} call: no resolved asset in slot "${slot}" on ctx.assets — the runtime fills it from input.references.${slot}`,
+      ),
+      { code: 'NO_SOURCE_ASSET' },
+    )
+  }
+  return refs
+}
+
+async function loadSource<T>(
+  ref: ResolvedAssetRef,
+  ctx: DispatchContext,
+  slot: string,
+  loader: SourceLoader<T>,
+  capability: Capability,
+): Promise<T> {
+  const loaded = await loader.load(ref, ctx)
+  if (loaded == null) {
+    throw Object.assign(
+      new Error(
+        `SOURCE_ASSET_NOT_LOADED: ${capability} call: ${loader.name} returned nothing for asset "${ref.assetId}" in slot "${slot}"`,
+      ),
+      { code: 'SOURCE_ASSET_NOT_LOADED' },
+    )
+  }
+  return loaded
+}
+
+/**
+ * The single-cardinality read: the first resolved ref in `slot`, through the
+ * host's loader. Fails with `NO_SOURCE_ASSET` when the slot resolved to
+ * nothing, and with `SOURCE_ASSET_NOT_LOADED` when the loader answered
+ * nothing — both before the provider is called.
+ */
+export async function requireSourceAsset<T>(
+  ctx: DispatchContext,
+  slot: string,
+  loader: SourceLoader<T>,
+  capability: Capability,
+): Promise<T> {
+  const [ref] = sourceRefs(ctx, slot, capability)
+  return loadSource(ref as ResolvedAssetRef, ctx, slot, loader, capability)
+}
+
+/**
+ * The array-cardinality read: every resolved ref in `slot`, in `ctx.assets`
+ * order (multi-image comparison is a first-class case), same two failures.
+ */
+export async function requireSourceAssets<T>(
+  ctx: DispatchContext,
+  slot: string,
+  loader: SourceLoader<T>,
+  capability: Capability,
+): Promise<readonly T[]> {
+  return Promise.all(
+    sourceRefs(ctx, slot, capability).map((ref) =>
+      loadSource(ref, ctx, slot, loader, capability),
+    ),
+  )
+}
+
 // ── Input readers ─────────────────────────────────────────────────────────
 // `call` receives `unknown`-shaped input (the runtime's caller picks `I`), so
 // the adapters read fields defensively and fail with a message naming the
@@ -269,19 +417,21 @@ export type SdkProviderOptions = NonNullable<
  *   SDK's wire shape (`{ openai: { quality: 'high' } }`).
  * - `input.providerOptions` — the flat per-model object a first-party
  *   pattern carries on the top level of its input (a meta `compose()` sets it
- *   directly; the derived LLM-facing schema fills it per model). Nested under
- *   the model's provider key here.
+ *   directly; the derived LLM-facing schema fills it per model). Nested here
+ *   under the model's SDK provider key (`ModelIdentity.sdkProviderKey`) —
+ *   never under the routing `provider`, which the host may have replaced
+ *   with a slug the SDK has never heard of.
  *
  * Per-call wins: an `input.providerOptions` key overrides the same key in
- * `ctx.providerOptions[provider]`. Returns `undefined` when neither is set so
- * the SDK sees no `providerOptions` key at all.
+ * `ctx.providerOptions[sdkProviderKey]`. Returns `undefined` when neither is
+ * set so the SDK sees no `providerOptions` key at all.
  *
  * Both inputs are `Record<string, unknown>` on the orchestral side and
  * host-validated at the dispatch boundary; the SDK's stricter JSON-object
  * type is the wire contract, so the cast happens here, at one trusted seam.
  */
 export function providerOptionsFor(
-  provider: string,
+  sdkProviderKey: string,
   ctx: DispatchContext,
   input: InputRecord,
 ): SdkProviderOptions | undefined {
@@ -294,6 +444,6 @@ export function providerOptionsFor(
   if (!perCall) return base
   return {
     ...base,
-    [provider]: { ...base?.[provider], ...perCall },
+    [sdkProviderKey]: { ...base?.[sdkProviderKey], ...perCall },
   }
 }

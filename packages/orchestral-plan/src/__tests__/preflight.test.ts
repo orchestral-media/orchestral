@@ -30,23 +30,22 @@ import type {
   MetaPattern,
   ModelCapability,
   ModelTag,
-  PlanDag,
   ResolveContext,
   SatisfiableResult,
 } from '@orchestral/core'
 import {
   boundedText,
-  createDefaultCapabilityRouter,
   dispatchEnvelopeShape,
   PatternRegistry,
-  PlanOutputSchema,
   producedAssetShape,
   silentDiagnosticsLogger,
   whenCapabilityUnavailable,
   whenPreservesRequired,
 } from '@orchestral/core'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 
-import { formatPlanPreflight, preflightPlan } from '../preflight-plan'
+import { PlanOutputSchema, type PlanDag } from '../plan'
+import { formatPlanPreflight, preflightPlan } from '../preflight'
 
 // ── Patterns ─────────────────────────────────────────────────────────────
 
@@ -135,7 +134,7 @@ function makeRegistry(): PatternRegistry {
       outputs: imageOutput('image'),
     }),
   )
-  registry.add({
+  registry.register({
     ...atomic({
       id: 'image-to-video',
       inputs: z.object({ prompt: z.string().max(4_000).optional() }),
@@ -157,7 +156,7 @@ function makeRegistry(): PatternRegistry {
       },
     ],
   } as never)
-  registry.add({
+  registry.register({
     ...atomic({
       id: 'image-to-image',
       // `requiresSemantics` is deliberately NOT on this schema. The field is

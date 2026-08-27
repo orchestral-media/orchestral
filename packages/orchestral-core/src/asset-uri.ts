@@ -4,6 +4,7 @@
 // never an assetId / projectId / sessionId (the ledger indirection invariant);
 // whatever protocol a host uses to fetch the actual bytes is a separate
 // concern, don't conflate the two.
+// DESIGN: asset-uri-is-a-writing-form
 
 const DEFAULT_SCHEME = 'asset://'
 const SCHEME_SHAPE = /^[a-z][a-z0-9+.-]*:\/\/$/i

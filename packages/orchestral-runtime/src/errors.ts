@@ -10,8 +10,10 @@ export function normaliseError(err: unknown, defaultCode?: string): JobError {
     const code =
       (err as { code?: string }).code ?? defaultCode ?? 'DISPATCH_EXECUTE_FAILED'
     // A dispatchAgent whole-run failure throws an Error carrying the assetIds
-    // produced before it failed; preserve them onto the JobError so the parent
-    // can reference the partial output in its failure tool-result.
+    // produced before it failed; preserve them onto the JobError so the host
+    // can salvage that partial output. A parent agent's model never sees these
+    // ids — agent-dispatch translates them into its own context's handles
+    // before they reach a tool-result.
     const produced = (err as { producedAssets?: readonly string[] }).producedAssets
     // Structured failure facts stamped upstream (the host gateway attaches
     // httpStatus from the wire; the dispatch loop stamps failedModel; the
@@ -58,6 +60,25 @@ export function normaliseError(err: unknown, defaultCode?: string): JobError {
     }
   }
   return { code: defaultCode ?? 'UNKNOWN', message: String(err) }
+}
+
+/**
+ * The one way this package throws CANCELLED.
+ *
+ * `normaliseError` reads `.code` and nothing else, and CANCELLED is the code
+ * carrying the most weight in the runtime: `CHILD_FAILURE_RETHROWN_CODES` uses
+ * it to decide whether a failed child kills an agent loop or comes back as a
+ * tool result. A bare Error whose message is only the word CANCELLED says the
+ * code in prose alone, so it normalises to DISPATCH_EXECUTE_FAILED — and a
+ * host cancelling one child job directly (the parent's signal never aborts)
+ * had its cancel handed to the model as a retryable tool failure.
+ *
+ * `detail` is the site, not the code: the message reads `CANCELLED: <detail>`
+ * so a host reading `JobError.message` learns WHERE the abort was noticed,
+ * while it still narrows on `JobError.code`.
+ */
+export function cancelledError(detail: string): Error {
+  return Object.assign(new Error(`CANCELLED: ${detail}`), { code: 'CANCELLED' })
 }
 
 /**

@@ -16,6 +16,7 @@
 //  - The judge prompt is inlined as a string constant in ./prompts. This meta
 //    is self-contained for its prompt: nothing is loaded at dispatch, no host
 //    binding for prompt loading.
+// DESIGN: best-of-n-fan-out-note
 
 import { z } from 'zod'
 import type { MetaPattern } from '@orchestral/core'
@@ -186,6 +187,7 @@ export function createImageBestOfNMeta(
       // key is the correct semantics for sampling, and the explicit override
       // is what keeps the N ids stable across a resume (a counter-minted id
       // would shift if anything before the fan-out changed).
+      // DESIGN: best-of-n-explicit-step-id
       const candidateOutputs = await parallel(
         Array.from({ length: input.n }, (_, idx) =>
           dispatchInner(ctx, input.innerPatternId, input.innerInput, idx),

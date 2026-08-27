@@ -3,7 +3,10 @@
 Orchestral is defined as much by what it leaves out as by what it ships. Every
 refusal below is enforced in code — a type that cannot express the thing, a
 schema that rejects it, a default that is off — and argued at the cited
-location, usually in a source comment. This page collects those arguments so a
+location, usually in a source comment. Each citation names an anchor the cited
+file carries (`DESIGN: <slug>`) rather than a line range, and
+`tests/design-anchors.test.ts` fails if an anchor moves out from under its
+citation or outlives it. This page collects those arguments so a
 reader does not have to find them across six packages. If you want to propose
 removing one, argue against the stated reason; the reason is the thing to beat.
 
@@ -26,11 +29,11 @@ rule as the dsh bridge below.
 use; for agents, inject `InlineRuntimeInit.agentRunImpl` —
 `examples/agent-hello-world/src/agent-runner.ts` is a copy-paste reference over
 the AI SDK's `ToolLoopAgent`.
-**Where.** `packages/orchestral-core/src/capability-model.ts:189-193`,
-`packages/orchestral-core/src/capability-router-default.ts:33-39`,
-`packages/orchestral-agent/src/index.ts:12-17`,
-`packages/orchestral-runtime/src/agent-dispatch.ts:305-307`,
-`packages/orchestral-adapters-ai-sdk/src/index.ts:1-5`.
+**Where.** `packages/orchestral-core/src/capability-model.ts` (DESIGN: model-capability-call-seam),
+`packages/orchestral-core/src/capability-router-default.ts` (DESIGN: get-models-no-prefilter),
+`packages/orchestral-agent/src/index.ts` (DESIGN: agent-loop-driver-absent),
+`packages/orchestral-runtime/src/agent-dispatch.ts` (DESIGN: agent-run-impl-not-injected),
+`packages/orchestral-adapters-ai-sdk/src/index.ts` (DESIGN: adapters-ai-sdk-leaf).
 
 ### We don't run a plugin framework
 **Why.** The pattern-package manifest is "a convention plus a loader
@@ -44,8 +47,8 @@ exactly like any other import."
 **Instead.** Discovery is a query — the npm keyword `orchestral-pattern`, the
 GitHub topic, the `orchestral-pattern-*` name — and loading is
 `registry.addFromManifest(pkg.orchestral, module, ops)`.
-**Where.** `packages/orchestral-core/src/manifest.ts:1-17`;
-`packages/orchestral-core/README.md:409-417`;
+**Where.** `packages/orchestral-core/src/manifest.ts` (DESIGN: manifest-not-a-plugin-framework);
+`packages/orchestral-core/README.md` (DESIGN: manifest-declaration-not-permission);
 `packages/orchestral-core/src/__tests__/manifest.test.ts`.
 
 ### We don't version the manifest
@@ -55,7 +58,7 @@ forward compatibility is why there is no version discriminator — the package's
 own semver and its `@orchestral/core` peer range already carry that information,
 and a second version number would only be a second thing to keep in sync."
 **Instead.** Bump the package's own version and its `@orchestral/core` peer range.
-**Where.** `packages/orchestral-core/src/manifest.ts:76-86`.
+**Where.** `packages/orchestral-core/src/manifest.ts` (DESIGN: manifest-no-version-discriminator).
 
 ### We don't accept a package-level `requiredOps`
 **Why.** Host operations are declared per pattern because "a package-wide list
@@ -69,10 +72,10 @@ tolerate, whereas this one is a key whose meaning changed."
 **Instead.** `patterns[].requiredOps` on the entries that need ops;
 `addFromManifest(…, { missingOps: 'skip' })` registers the loadable subset and
 reports the rest.
-**Where.** `packages/orchestral-core/src/manifest.ts:52-65, 94-114` (a
+**Where.** `packages/orchestral-core/src/manifest.ts` (DESIGN: required-ops-per-pattern) and
+`packages/orchestral-core/src/manifest.ts` (DESIGN: package-required-ops-refused) (a
 `z.undefined()` with a custom error);
-`packages/orchestral-core/src/__tests__/manifest.test.ts:326` ("rejects a
-package-level requiredOps instead of ignoring it").
+`packages/orchestral-core/src/__tests__/manifest.test.ts` ("rejects a package-level requiredOps instead of ignoring it").
 
 ### We don't prefix atomic ids
 **Why.** An atomic Pattern's id *is* its capability: "PatternId === Capability
@@ -107,14 +110,18 @@ package's author.
 **Instead.** Atomic: the bare taxonomy name (`text-to-image`), or
 `<vendor>__<name>` for a capability core does not define. Meta: `meta_<name>`.
 Agent: `agent_<name>`.
-**Where.** `packages/orchestral-core/src/foundational.ts:4-13, 23-31`;
-`packages/orchestral-core/src/capability.ts`;
-`packages/orchestral-core/src/manifest.ts:157-172`;
-`packages/orchestral-core/src/registry.ts:17-18, 93-104, 202-221`;
-`packages/orchestral-core/src/catalog.ts:36-63, 110-114`;
-`packages/orchestral-runtime/src/inline.ts:1033-1037`;
-`packages/orchestral-core/src/__tests__/register-id-kind.test.ts`;
-`packages/orchestral-core/src/__tests__/register-capability-namespace.test.ts`.
+**Where.** `packages/orchestral-core/src/foundational.ts` (DESIGN: pattern-id-is-capability),
+`packages/orchestral-core/src/foundational.ts` (DESIGN: agent-id-prefix-normative);
+`packages/orchestral-core/src/capability.ts` (DESIGN: capability-union-list-lock);
+`packages/orchestral-core/src/manifest.ts` (DESIGN: id-carries-kind);
+`packages/orchestral-core/src/registry.ts` (DESIGN: pattern-capability-one-to-one),
+`packages/orchestral-core/src/registry.ts` (DESIGN: register-id-kind-check),
+`packages/orchestral-core/src/registry.ts` (DESIGN: capability-not-namespaced-warn);
+`packages/orchestral-core/src/catalog.ts` (DESIGN: subagent-blocklist-prefix),
+`packages/orchestral-core/src/catalog.ts` (DESIGN: infer-namespace-by-prefix);
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: atomic-id-as-capability-lookup);
+`packages/orchestral-core/src/__tests__/register-id-kind.test.ts` ("refuses an agent Pattern whose id lacks the agent_ prefix");
+`packages/orchestral-core/src/__tests__/register-capability-namespace.test.ts` ("warns for a bare third-party capability id, and still registers it").
 
 ### We don't accept raw JSON Schema as an authoring format
 **Why.** Patterns are zod throughout; JSON Schema exists only as the outbound
@@ -126,10 +133,14 @@ later is a ~30 min change)" and "No Schema interface abstraction
 one-way and named: `.refine` / `.transform` do not survive `toJsonSchema`,
 "which matches the reality of LLM tool specs".
 **Instead.** Author in zod; call `toJsonSchema(zodSchema)` at the one boundary
-(catalog, IPC, persistence). zod v4 is a peer dependency for the same reason:
-one instance, shared with the host.
-**Where.** `packages/orchestral-core/src/schema.ts:1-24`;
-`packages/orchestral-core/src/index.ts:112-117`.
+(catalog, IPC, persistence). It is literally one: `z.toJSONSchema` is called in
+`schema.ts` and nowhere else under `packages/*/src`, so the draft-2020-12
+target that the byte-stability invariant rides on is decided once. A source
+scan holds the line — nothing in the type system would notice a second
+serialiser that quietly picked a different target. zod v4 is a peer dependency
+for the same reason: one instance, shared with the host.
+**Where.** `packages/orchestral-core/src/schema.ts` (DESIGN: zod-only-authoring);
+`packages/orchestral-core/src/index.ts` (DESIGN: to-json-schema-boundary-export).
 
 ### We don't give an atomic adapter `ctx.step`
 **Why.** "An atomic Pattern is restricted to the single `ModelCapability.call`
@@ -140,7 +151,8 @@ carries no `step` (atomic is single-LLM by definition)"; only
 `MetaPattern.compose()` receives `ExecutionContext`.
 **Instead.** Anything that needs two calls is a meta. An atomic that wants a
 different path on failure declares an `Alternative` that points at one.
-**Where.** `packages/orchestral-core/src/execution-context.ts:53-58, 184-189`.
+**Where.** `packages/orchestral-core/src/execution-context.ts` (DESIGN: atomic-never-sees-ctx-step),
+`packages/orchestral-core/src/execution-context.ts` (DESIGN: execution-context-meta-only).
 
 ### We don't let a stop condition be a predicate
 **Why.** `StopConditionDescriptor` is "a single-valued enum, not a predicate
@@ -149,7 +161,7 @@ A Pattern spec has to survive JSON — the catalog, the manifest and the
 transcript all assume it.
 **Instead.** `{ kind: 'step-count', n }` or `{ kind: 'token-count', n }`; the
 host's `AgentRunImpl` maps these onto its own SDK's stop conditions.
-**Where.** `packages/orchestral-core/src/pattern.ts:587-598`.
+**Where.** `packages/orchestral-core/src/pattern.ts` (DESIGN: stop-condition-not-a-predicate).
 
 ### We don't put cost or latency on the routing types
 **Why.** "There is deliberately no cost or latency metadata on these types:
@@ -161,8 +173,8 @@ joint-audio flag, per-modality input flags, an SDK factory name — "because eac
 would double-source data this record already carries."
 **Instead.** Order `getModels` by your own cost model, or implement
 `CapabilityRouter` directly.
-**Where.** `packages/orchestral-core/CHANGELOG.md:245-248`;
-`packages/orchestral-core/src/capability-model.ts:148-157`.
+**Where.** `packages/orchestral-core/CHANGELOG.md` (DESIGN: changelog-no-cost-on-routing-types);
+`packages/orchestral-core/src/capability-model.ts` (DESIGN: no-cost-or-latency-fields).
 
 ## Routing & fallback
 
@@ -178,9 +190,9 @@ upstream models under one name. Dispatch fails loudly instead."
 **Instead.** Express preference through `getCapabilityOrder` and
 `ResolveContext.rankedModels` / `pinnedModel` / `excludeModel`; let a bad
 adapter throw at `call`, where the error is the actionable one.
-**Where.** `packages/orchestral-core/src/capability-router-default.ts:33-45,
-153-157`;
-`packages/orchestral-core/src/__tests__/capability-router-default.test.ts:167-190`.
+**Where.** `packages/orchestral-core/src/capability-router-default.ts` (DESIGN: get-models-no-prefilter),
+`packages/orchestral-core/src/capability-router-default.ts` (DESIGN: no-adapter-prescreen);
+`packages/orchestral-core/src/__tests__/capability-router-default.test.ts` ("required tag not borne by any model → 'tag-mismatch'").
 
 ### We don't take a semantic fallback unless the host asks
 **Why.** "Declaring an alternative does not make it fire." `InlineRuntime`
@@ -195,10 +207,11 @@ caller".
 applicable path, by id and target — and submit one yourself; or construct the
 runtime with `alternatives: 'auto'` and listen for `job:alternative-selected`,
 which carries the `losses`.
-**Where.** `packages/orchestral-core/src/alternative.ts:5-9`;
-`packages/orchestral-runtime/src/inline.ts:166-169, 284-306`;
-`packages/orchestral-runtime/README.md:96-116`;
-`packages/orchestral-runtime/src/__tests__/alternatives-default-off.test.ts:125`.
+**Where.** `packages/orchestral-core/src/alternative.ts` (DESIGN: declaring-does-not-fire);
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: alternatives-default-off),
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: alternatives-off-is-a-product-decision);
+`packages/orchestral-runtime/README.md` (DESIGN: readme-alternatives-off-by-default);
+`packages/orchestral-runtime/src/__tests__/alternatives-default-off.test.ts` ("alternatives default to off").
 
 ### We don't ship a fallback that cannot reconstruct the caller's intent
 **Why.** `via-caption` on `image-to-image` is the only first-party
@@ -215,10 +228,12 @@ behaviour".
 **Instead.** Every atomic factory takes an `alternatives` option that replaces
 the shipped list outright. With none, the job fails with the router's
 `NO_MODEL_FOR_CAPABILITY` "instead of quietly producing something adjacent".
-**Where.** `packages/orchestral-core/README.md:278-288`;
-`packages/orchestral-patterns/src/atomic/image-to-image.ts:89-103`,
-`automatic-speech-recognition.ts:143-145`, `text-to-speech.ts:87-93`,
-`text-to-video.ts:97-104`, `image-to-text.ts:120-124`.
+**Where.** `packages/orchestral-core/README.md` (DESIGN: readme-via-caption-only-alternative);
+`packages/orchestral-patterns/src/meta/image-to-image-via-caption/index.ts` (DESIGN: via-caption-first-party-fallback),
+`packages/orchestral-patterns/src/atomic/automatic-speech-recognition.ts` (DESIGN: asr-no-fallback),
+`packages/orchestral-patterns/src/atomic/text-to-speech.ts` (DESIGN: tts-no-fallback),
+`packages/orchestral-patterns/src/atomic/text-to-video.ts` (DESIGN: text-to-video-no-fallback),
+`packages/orchestral-patterns/src/atomic/image-to-text.ts` (DESIGN: image-to-text-no-fallback).
 
 ### We don't guess which failures are transient
 **Why.** "The library never guesses transience, because guessing wrong spends
@@ -232,9 +247,9 @@ the provider error it was asked about.
 **Instead.** `InlineRuntimeInit.transientRetry: { isTransient, policy }`.
 `isTransient` receives the capability, model and attempt number, so one
 predicate can treat a cheap image call and an expensive video call differently.
-**Where.** `packages/orchestral-runtime/src/inline.ts:209-231, 326-347`;
-`packages/orchestral-runtime/src/__tests__/transient-retry.test.ts:142` ("is
-off by default — a failing model is called once and excluded").
+**Where.** `packages/orchestral-runtime/src/inline.ts` (DESIGN: no-built-in-transience-classifier),
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: is-transient-throw-is-false);
+`packages/orchestral-runtime/src/__tests__/transient-retry.test.ts` ("is off by default — a failing model is called once and excluded").
 
 ### We don't let the retry budget and the fallback budget spend each other
 **Why.** "Two budgets, two loops, and neither can spend the other's." The outer
@@ -250,10 +265,10 @@ of these.
 `rankedModels.length - 1` walks exactly the configured chain),
 `transientRetry.policy.maxAttempts`, and `maxAlternativeDepth` — three knobs
 for three loops.
-**Where.** `packages/orchestral-runtime/src/inline.ts:1133-1147`;
-`packages/orchestral-core/src/capability-model.ts:273-286, 304-323`;
-`packages/orchestral-runtime/src/__tests__/transient-retry.test.ts:328` ("keeps
-the retry budget and the fallback budget out of each other").
+**Where.** `packages/orchestral-runtime/src/inline.ts` (DESIGN: two-budgets-two-loops);
+`packages/orchestral-core/src/capability-model.ts` (DESIGN: exclude-model-after-retries-spent),
+`packages/orchestral-core/src/capability-model.ts` (DESIGN: fallback-depth-per-dispatch);
+`packages/orchestral-runtime/src/__tests__/transient-retry.test.ts` ("keeps the retry budget and the fallback budget out of each other").
 
 ### We don't fall back to BM25 to name a direct tool
 **Why.** The one decision in the repo backed by a measured number. When a
@@ -265,9 +280,8 @@ wrong tool (worst case: a paid generation call) costs far more than the one
 extra find_pattern round-trip a miss costs, and flailing models converge to
 id-shaped queries on their own."
 **Instead.** Nothing: the model gets a zero-match diagnostic and asks again.
-**Where.** `packages/orchestral-discovery/src/find-pattern.ts:639-649`;
-`packages/orchestral-discovery/src/__tests__/find-pattern.test.ts:240` ("prose
-query without the id substring does NOT hint (no BM25 oracle)").
+**Where.** `packages/orchestral-discovery/src/find-pattern.ts` (DESIGN: no-bm25-direct-tool-hint);
+`packages/orchestral-discovery/src/__tests__/find-pattern.test.ts` ("prose query without the id substring does NOT hint (no BM25 oracle)").
 
 ## Execution & recovery
 
@@ -278,14 +292,18 @@ never re-attached or re-run." The contract makes that a rule for every
 substrate: "This is abandonment with bookkeeping, on every substrate: a
 substrate that can genuinely resume lost work should expose that as its own
 call rather than hiding resumption behind this one, so a caller can always read
-the returned rows as dead." The cost: there is no durable queue, and a parked
-`ctx.askUser` does not survive a restart either.
+the returned rows as dead." "Terminal" there is enforced rather than asserted:
+`nextJobState` refuses every move out of `stale` — out of any of the four
+settlements — so a store cannot quietly write an abandoned row back to
+`running` and re-present dead work as live. The cost: there is no durable
+queue, and a parked `ctx.askUser` does not survive a restart either.
 **Instead.** Call `abandonOrphanedJobs()` at process start, subscribe to
 `job:stale`, and resubmit what matters — idempotency makes a resubmit cheap
 when the prior row succeeded.
-**Where.** `packages/orchestral-core/src/runtime.ts:46-58`;
-`packages/orchestral-runtime/CHANGELOG.md:151-157`;
-`packages/orchestral-runtime/src/__tests__/abandon-orphaned-jobs.test.ts:43`.
+**Where.** `packages/orchestral-core/src/runtime.ts` (DESIGN: abandonment-with-bookkeeping);
+`packages/orchestral-core/src/job-state.ts` (DESIGN: terminal-status-never-moves);
+`packages/orchestral-runtime/CHANGELOG.md` (DESIGN: changelog-no-durable-queue);
+`packages/orchestral-runtime/src/__tests__/abandon-orphaned-jobs.test.ts` ("transitions orphaned running/queued rows to stale and returns them").
 
 ### We don't hash the whole JobSpec for idempotency
 **Why.** "The field list below is a hand-picked allowlist, not a spread of the
@@ -302,11 +320,11 @@ caller can retry after an explicit failure."
 **Instead.** Pass `idempotencyKey` yourself when your notion of identity
 differs. "Adding a field here changes dedup behaviour for every existing job
 row."
-**Where.** `packages/orchestral-runtime/src/idempotency.ts:27-58`;
-`packages/orchestral-core/src/job.ts:80-96`;
-`packages/orchestral-core/src/job-store-memory.ts:189-196`;
+**Where.** `packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist);
+`packages/orchestral-core/src/job.ts` (DESIGN: jobspec-identity-vs-routing);
+`packages/orchestral-core/src/job-store-memory.ts` (DESIGN: failed-rows-never-dedupe);
 `packages/orchestral-runtime/src/__tests__/idempotency.test.ts`,
-`packages/orchestral-core/src/__tests__/job-store-memory.test.ts:144`.
+`packages/orchestral-core/src/__tests__/job-store-memory.test.ts` ("still inserts when the only same-key row is non-canonical (retry after failure)").
 
 ### We don't content-hash step ids
 **Why.** A default step id is `${patternId}#${counter}` — "a deliberately
@@ -326,9 +344,11 @@ step into an edited plan re-runs one dispatch, not everything after it. It is
 opt-in per step, requires an explicit `stepId`, and positional stays the
 default — the conditional spread in `deriveIdempotencyKey` keeps every
 pre-`stepKey` payload byte-identical.
-**Where.** `packages/orchestral-runtime/src/meta-execution-context.ts:357-394`;
-`packages/orchestral-patterns/src/meta/image-best-of-n/index.ts:12-13, 166-171`;
-`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts:170-217`;
+**Where.** `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id);
+`packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-fan-out-note),
+`packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-explicit-step-id);
+`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds");
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-id.test.ts`.
 
 ### We don't impose concurrency caps, timeouts, or TTLs
@@ -343,9 +363,9 @@ calls per `rootJobId` in `beforeDispatch` for a spend cap — `rootJobId` exists
 for exactly that and is deliberately not persisted on `Job`, "that would put a
 column on every host `JobStore` to serve bookkeeping the host can do in its own
 tables."
-**Where.** `packages/orchestral-core/CHANGELOG.md:256-257`;
-`packages/orchestral-runtime/CHANGELOG.md:166-168`;
-`packages/orchestral-core/src/execution-context.ts:152-169`;
+**Where.** `packages/orchestral-core/CHANGELOG.md` (DESIGN: changelog-no-timeout-no-ttl);
+`packages/orchestral-runtime/CHANGELOG.md` (DESIGN: changelog-no-throttling-no-deadlines);
+`packages/orchestral-core/src/execution-context.ts` (DESIGN: root-job-id-not-persisted);
 `packages/orchestral-runtime/src/__tests__/abort-cascade.test.ts`.
 
 ### We don't make `asset://` a fetch protocol
@@ -358,7 +378,7 @@ are per-context, so a URI is not a global name and must not be persisted as one.
 **Instead.** The host resolves handles against its own ledger and fetches bytes
 however it already does. `setAssetUriScheme` renames the scheme once per process
 if `asset://` collides with something in your host.
-**Where.** `packages/orchestral-core/src/asset-uri.ts:1-6`;
+**Where.** `packages/orchestral-core/src/asset-uri.ts` (DESIGN: asset-uri-is-a-writing-form);
 `packages/orchestral-core/src/__tests__/asset-uri.test.ts`.
 
 ### We don't stream progress as an `AsyncIterable`
@@ -372,7 +392,7 @@ handful of coarse events per call.
 **Instead.** Call `events?.onProgress({ fraction })` / `onArtifact(…)` from
 inside your adapter when the SDK tells you something; the runtime fans them out
 as job events.
-**Where.** `packages/orchestral-core/src/capability-model.ts:236-263`.
+**Where.** `packages/orchestral-core/src/capability-model.ts` (DESIGN: call-events-not-async-iterable).
 
 ## The LLM-facing surface
 
@@ -386,8 +406,10 @@ the author did not name is one they did not consider.
 default `'tool'` is chat-turn + agent-loop), or name each surface. Every
 consumer — catalog builder, `find_pattern`, the dsh bridge — reads it through
 `resolveExposure`, never the raw field.
-**Where.** `packages/orchestral-core/src/pattern.ts:289-292, 349-366`;
-`packages/orchestral-core/src/__tests__/resolve-exposure.test.ts:68-78`.
+**Where.** `packages/orchestral-core/src/pattern.ts` (DESIGN: exposure-fail-closed),
+`packages/orchestral-core/src/pattern.ts` (DESIGN: resolve-exposure-single-reader);
+`packages/orchestral-core/src/__tests__/resolve-exposure.test.ts` ("fail-closed on missing LLM/user-facing surfaces; host defaults open"),
+`packages/orchestral-core/src/catalog-builder.ts` (DESIGN: always-load-honours-exposure).
 
 ### We don't open a Pattern to anything its author didn't name
 **Why.** Two closed-by-default rules. An agent's `toolPatternIds` "must be
@@ -399,13 +421,17 @@ explicitly by the author. Holding this invariant means a newly added third-party
 package can't accidentally inject behavior into a first-party Pattern." A guard
 trip inside the loop is a structured tool-result, not a failed job, so the model
 can recover.
-**Instead.** List the ids. Declare `extensible: true` on a Pattern you mean
-others to attach alternatives to; `registry.attachAlternative` throws
-`PATTERN_NOT_EXTENSIBLE` otherwise.
-**Where.** `packages/orchestral-core/src/pattern.ts:155-164, 508-513`;
-`packages/orchestral-core/src/registry.ts:398-417`;
-`packages/orchestral-runtime/src/agent-dispatch.ts:340-342`;
-`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts:265-384`
+**Instead.** List the ids. The list only narrows: an `agent_`-prefixed id named
+in `toolPatternIds` is still refused by `DEFAULT_SUBAGENT_BLOCKLIST`, at the
+catalog and at the dispatch guard alike, so recursion is opened by supplying a
+different blocklist and never by naming an id past this one. Declare
+`extensible: true` on a Pattern you mean others to attach alternatives to;
+`registry.attachAlternative` throws `PATTERN_NOT_EXTENSIBLE` otherwise.
+**Where.** `packages/orchestral-core/src/pattern.ts` (DESIGN: extensible-closed-by-default),
+`packages/orchestral-core/src/pattern.ts` (DESIGN: tool-pattern-ids-explicit);
+`packages/orchestral-core/src/registry.ts` (DESIGN: pattern-not-extensible);
+`packages/orchestral-runtime/src/agent-dispatch.ts` (DESIGN: subagent-tool-allowlist);
+`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts` ("rejects a registered, agent-loop-visible pattern outside loop.toolPatternIds")
 (no test pins `PATTERN_NOT_EXTENSIBLE` directly).
 
 ### We don't put resolved assets in the system prompt
@@ -417,8 +443,8 @@ accident. The cost: tier- or asset-specific prompt behaviour goes through
 `modelTags` or a different `patternId`, not the prompt text.
 **Instead.** Read `providerOptions` / `sessionId` / `project` to shape the
 prompt; assets arrive in the seed message as `<available-assets>`.
-**Where.** `packages/orchestral-core/src/execution-context.ts:175-182`;
-`packages/orchestral-core/src/pattern.ts:497-506`.
+**Where.** `packages/orchestral-core/src/execution-context.ts` (DESIGN: system-prompt-no-assets);
+`packages/orchestral-core/src/pattern.ts` (DESIGN: system-prompt-context-on-loop-system).
 
 ### We don't let an output schema carry an unbounded string
 **Why.** "When every string field in an outputs schema carries an explicit upper
@@ -434,7 +460,10 @@ and `InlineRuntime` holds every atomic and meta *output* to that schema at the
 dispatch exit (does this output conform?) — one the schema rejects fails the job
 with `OUTPUT_SCHEMA_MISMATCH`, carrying the zod issues and the raw output, so a
 70 KiB completion stops at the adapter that produced it instead of reaching the
-next step or `job.output`. The gate sits outside the retry and fallback loops
+next step or `job.output`. A middleware `short-circuit` passes the same gate —
+the value it supplies stands in for an adapter's return, so a cache entry the
+schema no longer accepts fails the job rather than being served as this
+Pattern's output. The gate sits outside the retry and fallback loops
 (a mismatch is a contract violation, not a provider failure) and returns the
 adapter's object rather than zod's reshaped copy. The agent path validates
 through its finish tool. `InlineRuntimeInit.outputValidation: 'off'` is the
@@ -442,11 +471,11 @@ opt-out, for a migration window over adapters a host does not control. The
 model-facing defence at run time remains the projection plus the sanitizer.
 **Instead.** `boundedText(n)`, `opaqueToken()`, `assetIdField()`, `urlField()`;
 `auditOutputsSchema` lists what slipped through.
-**Where.** `packages/orchestral-core/src/output-fields.ts:1-11`;
-`packages/orchestral-core/src/registry.ts:173-197`;
-`packages/orchestral-runtime/src/inline.ts:1360-1408` (`OUTPUT_SCHEMA_MISMATCH`);
-`packages/orchestral-core/src/sanitize.ts:21-30`;
-`packages/orchestral-core/src/__tests__/output-fields.test.ts:22`.
+**Where.** `packages/orchestral-core/src/output-fields.ts` (DESIGN: bounded-output-vocabulary);
+`packages/orchestral-core/src/registry.ts` (DESIGN: outputs-unbounded-warn-not-throw);
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: output-schema-mismatch-gate);
+`packages/orchestral-core/src/sanitize.ts` (DESIGN: length-alone-is-not-a-strip-signal);
+`packages/orchestral-core/src/__tests__/output-fields.test.ts` ("auditOutputsSchema lists unbounded string paths").
 
 ### We don't let a real `assetId` or a signed URL reach the model
 **Why.** An agent tool-result "goes straight into the loop's model context, so
@@ -454,15 +483,19 @@ it is projected HERE, on both paths … rather than left for a host to remember.
 `projectToolOutputForModel` drops `assetId` / `url` and rebuilds `assets[]` from
 the handle whitelist — "the verifiable assertion point for the no-assetId
 invariant" — then `sanitizeToolOutput` scrubs `data:` URLs and binary runs. The
-symmetric refusal matters as much: "`InlineRuntime.dispatch()` deliberately
+failure branch answers to the same rule by translation rather than projection:
+a failed child's partial work reaches the loop as `produced_handles` this
+context can name, or as a bare `produced_count`, never as the raw ids the
+host-facing `JobError.producedAssets` keeps. The symmetric refusal matters as
+much: "`InlineRuntime.dispatch()` deliberately
 does NOT do this: it returns to the host, which needs the real assetIds and
 URLs."
 **Instead.** The model sees an opaque handle plus an `asset://` URI; the host
 resolves them. Any bridge that puts a Pattern output into a model context
 composes the same two calls in the same order (the dsh plugin does).
-**Where.** `packages/orchestral-runtime/src/agent-dispatch.ts:1069-1082`;
-`packages/orchestral-core/src/asset-index.ts` (`projectToolOutputForModel`);
-`packages/orchestral-runtime/src/__tests__/agent-tool-output-projection.test.ts:193-203`.
+**Where.** `packages/orchestral-runtime/src/agent-dispatch.ts` (DESIGN: project-then-sanitize);
+`packages/orchestral-core/src/asset-index.ts` (DESIGN: project-tool-output-hard-projection);
+`packages/orchestral-runtime/src/__tests__/agent-tool-output-projection.test.ts` ("no bridge: the raw child output is projected — no assetId key and no signed URL reach the loop").
 
 ## Packaging & release
 
@@ -478,8 +511,9 @@ plugin has no business guessing".
 **Instead.** A host-specific bridge is a leaf package that consumes a `Runtime`
 and a `PatternRegistry` the host built, pinned exactly against the host's
 version.
-**Where.** `packages/orchestral-dsh-plugin/README.md:10-20, 53-56`;
-`PUBLISH.md` §7.
+**Where.** `packages/orchestral-dsh-plugin/README.md` (DESIGN: dsh-bridge-is-a-leaf),
+`packages/orchestral-dsh-plugin/README.md` (DESIGN: dsh-plugin-builds-no-runtime);
+`PUBLISH.md` (DESIGN: publish-dsh-separately).
 
 ### We don't keep retrieval or the agent patterns in core
 **Why.** `@orchestral/discovery` is "kept out of @orchestral/core deliberately.
@@ -491,10 +525,20 @@ core. `@orchestral/agent` is the same move: "Agent support is NOT part of the
 core surface … Nothing in @orchestral/core, @orchestral/runtime or
 @orchestral/patterns depends on it."
 **Instead.** Install `@orchestral/discovery` / `@orchestral/agent` when you want
-the first-party ones; replace either by implementing against the core contracts.
-**Where.** `packages/orchestral-discovery/src/index.ts:1-12`;
-`packages/orchestral-core/src/index.ts:78-84`;
-`packages/orchestral-agent/src/index.ts:1-10`.
+the first-party ones; replace either by implementing against the core
+contracts. `@orchestral/runtime` holds the same line rather than quietly
+breaking it: retrieval reaches an agent loop only through the injected
+`InlineRuntimeInit.patternSearch` seam (`PatternSearch`, a core contract with
+no implementation behind it), a loop with no seam wired is handed no
+`find_pattern` tool at all, and installing the runtime therefore installs no
+search engine. `@orchestral/plan` is the same move carried one step further: a plan
+is one Pattern's wire format, not the library's vocabulary, so its schema left
+core along with the walk, the interpreter and the preflight — the primitive all
+four share ("read a `$ref` off a step's input") had been copied once per package
+and is now a function they call.
+**Where.** `packages/orchestral-discovery/src/index.ts` (DESIGN: discovery-out-of-core);
+`packages/orchestral-core/src/index.ts` (DESIGN: find-pattern-schema-stays-in-core);
+`packages/orchestral-agent/src/index.ts` (DESIGN: agent-package-optional).
 
 ### We don't evaluate anything in a plan
 **Why.** A plan `$ref` is a path, not an expression: no interpolation, no
@@ -508,20 +552,20 @@ refuses.
 **Instead.** A transform is a `text-generation` step; a decision is a shipped
 meta called as one step (`$hero.assets[label=winner]`); a dynamic width is
 authored as a fixed one.
-**Where.** `packages/orchestral-core/src/plan.ts` (the three ref regexes);
-`validatePlan` rules 4 and 9 (`packages/orchestral-core/src/plan-validate.ts`);
-`docs/plan.md`.
+**Where.** `packages/orchestral-plan/src/plan.ts` (DESIGN: plan-ref-grammar);
+`packages/orchestral-plan/src/validate.ts` (DESIGN: plan-no-interpolation);
+`docs/plan.md` (DESIGN: plan-doc-no-evaluation).
 
 ### We don't give a plan its own Alternatives
 **Why.** `Alternative.via.mapInput` / `mapOutput` are closures by design
-(`alternative.ts:87-135`) and cannot survive JSON. Alternatives are also
+(`alternative.ts`, the authoring contract on `Alternative`) and cannot survive JSON. Alternatives are also
 evaluated only for atomic dispatches, so a meta — plan or hand-written — never
 has semantic fallback of its own.
 **Instead.** A plan inherits whatever is attached to the atomics it dispatches;
 `preflightPlan` reports which would fire, and the runtime's `alternatives` mode
 still decides whether one does.
-**Where.** `packages/orchestral-runtime/src/preflight-plan.ts`
-(`routing.alternative`); `packages/orchestral-core/src/alternative.ts:87-135`.
+**Where.** `packages/orchestral-plan/src/preflight.ts` (DESIGN: preflight-alternative-would-fire);
+`packages/orchestral-core/src/alternative.ts` (DESIGN: alternative-map-closures).
 
 ### We don't add a partial-success state for plans
 **Why.** A plan is a meta: `parallel()` is `Promise.all` and the job is one
@@ -531,8 +575,8 @@ what the store records, and a column on every host store to serve it.
 **Instead.** `job.error.details.planStepId` names the failed step; `job:step`
 events name the ones that landed; resubmit — the finished steps come back from
 the store.
-**Where.** `packages/orchestral-patterns/src/meta/plan/index.ts` (failure
-stamping); "We don't resume lost jobs" above.
+**Where.** `packages/orchestral-plan/src/interpreter.ts` (DESIGN: plan-step-failure-stamped);
+"We don't resume lost jobs" above.
 
 ### We don't rewrite a step's input at execution
 **Why.** The plan interpreter's layer-2 parse is a gate that dispatches the
@@ -540,9 +584,8 @@ original value. A defaults-applied copy would change the child's idempotency
 input relative to a hand-written meta's and, for `text-generation`, key every
 plan step differently from every meta step with the same prompt.
 **Instead.** `safeParse` for the verdict, dispatch the input as written.
-**Where.** `packages/orchestral-patterns/src/meta/plan/index.ts` (`runPlan`,
-the layer-2 gate); pinned with `toBe` in
-`packages/orchestral-patterns/src/__tests__/meta-plan.test.ts`.
+**Where.** `packages/orchestral-plan/src/interpreter.ts` (DESIGN: plan-layer-2-gate-not-rewrite);
+pinned with `toBe` in `packages/orchestral-patterns/src/__tests__/meta-plan.test.ts`.
 
 ### We don't require a meta to declare what it dispatches
 **Why.** `plannedDispatches` cannot be made mandatory without lying about
@@ -554,7 +597,8 @@ also a pre-check, not an enforcement: nothing at `ctx.step` holds a meta to
 what it declared, so requiring the field would advertise a guarantee the
 engine does not make. And an undeclared meta running its inner steps outside
 the caller's `toolPatternIds` is behaviour the guards suite calls legitimate
-and depends on (`agent-tool-guards.test.ts:91-113`) — every third-party and
+and depends on (`agent-tool-guards.test.ts`, "leaves an UNDECLARED meta free to
+step outside the allowlist") — every third-party and
 host-authored meta already registered rides on it.
 **Instead.** The declaration is opt-in, and the shipped catalog takes it: all
 nine metas `@orchestral/patterns` registers declare — the seven hand-written
@@ -565,11 +609,9 @@ blocklist and cycle check before anything is dispatched, and the refusal names
 the offender in `via`, so the bypass is now exactly as wide as the metas that
 stay silent. One level deep, though: a declared inner meta is judged on the id
 it names, not on what that meta declares in turn.
-**Where.** `packages/orchestral-runtime/src/agent-dispatch.ts` (the
-`plannedDispatches` guard);
-`packages/orchestral-patterns/src/__tests__/meta-planned-dispatches.test.ts`
-(the catalog sweep);
-`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts`.
+**Where.** `packages/orchestral-runtime/src/agent-dispatch.ts` (DESIGN: planned-dispatches-guard);
+`packages/orchestral-patterns/src/__tests__/meta-planned-dispatches.test.ts` (the catalog sweep);
+`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts` ("leaves an UNDECLARED meta free to step outside the allowlist (status quo, pinned)").
 
 ### We don't namespace `job:step` ids or mint handles for inner plan steps
 **Why.** Both are engine-wide changes with a one-line host workaround
@@ -578,8 +620,8 @@ Intermediate lineage stays a host concern; the plan's `output.assets` is the
 model-facing surface.
 **Instead.** Key a progress UI on `childJobId`; list what should be
 addressable in the plan's `output` block.
-**Where.** `packages/orchestral-runtime/src/inline.ts:1498-1510`;
-`packages/orchestral-runtime/src/meta-execution-context.ts:492-507`.
+**Where.** `packages/orchestral-runtime/src/inline.ts` (DESIGN: job-step-not-namespaced);
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-id-namespace-nesting).
 
 ### We don't gate spend inside the plan interpreter
 **Why.** The host decides on spend ("We don't impose concurrency caps,
@@ -588,8 +630,8 @@ timeouts, or TTLs"); `compose` has no router to show a model with, and an
 **Instead.** `preflightPlan` routes every step and prices nothing — put its
 report in front of your own `AskUserHandler` before `submitJob`; a hard cap is
 a `beforeDispatch` middleware.
-**Where.** `packages/orchestral-runtime/src/preflight-plan.ts`;
-`packages/orchestral-core/src/middleware.ts`.
+**Where.** `packages/orchestral-plan/src/preflight.ts` (DESIGN: preflight-prices-nothing);
+`packages/orchestral-core/src/middleware.ts` (DESIGN: before-dispatch-hook).
 
 ## Things this document is not
 

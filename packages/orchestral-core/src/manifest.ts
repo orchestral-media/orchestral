@@ -15,6 +15,7 @@
 // activation events. A pattern package is an ordinary npm package whose
 // factories a host could equally well call by hand; the manifest only removes
 // the hand-written wiring and the drift that comes with it.
+// DESIGN: manifest-not-a-plugin-framework
 
 import { z } from 'zod'
 import type { Pattern } from './pattern'
@@ -63,6 +64,7 @@ export const OrchestralManifestPatternSchema = z
      * of what a manifest is for. Declared here, `addFromManifest` can check
      * each entry against the ops it was given and let the caller take the part
      * it can run (see its `missingOps` option).
+     * DESIGN: required-ops-per-pattern
      */
     requiredOps: z.array(z.string().min(1)).optional(),
   })
@@ -84,6 +86,7 @@ export type OrchestralManifestPattern = z.infer<
  * package's own semver and its `@orchestral/core` peer range already carry
  * that information, and a second version number would only be a second thing
  * to keep in sync.
+ * DESIGN: manifest-no-version-discriminator
  */
 export const OrchestralManifestSchema = z.object({
   patterns: z
@@ -106,6 +109,7 @@ export const OrchestralManifestSchema = z.object({
    * Note this is narrower than the "unknown keys are ignored" rule above: an
    * unrecognized key is a later manifest shape an older core should tolerate,
    * whereas this one is a key whose meaning changed.
+   * DESIGN: package-required-ops-refused
    */
   requiredOps: z
     .undefined({
@@ -151,21 +155,19 @@ export class ManifestError extends Error {
 }
 
 /**
- * The id prefix is normative, not cosmetic — the sub-agent recursion guard and
- * `inferNamespace` both route on it (see foundational.ts). Checking it here
- * makes the manifest self-describing to a static reader: an `agent_` id in the
- * list IS an agent.
- */
-/**
  * The id ↔ kind naming contract: `meta_` prefix for meta, `agent_` for agent, a
  * bare capability id for atomic.
  *
- * Exported because the contract is normative beyond the manifest.
- * `DEFAULT_SUBAGENT_BLOCKLIST` and `inferNamespace` (catalog.ts) route purely on
- * the prefix, so an agent Pattern whose id lacks `agent_` is invisible to the
- * sub-agent recursion guard. Checking it only in the manifest would leave
- * `PatternRegistry.register` — the path every first-party and hand-wired
- * Pattern takes — as an unguarded way in.
+ * The prefix is normative, not cosmetic — `DEFAULT_SUBAGENT_BLOCKLIST` and
+ * `inferNamespace` (catalog.ts) both route purely on it, so an agent Pattern
+ * whose id lacks `agent_` is invisible to the sub-agent recursion guard.
+ * Checking it here makes a manifest self-describing to a static reader: an
+ * `agent_` id in the list IS an agent.
+ *
+ * Exported because the contract is normative beyond the manifest. Checking it
+ * only here would leave `PatternRegistry.register` — the path every first-party
+ * and hand-wired Pattern takes — as an unguarded way in.
+ * DESIGN: id-carries-kind
  */
 export function idCarriesKind(id: string, kind: ManifestPatternKind): boolean {
   if (kind === 'meta') return id.startsWith('meta_')

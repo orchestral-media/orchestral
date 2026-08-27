@@ -41,6 +41,9 @@ importers:
       '@orchestral/core':
         specifier: workspace:*
         version: link:../../packages/orchestral-core
+      '@orchestral/discovery':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-discovery
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../../packages/orchestral-patterns
@@ -205,6 +208,9 @@ importers:
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../../packages/orchestral-patterns
+      '@orchestral/plan':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-plan
       '@orchestral/runtime':
         specifier: workspace:*
         version: link:../../packages/orchestral-runtime
@@ -258,9 +264,6 @@ importers:
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../orchestral-patterns
-      '@orchestral/runtime':
-        specifier: workspace:*
-        version: link:../orchestral-runtime
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -357,6 +360,9 @@ importers:
       '@orchestral/core':
         specifier: workspace:*
         version: link:../orchestral-core
+      '@orchestral/plan':
+        specifier: workspace:*
+        version: link:../orchestral-plan
     devDependencies:
       '@orchestral/discovery':
         specifier: workspace:*
@@ -377,15 +383,34 @@ importers:
         specifier: ^4.3.6
         version: 4.4.3
 
+  packages/orchestral-plan:
+    dependencies:
+      '@orchestral/core':
+        specifier: workspace:*
+        version: link:../orchestral-core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.4.3
+
   packages/orchestral-runtime:
     dependencies:
       '@orchestral/core':
         specifier: workspace:*
         version: link:../orchestral-core
+    devDependencies:
       '@orchestral/discovery':
         specifier: workspace:*
         version: link:../orchestral-discovery
-    devDependencies:
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../orchestral-patterns

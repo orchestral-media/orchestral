@@ -11,6 +11,7 @@
   "dependencies": {
     "@orchestral/adapters-ai-sdk": "workspace:*",
     "@orchestral/core": "workspace:*",
+    "@orchestral/discovery": "workspace:*",
     "@orchestral/runtime": "workspace:*",
     "@orchestral/patterns": "workspace:*",
     "@ai-sdk/openai": "^4.0.0",

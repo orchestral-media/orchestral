@@ -41,6 +41,7 @@ export interface DefaultCapabilityRouterDeps {
    * filtering belongs to this router; pre-filtering would defeat
    * `diagnoseReason`'s step-by-step elimination (it needs the full declared
    * set to tell `tag-mismatch` from `all-excluded`).
+   * DESIGN: get-models-no-prefilter
    */
   getModels(cap: Capability): readonly ModelCapability[]
   /**
@@ -157,6 +158,7 @@ class DefaultCapabilityRouter implements CapabilityRouter {
     // that wrongly drops records — most visibly for providers that proxy many
     // upstream models under one name. Dispatch fails loudly instead: the
     // host's `call` adapter throws and the caller surfaces it.
+    // DESIGN: no-adapter-prescreen
     const screened = this.deps.getModels(cap).map((record) => ({
       record,
       droppedBy: dropStageFor(

@@ -30,8 +30,9 @@ import { createOrchestratorAgent } from '@orchestral/agent'
 import { createInProcessAgentRunImpl } from './agent-runner' // yours
 
 const registry = new PatternRegistry()
-registry.add(createOrchestratorAgent())
-// …plus the atomic + meta patterns its loop.toolPatternIds names.
+registry.register(createOrchestratorAgent())
+// …plus the atomic + meta patterns its loop.toolPatternIds names — see below,
+// this line is load-bearing.
 
 const runtime = new InlineRuntime({
   store,
@@ -43,6 +44,37 @@ const runtime = new InlineRuntime({
   }),
 })
 ```
+
+## Register the tools it names, or narrow the list
+
+The shipped `loop.toolPatternIds` is the whole first-party catalog minus
+`meta_plan` — 18 of the 19 ids in `FIRST_PARTY_PATTERN_IDS` (the orchestrator
+plans as it goes, so a second static planner would be two planners). That list is a
+declaration the runtime now holds you to: dispatching the agent against a
+registry missing any of those ids fails the job with
+`AGENT_TOOL_PATTERN_NOT_REGISTERED` before the loop starts, naming what is
+absent. Registering a subset of `@orchestral/patterns` is a perfectly good
+deployment — say so, and the agent's tool universe matches what you pay for:
+
+```ts
+import { FIRST_PARTY_PATTERN_IDS } from '@orchestral/patterns'
+
+registry.register(
+  createOrchestratorAgent({
+    // Whatever you actually registered — here, the atomics and no metas.
+    toolPatternIds: FIRST_PARTY_PATTERN_IDS.atomic,
+    // Same seam for the rest of the defaults this package picked for you:
+    // `prompts` overrides the system prompt (keys of
+    // ORCHESTRATOR_DEFAULT_PROMPTS), `abortMode` whether a caller's abort
+    // cascades in.
+  }),
+)
+```
+
+The failure is loud rather than silent because the alternative is worse than a
+missing tool: a catalog that quietly shrinks under an unchanged system prompt
+leaves the agent being told to use patterns it does not have, and it finds out
+one wasted turn at a time.
 
 A host can also register it straight from the package manifest, without
 hand-written wiring:
@@ -72,6 +104,26 @@ the split is:
 | `dispatchAgent`, the `AgentRunImpl` interface, tool catalog + handle plumbing | `@orchestral/runtime` (inert until a runner is injected) |
 | First-party agent Pattern | **this package** |
 | The runner that fills the seam | **your host** — reference implementation in [`examples/agent-hello-world`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world) |
+
+Retrieval is a second seam of the same kind, and this agent needs it. Most of
+the ids in `loop.toolPatternIds` are not `always-load`, so the only way the
+loop reaches them is `find_pattern` — and `@orchestral/runtime` advertises that
+tool only when the host injects a `patternSearch`:
+
+```ts
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
+
+new InlineRuntime({
+  store, registry, router, agentRunImpl,
+  patternSearch: createPatternSearch(registry, { router }),
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
+})
+```
+
+The shipped system prompt tells the model to use `find_pattern`, so a host that
+deliberately runs the orchestrator without retrieval should override
+`prompts.orchestratorSystem` too — otherwise the prompt names a tool the
+catalog does not carry.
 
 ## Why no loop implementation ships here
 

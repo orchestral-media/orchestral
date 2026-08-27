@@ -7,11 +7,18 @@
 //   2. WHAT the model sees for each — the LLM-facing ToolDescriptor lives at a
 //      kind-dependent place on the Pattern (atomic/agent: `primary.tool`,
 //      meta: `tool`), mirroring @orchestral/core's own buildAlwaysLoadDescriptors.
+//      Its JSON Schema is rendered by core's `toJsonSchema`, so a dsh tool and
+//      an always-load catalog entry describe the same Pattern byte-for-byte.
 //
 // Nothing here touches dsh types, so the selection rules are unit-testable
 // without a Cordis context.
-import { resolveExposure, type Pattern } from '@orchestral/core'
-import { z } from 'zod'
+import {
+  matchSubagentBlocklist,
+  resolveExposure,
+  toJsonSchema,
+  type Pattern,
+  type ToolDescriptor,
+} from '@orchestral/core'
 
 /**
  * Which dsh catalog a Pattern is being projected into.
@@ -19,10 +26,23 @@ import { z } from 'zod'
  * dsh registers tools into one registry that a main agent and its subagents
  * both draw from, so the host picks which orchestral surface that registry
  * corresponds to. `chatTurn` (the default) is the conservative reading: it
- * admits `exposure: 'tool'` Patterns only. `agentLoop` additionally admits
- * `'agent-tool'` Patterns — composition primitives an author deliberately hid
- * from a top-level turn — and is appropriate when the bundle is mounted into
- * a scoped subagent context.
+ * admits `exposure: 'tool'` Patterns only.
+ *
+ * `agentLoop` is the sub-agent catalog, and it is TWO gates, not one — the
+ * same two orchestral runs when it builds a sub-agent's own catalog. It
+ * additionally admits `'agent-tool'` Patterns (composition primitives an
+ * author deliberately hid from a top-level turn), and it subtracts everything
+ * `DEFAULT_SUBAGENT_BLOCKLIST` names — every `agent_*` Pattern. Dropping the
+ * second gate would make this surface strictly wider than the one it is named
+ * after: `agent_orchestrator` declares `exposure: { chatTurn: true,
+ * agentLoop: true }` and would become a tool a sub-agent could call directly,
+ * which is the recursion the prefix guard exists to make physically
+ * impossible.
+ *
+ * What the bridge still cannot see is the ANCESTOR CHAIN — dsh owns the
+ * sub-agent tree, and a tool registry is built once at load, not per
+ * dispatch. The prefix gate is what is expressible here; a host that nests
+ * orchestral agents inside dsh agents owns the rest.
  */
 export type ExposureSurface = 'chatTurn' | 'agentLoop'
 
@@ -44,9 +64,7 @@ export interface PatternToolDescriptor {
  * An AgentPattern without `primary` is host-only by construction (no tool
  * spec to show a model), so it is skipped regardless of `exposure`.
  */
-function llmFacingTool(
-  pattern: Pattern,
-): { description: string; inputs: unknown } | undefined {
+function llmFacingTool(pattern: Pattern): ToolDescriptor | undefined {
   if (pattern.kind === 'atomic') return pattern.primary.tool
   if (pattern.kind === 'meta') return pattern.tool
   return pattern.primary?.tool
@@ -73,13 +91,37 @@ function toToolName(prefix: string, patternId: string): string {
  */
 export function buildPatternToolDescriptors(
   patterns: Iterable<Pattern>,
-  opts: { surface: ExposureSurface; toolNamePrefix: string },
+  opts: {
+    surface: ExposureSurface
+    toolNamePrefix: string
+    /** See `Config.exposeDeferred`. Default `false` — always-load only. */
+    exposeDeferred?: boolean
+  },
 ): PatternToolDescriptor[] {
   const out: PatternToolDescriptor[] = []
   for (const pattern of patterns) {
     // The ONLY correct way to read exposure — handles the string shorthand and
     // the per-surface object form, and fails closed on unnamed surfaces.
     if (!resolveExposure(pattern.exposure)[opts.surface]) continue
+
+    // Gate 2, sub-agent surface only. `matchSubagentBlocklist` is core's own
+    // predicate (the same one agent-dispatch routes on), so this stays one
+    // decision in one place rather than a fourth hand-copied prefix test.
+    if (
+      opts.surface === 'agentLoop' &&
+      matchSubagentBlocklist(pattern.id) !== null
+    ) {
+      continue
+    }
+
+    // Gate 3: the load strategy. `exposureMode` answers a different question
+    // from `exposure` — not "who may see this" but "is it worth a slot in the
+    // tool table". Everything here becomes a first-class dsh tool, so the
+    // default mirrors core's own always-load catalog rather than flattening
+    // the register into the prompt.
+    if (opts.exposeDeferred !== true && pattern.exposureMode !== 'always-load') {
+      continue
+    }
 
     const tool = llmFacingTool(pattern)
     if (!tool) continue
@@ -88,9 +130,7 @@ export function buildPatternToolDescriptors(
       name: toToolName(opts.toolNamePrefix, pattern.id),
       patternId: pattern.id,
       description: tool.description,
-      parameters: z.toJSONSchema(tool.inputs as z.ZodTypeAny, {
-        target: 'draft-2020-12',
-      }) as Record<string, unknown>,
+      parameters: toJsonSchema(tool.inputs) as Record<string, unknown>,
     })
   }
   return out

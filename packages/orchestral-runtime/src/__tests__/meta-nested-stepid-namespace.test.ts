@@ -27,7 +27,8 @@ import type {
   MetaPattern,
   ModelCapability,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
@@ -156,9 +157,9 @@ function makeRuntime(
   computeRuns: string[] = [],
 ): InlineRuntime {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createFakeImagePattern() as never)
-  registry.add(createChildMeta(computeRuns) as never)
-  registry.add(createParentMeta() as never)
+  registry.register(createFakeImagePattern() as never)
+  registry.register(createChildMeta(computeRuns) as never)
+  registry.register(createParentMeta() as never)
   return new InlineRuntime({
     router: makeImageRouter(calls),
     registry,

@@ -18,8 +18,8 @@
 // step's NAME rather than by its position in the compose run. That is what
 // `plan-captioned.ts`'s inserted step leans on.
 
-import type { Pattern, PatternId, PlanDag } from '@orchestral/core'
-import { planToMeta, type PlanMetaPattern } from '@orchestral/patterns'
+import type { Pattern, PatternId } from '@orchestral/core'
+import { planToMeta, type PlanDag, type PlanMetaPattern } from '@orchestral/plan'
 import { z } from 'zod'
 
 import planJson from './short-clip.plan.json' with { type: 'json' }

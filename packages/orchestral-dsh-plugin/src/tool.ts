@@ -19,20 +19,52 @@ import {
   type Pattern,
   type Runtime,
 } from '@orchestral/core'
-import { resolveAssets } from '@orchestral/runtime'
+import { deriveIdempotencyKey, resolveAssets } from '@orchestral/runtime'
 import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
 
 import type { PatternToolDescriptor } from './expose'
 
 /**
- * Per-call routing metadata the host derives from the calling agent.
+ * Per-call routing metadata for one dispatch. Two concerns ride here, and
+ * conflating them is how a bridge leaks one session's work into another's.
  *
- * orchestral's asset handles (`image_1`, …) are minted per asset context and
- * collide across contexts, so a bridge that returns handles to a model must be
- * told which ledger those handles name. A host with no asset ledger simply
- * omits this — Patterns with no `assetNeeds` never consult it.
+ * `sessionId` is the IDEMPOTENCY ISOLATION BOUNDARY. `deriveIdempotencyKey`
+ * hashes it — "dedup never crosses a session boundary" — so two dispatches of
+ * the same Pattern over the same input collapse into one job exactly when
+ * they agree on it. Left undefined everywhere, every dsh session shares one
+ * dedup space and the second session's model is handed the first session's
+ * output and handles.
+ *
+ * `assetContextId` / `assetEvents` are the asset-ledger concern: orchestral's
+ * handles (`image_1`, …) are minted per asset context and collide across
+ * contexts, so a bridge that returns handles to a model must be told which
+ * ledger names them. A host with no asset ledger omits both — Patterns with
+ * no `assetNeeds` never consult them.
+ *
+ * The two are SEPARATE HERE BUT COUPLED IN THE RUNTIME, and that is the fact
+ * this doc exists to state: `JobSpec.sessionId` is the last-resort asset
+ * context. Dispatching a meta, the runtime reads
+ * `spec.assetContextId ?? spec.sessionId` and, for a host that installed an
+ * `AgentAssetBridge`, resolves every sub-step's references against whatever
+ * that yields — fail-closed, so a context the bridge never recorded is a
+ * `META_STEP_FAILED`, not a fallback. Setting `sessionId` therefore says two
+ * things at once, which is why only a host may say it (see `buildPatternTool`:
+ * the bridge's own derived session identity travels as an explicit
+ * `idempotencyKey` instead, and never lands on the spec's routing fields).
  */
 export interface JobContext {
+  /**
+   * The dedup boundary, and — unless `assetContextId` is also set — the asset
+   * context a dispatched meta's sub-step references resolve against. Set it to
+   * WIDEN a dedup space (several dsh agents sharing a tenant's cached work) or
+   * to NARROW one (a per-request scope inside one long-lived agent). A host
+   * with an asset ledger that sets this should set `assetContextId` too, so the
+   * ledger question is answered by the field that means it.
+   *
+   * Omitted, the spec carries no `sessionId` at all: the bridge still isolates
+   * dedup per dsh session, via a pre-derived `idempotencyKey`, without claiming
+   * an asset context the host never named.
+   */
   sessionId?: string
   assetContextId?: string
   /** The host-owned asset ledger this call's `input.references` resolve against. */
@@ -185,9 +217,49 @@ export function buildPatternTool(opts: BuildToolOptions): ToolDefinition {
         spec.assets = resolved.assets
       }
 
+      // Host routing goes on the spec verbatim: a host that names a session
+      // (and an asset context) owns both meanings of those fields.
       if (jobCtx.sessionId !== undefined) spec.sessionId = jobCtx.sessionId
       if (jobCtx.assetContextId !== undefined) {
         spec.assetContextId = jobCtx.assetContextId
+      }
+
+      // The dedup boundary, derived rather than configured — and carried as a
+      // pre-computed key rather than as `spec.sessionId`. dsh's `Agent.id` IS a
+      // `SessionId` ("the single identity shared with session") and it is the
+      // only session-scale identity on the tool-call surface: `callId` /
+      // `rootCallId` are per-call, so hashing either would defeat dedup
+      // outright. A call arriving with no `agent` is not a loop turn (a
+      // host-direct execution) and has no session to belong to, so it is left
+      // unscoped rather than given a fabricated one.
+      //
+      // Why not `spec.sessionId`: on the runtime side that field is not only an
+      // identity field, it is also the LAST-RESORT ASSET CONTEXT
+      // (`spec.assetContextId ?? spec.sessionId`; see JobContext above). A dsh
+      // agent id landing there would point a dispatched meta's sub-step
+      // reference resolution at a bridge context no host ever recorded, and
+      // that lookup fails closed — an id this bridge invented would turn into
+      // META_STEP_FAILED on a host whose runtime carries an AgentAssetBridge.
+      // `idempotencyKey` reaches the dedup gate and nothing else: the runtime
+      // takes a supplied key verbatim (`spec.idempotencyKey ?? derive(...)`),
+      // so calling its own `deriveIdempotencyKey` with the fields it would have
+      // used — plus the derived session — buys isolation at exactly the layer
+      // that wanted it. The cost is that the job row carries no `sessionId`,
+      // so a `JobQueryFilter.sessionId` will not find these rows by a dsh
+      // session the host never named; `ctx.sessionId` likewise stays
+      // `undefined` in the pre-fork permission context and in the
+      // `DispatchContext` handed to adapters for dsh-dispatched jobs, matching
+      // pre-branch behavior. Naming one via `resolveJobContext` is how a host
+      // that wants that asks for it, and then it also says which asset ledger
+      // it means.
+      const derivedSessionId = exec.agent?.id
+      if (jobCtx.sessionId === undefined && derivedSessionId !== undefined) {
+        spec.idempotencyKey = deriveIdempotencyKey({
+          patternId: pattern.id,
+          input: args,
+          assets: spec.assets,
+          sessionId: derivedSessionId,
+        })
       }
 
       // `submitJob` resolves with the Job in whatever terminal state it

@@ -13,7 +13,8 @@ import type {
   Modality,
   AtomicPattern,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 
@@ -52,7 +53,7 @@ function makeAtomic(
 
 function makeRuntime(onCall: () => void, atomic: AtomicPattern): InlineRuntime {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(atomic as unknown as Parameters<typeof registry.add>[0])
+  registry.register(atomic as unknown as Parameters<typeof registry.register>[0])
   return new InlineRuntime({
     router: makeRouter(onCall),
     registry,

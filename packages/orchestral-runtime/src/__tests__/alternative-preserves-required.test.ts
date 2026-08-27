@@ -27,10 +27,10 @@ import type {
 } from '@orchestral/core'
 import {
   silentDiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
   PatternRegistry,
   whenPreservesRequired,
 } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 
@@ -128,7 +128,7 @@ function makeRouter(calls: string[], primary: PrimaryState): CapabilityRouter {
  */
 function makeRegistry(): PatternRegistryType {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add({
+  registry.register({
     ...atomic('parent_cap'),
     alternatives: [
       {

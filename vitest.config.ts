@@ -10,6 +10,7 @@ export default defineConfig({
       './packages/orchestral-discovery/vitest.config.ts',
       './packages/orchestral-adapters-ai-sdk/vitest.config.ts',
       './packages/orchestral-patterns/vitest.config.ts',
+      './packages/orchestral-plan/vitest.config.ts',
       './packages/orchestral-runtime/vitest.config.ts',
       './packages/orchestral-agent/vitest.config.ts',
       './packages/orchestral-dsh-plugin/vitest.config.ts',
@@ -19,6 +20,8 @@ export default defineConfig({
       './examples/plan-short-clip/vitest.config.ts',
       './examples/consented-fallback/vitest.config.ts',
       './examples/long-form-video/vitest.config.ts',
+      // Repo-level guards (DESIGN.md citations) — not owned by any package.
+      './tests/vitest.config.ts',
     ],
     coverage: {
       provider: 'v8',

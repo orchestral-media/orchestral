@@ -52,7 +52,7 @@ describe('PatternRegistry.getEntry', () => {
 
   it('returns alternatives declared through add()', () => {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(
+    registry.register(
       createImageToImagePattern({
         alternatives: [
           {
@@ -75,7 +75,7 @@ describe('PatternRegistry.getEntry', () => {
         ],
       }) as unknown as Pattern,
     )
-    registry.add(createImageToImageViaCaptionPattern() as unknown as Pattern)
+    registry.register(createImageToImageViaCaptionPattern() as unknown as Pattern)
 
     expect(registry.getEntry('image-to-image')?.alternatives.map((a) => a.id)).toEqual([
       'fallback-via-caption',

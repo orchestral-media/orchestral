@@ -10,7 +10,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Job, JobEvent } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 

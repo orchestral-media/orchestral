@@ -46,6 +46,30 @@ export interface Config {
    * other plugins that might coin the same name.
    */
   toolNamePrefix: string
+  /**
+   * Register EVERY exposed Pattern as a first-class dsh tool, including the
+   * ones whose author left `exposureMode` at its `'deferred'` default.
+   * `false` by default, and the default is the load-bearing half.
+   *
+   * `exposureMode` is orthogonal to `exposure`: `'always-load'` means "worth a
+   * permanent slot in the LLM's tool table, callable in one hop",
+   * `'deferred'` means "discoverable through find_pattern, dispatched through
+   * dispatch_pattern". Pattern authors are told to promote high-frequency
+   * generation atomics and explicitly NOT to promote understanding atomics
+   * (`image-to-text` / `text-generation`), because promoting those "only
+   * encourages offloading the task to a weaker sub-tool"
+   * (@orchestral/core `PatternBase.exposureMode`).
+   *
+   * Turning this on hands the model the whole register at once. The cost is
+   * paid twice: every descriptor sits in the cached tool prefix for the
+   * agent's whole lifetime, and selection interference grows with the count.
+   * It also skips what the two-hop path adds — find_pattern lifts the top-1
+   * model's `providerOptions` into the schema and derives a per-match
+   * description, so a Pattern promoted here is exposed with its BASE input
+   * schema. Set it when the profile mounts a small curated registry and no
+   * find_pattern bridge exists.
+   */
+  exposeDeferred: boolean
   /** Per-tool-call deadline in ms, enforced by dsh's timeout policy. Omit for none. */
   timeoutMs?: number
   /**
@@ -68,6 +92,7 @@ export const Config: Schema<Config> = Schema.object({
   registry: Schema.any().required(),
   surface: Schema.union(['chatTurn', 'agentLoop'] as const).default('chatTurn'),
   toolNamePrefix: Schema.string().default(''),
+  exposeDeferred: Schema.boolean().default(false),
   timeoutMs: Schema.number(),
   resolveJobContext: Schema.any(),
 }) as Schema<Config>
@@ -78,6 +103,7 @@ export function apply(ctx: Context, config: Config): void {
   const descriptors = buildPatternToolDescriptors(patterns, {
     surface: config.surface,
     toolNamePrefix: config.toolNamePrefix,
+    exposeDeferred: config.exposeDeferred,
   })
 
   // One effect owning every registration, so an unload / HMR reload unwinds

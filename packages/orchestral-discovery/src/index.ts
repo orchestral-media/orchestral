@@ -10,6 +10,7 @@
 // service, a hand-written router), and it drags in a search dependency core
 // should not carry. The wire contract for the tool call itself
 // (`FindPatternInputSchema`) stays in core next to `DispatchPatternInputSchema`.
+// DESIGN: discovery-out-of-core
 
 // ── BM25 retrieval ───────────────────────────────────────────────────────
 export {
@@ -31,3 +32,15 @@ export {
   type FindPatternOutputsSummary,
   type HandleFindPatternOptions,
 } from './find-pattern'
+
+// ── The injectable seam ──────────────────────────────────────────────────
+// `PatternSearch` (the contract) lives in @orchestral/core; this is the
+// first-party implementation a host hands to @orchestral/runtime's
+// `InlineRuntimeInit.patternSearch`. QUERY_SYNTAX_HINT is the prose half of
+// the same split — the query language this package parses, for a host to
+// splice into the find_pattern tool description.
+export {
+  createPatternSearch,
+  type CreatePatternSearchOptions,
+} from './create-pattern-search'
+export { QUERY_SYNTAX_HINT } from './find-pattern'

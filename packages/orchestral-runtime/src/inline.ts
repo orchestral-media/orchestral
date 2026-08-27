@@ -56,20 +56,24 @@ import type {
   Pattern,
   PatternId,
   PatternRegistry,
+  PatternSearch,
   ResolveContext,
+  ResolveCtxProvider,
   ResolvedAssetRef,
   RetryPolicy,
   Runtime,
-  Semantics,
   TranscriptStore,
   Unsubscribe,
   DispatchResult,
 } from '@orchestral/core'
 import {
+  applicableAlternatives,
   assertSupportedModelSpecVersion,
   consoleDiagnosticsLogger,
-  NoModelForCapabilityError,
+  pickAlternative,
+  readRequiresSemantics,
 } from '@orchestral/core'
+import { NoModelForCapabilityError } from '@orchestral/core/routing'
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core'
 
 import { deriveIdempotencyKey } from './idempotency'
@@ -84,7 +88,7 @@ import {
   nextRetryDelayMs,
   type MetaSharedState,
 } from './meta-execution-context'
-import { MiddlewareAfterFailure, normaliseError } from './errors'
+import { cancelledError, MiddlewareAfterFailure, normaliseError } from './errors'
 import {
   type AgentAssetBridge,
   type AgentDispatchDeps,
@@ -92,12 +96,7 @@ import {
   countAgentAncestors,
   dispatchAgent,
 } from './agent-dispatch'
-import {
-  AlternativesNotEnabledError,
-  applicableAlternatives,
-  pickAlternative,
-  runAlternative,
-} from './alternatives'
+import { AlternativesNotEnabledError, runAlternative } from './alternatives'
 
 /**
  * Cap on retained agent envelopes. `getAgentEnvelope` is a read-after-settle
@@ -129,29 +128,6 @@ function stepAssets(
 }
 
 /**
- * The semantic dimensions the caller asked this dispatch to preserve, read off
- * the input's `requiresSemantics` field. This is the caller's half of
- * `appliesWhen: { kind: 'preserves-required' }`: core/alternative.ts sets the
- * convention that a Pattern wanting that member exposes
- * `requiresSemantics?: Semantics[]` on its inputs, and the runtime compares
- * whatever the caller filled against the alternative's `semantics`.
- *
- * Read off the input rather than demanded of every schema because the field
- * is opt-in per Pattern — one appliesWhen kind must not force a field onto the
- * input schema of every Pattern that will never declare such a row. That also
- * makes this the one place the value is untyped: the input has passed the
- * Pattern's zod schema, but `requiresSemantics` is convention, not schema, so
- * a missing or malformed value means "nothing required" and never a throw.
- * Anything that is not an array is ignored; non-string entries are dropped.
- */
-function readRequiresSemantics(input: unknown): readonly Semantics[] {
-  if (typeof input !== 'object' || input === null) return []
-  const raw = (input as { requiresSemantics?: unknown }).requiresSemantics
-  if (!Array.isArray(raw)) return []
-  return raw.filter((s): s is Semantics => typeof s === 'string')
-}
-
-/**
  * Event types after which no further event can fan out for that job. Used to
  * release the job's subscriber set — see `fanout`.
  */
@@ -168,6 +144,7 @@ const DEFAULT_MAX_ALTERNATIVE_DEPTH = 4
 /**
  * Automatic `Pattern.alternatives` redirects are off unless the host asks for
  * them. See `InlineRuntimeInit.alternatives` for the reasoning.
+ * DESIGN: alternatives-default-off
  */
 const DEFAULT_ALTERNATIVES_MODE = 'off' as const
 
@@ -192,9 +169,13 @@ const DEFAULT_OUTPUT_VALIDATION = 'strict' as const
  * excludes `agent_*`-prefixed Patterns from subagent catalogs), this gives
  * defence-in-depth against recursion.
  *
- * A Pattern author who wants to open a recursive path (e.g. director →
- * cinematographer → camera-operator) must (a) explicitly raise maxAgentDepth
- * and (b) list the specific `agent_`-prefixed Pattern in toolPatternIds.
+ * Raising this alone does NOT open a recursive path. `agent_`-prefixed
+ * Patterns are refused by the default blocklist at both the catalog and the
+ * dispatch guard, and listing one in `loop.toolPatternIds` does not lift that
+ * — an allowlist narrows what an agent may reach, it never widens it. Opening
+ * director → cinematographer → camera-operator means supplying a blocklist
+ * that does not carry the `agent_` prefix, which no seam injects today: the
+ * recursive path is closed, deliberately, until someone argues for that seam.
  */
 const DEFAULT_MAX_AGENT_DEPTH = 2
 
@@ -229,6 +210,7 @@ export interface TransientRetryConfig {
    * you cannot classify; a predicate that throws is logged and read as
    * `false`, so a bug in here can never displace the provider error it was
    * asked about.
+   * DESIGN: is-transient-throw-is-false
    */
   isTransient: (error: unknown, info: TransientFailureInfo) => boolean
   /**
@@ -268,13 +250,11 @@ function classifyTransient(
   }
 }
 
-/**
- * Host-supplied builder for the ResolveContext given a JobSpec. Called once
- * per dispatch so the host can read the live session row / project defaults
- * at resolution time. Keeps host-specific override layers (node / session /
- * global) outside this package's interface.
- */
-export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext
+// `ResolveCtxProvider` is @orchestral/core's (runtime.ts): the same provider
+// `InlineRuntimeInit` takes below is what @orchestral/plan's `preflightPlan`
+// takes, so the report names the model the run would pick. Re-exported here so
+// this package's barrel still carries it.
+export type { ResolveCtxProvider }
 
 
 export interface InlineRuntimeInit {
@@ -311,6 +291,7 @@ export interface InlineRuntimeInit {
    * identity-preserving edit and silently received a re-render from a caption
    * got a different answer, not a retry. Failing loudly with the paths named
    * keeps that choice with the host.
+   * DESIGN: alternatives-off-is-a-product-decision
    */
   alternatives?: 'auto' | 'off'
   /**
@@ -352,6 +333,7 @@ export interface InlineRuntimeInit {
    * Per runtime instance, like `alternatives`. `isTransient` receives the
    * capability and model, so one instance still covers surfaces that want
    * different answers.
+   * DESIGN: no-built-in-transience-classifier
    */
   transientRetry?: TransientRetryConfig
   /**
@@ -449,8 +431,40 @@ export interface InlineRuntimeInit {
    * for a host that has swapped out a piece of that behaviour (see
    * `BuildCatalogDescriptorsOptions.slotDefaultNote`) and must keep the
    * agent-loop descriptors truthful and in step with its own chat-turn catalog.
+   *
+   * One field is NOT yours to set here: `includeFindPattern` is overwritten
+   * per loop from whether `patternSearch` is wired. The runtime is the only
+   * thing that knows what will actually answer a find_pattern call from an
+   * agent loop, so it decides; a value passed in is ignored rather than
+   * honoured, because honouring it is how a catalog ends up advertising a tool
+   * with nothing behind it. `querySyntaxHint` is the field to pass alongside
+   * a seam — those two are a pair (see `patternSearch` below).
    */
   catalogOptions?: BuildCatalogDescriptorsOptions
+  /**
+   * Host seam — what answers a `find_pattern` call from an agent loop. The
+   * runtime ships no retrieval and takes no search dependency: which algorithm
+   * ranks a free-form query is a product decision, the same kind of decision
+   * `agentRunImpl` and `ModelCapability.call` already leave to the host. Wire
+   * the first-party BM25 one with `createPatternSearch(registry, { router })`
+   * from `@orchestral/discovery`, or implement `PatternSearch` over your own
+   * embeddings / hosted search.
+   *
+   * Absent — the default — an agent loop's catalog contains no `find_pattern`
+   * tool at all. The always-load inline core (a static catalog; no search
+   * involved) and `dispatch_pattern` are untouched, so an agent whose
+   * `loop.toolPatternIds` are all always-load runs exactly as before. An agent
+   * that was meant to DISCOVER Patterns will not: a tool whose only possible
+   * answer is "no retrieval wired" spends prompt-prefix bytes and buys a
+   * round-trip the model cannot complete, so it is not advertised.
+   *
+   * Satisfiability filtering is not applied for you. An implementation that
+   * wants unroutable atomics dropped takes the same `CapabilityRouter` this
+   * runtime got — `createPatternSearch(registry, { router })` does exactly
+   * that, and omitting it means the model may be shown a Pattern the dispatch
+   * will then fail to route.
+   */
+  patternSearch?: PatternSearch
   /**
    * Where diagnostics that have no JobEvent go. Anything that belongs to a
    * job — a model the fallback walk gave up on, a meta step landing, a refused
@@ -493,6 +507,7 @@ export class InlineRuntime implements Runtime {
   private readonly agentAssetBridge?: AgentAssetBridge
   private readonly askUser?: AskUserHandler
   private readonly catalogOptions?: BuildCatalogDescriptorsOptions
+  private readonly patternSearch?: PatternSearch
   private readonly logger: DiagnosticsLogger
   /**
    * Capture the per-dispatch envelope under the jobId of the agent dispatch.
@@ -530,6 +545,7 @@ export class InlineRuntime implements Runtime {
     this.agentAssetBridge = init.assetBridge
     this.askUser = init.askUser
     this.catalogOptions = init.catalogOptions
+    this.patternSearch = init.patternSearch
     this.logger = init.logger ?? consoleDiagnosticsLogger
   }
 
@@ -839,7 +855,29 @@ export class InlineRuntime implements Runtime {
 
     // Short-circuit path: skip dispatch entirely, mark done with the
     // supplied output. Used by cache-hit middleware.
+    //
+    // The supplied value still meets the Pattern's `outputs` schema. It is
+    // standing in for what an adapter would have returned — it lands in
+    // `job.output` and, for a child job, in the next step's input — so it makes
+    // that adapter's claim and answers to that adapter's gate. Anything else
+    // leaves one exit where "every string field is bounded, so an unbounded
+    // blob is unrepresentable" is a declaration rather than a fact. A cache
+    // entry the schema now rejects is a stale entry, and failing loudly is
+    // what a host wants over serving it.
+    //
+    // `runOnErrorChain` runs before `markErrored`, as on the dispatch path, and
+    // it deliberately starts at 0: the middleware that supplied the value is
+    // the one that has to hear its entry was refused, or it serves the same
+    // bytes on the next call.
     if (shortCircuit) {
+      try {
+        this.assertOutputConforms(pattern, shortCircuit.output)
+      } catch (err) {
+        const e = normaliseError(err)
+        await this.runOnErrorChain(id, e)
+        await this.markErrored(id, e)
+        throw err instanceof Error ? err : new Error(`${e.code}: ${e.message}`)
+      }
       await this.store.update(id, {
         status: 'done',
         output: shortCircuit.output,
@@ -1076,6 +1114,7 @@ export class InlineRuntime implements Runtime {
     const baseCtx = this.resolveCtxProvider?.(spec) ?? {}
 
     // Satisfiability phase: proactive check (consults Router).
+    // DESIGN: atomic-id-as-capability-lookup
     const sat = this.router.checkSatisfiable(
       atomic.id as Capability,
       requiredTags,
@@ -1189,10 +1228,11 @@ export class InlineRuntime implements Runtime {
     // unchanged by this option existing. A model is excluded only once this
     // loop is done with it, so a retried blip never costs a fallback hop and a
     // long fallback chain never buys extra attempts at one provider.
+    // DESIGN: two-budgets-two-loops
     const fallbackBound = baseCtx.fallbackDepth ?? this.fallbackDepth
     const transientRetry = this.transientRetry
     for (let hop = 0; hop <= fallbackBound; hop++) {
-      if (signal.aborted) throw new Error('CANCELLED')
+      if (signal.aborted) throw cancelledError('aborted before the next fallback hop')
       const ctx: ResolveContext = { ...baseCtx, excludeModel }
       let model
       try {
@@ -1377,9 +1417,13 @@ export class InlineRuntime implements Runtime {
    * would vanish between the adapter and `job.output`. The question asked
    * here is "does this conform", never "what would it look like if it did".
    *
-   * The agent kind is not checked here: its output is composed from a finish
-   * payload the finish tool already validated (or an `outputExtractor` result
-   * already parsed), so a second pass would only re-run the same schema.
+   * The agent kind is not checked on the dispatch path: its output is composed
+   * from a finish payload the finish tool already validated (or an
+   * `outputExtractor` result already parsed), so a second pass would only
+   * re-run the same schema. A middleware short-circuit is the exception —
+   * no finish tool ran there, so a supplied output answers to this gate
+   * whatever the Pattern's kind.
+   * DESIGN: output-schema-mismatch-gate
    */
   private assertOutputConforms(pattern: Pattern, output: unknown): void {
     if (this.outputValidation === 'off') return
@@ -1502,6 +1546,7 @@ export class InlineRuntime implements Runtime {
         // Sub-steps settle on the parent's stream: a meta is one Job to the
         // caller, so without this a multi-minute chain is silent between
         // job:started and job:completed.
+        // DESIGN: job-step-not-namespaced
         onStepSettled: ({ rootJobId, stepId, patternId, childJobId, output }) => {
           void this.fanoutJobEvent(rootJobId, (job) => ({
             type: 'job:step',
@@ -1751,12 +1796,12 @@ export class InlineRuntime implements Runtime {
   private agentDispatchDeps(): AgentDispatchDeps {
     return {
       registry: this.registry,
-      router: this.router,
       maxAgentDepth: this.maxAgentDepth,
       agentRunImpl: this.agentRunImpl,
       transcriptStore: this.transcriptStore,
       agentAssetBridge: this.agentAssetBridge,
       catalogOptions: this.catalogOptions,
+      patternSearch: this.patternSearch,
       resolveCtxProvider: this.resolveCtxProvider,
       logger: this.logger,
       recordEnvelope: (jobId, envelope) => {

@@ -1,7 +1,7 @@
 {
   "name": "@orchestral/core",
   "version": "0.2.0",
-  "description": "Orchestral core — substrate-agnostic Pattern / ModelCapability / Alternative vocabulary, Job / JobStore / CapabilityRouter / Runtime contracts, and in-memory defaults. No provider SDK, no execution engine.",
+  "description": "Orchestral core — substrate-agnostic Pattern / ModelCapability / Alternative vocabulary and Job / JobStore / CapabilityRouter / Runtime contracts. The in-memory stores and the default router ship on their own entries (@orchestral/core/memory, @orchestral/core/routing). No provider SDK, no execution engine.",
   "license": "Apache-2.0",
   "author": "MyPrototypeWhat <daoquqiexing@gmail.com>",
   "homepage": "https://github.com/orchestral-media/orchestral#readme",
@@ -30,7 +30,9 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./memory": "./src/memory.ts",
+    "./routing": "./src/routing.ts"
   },
   "files": [
     "dist",
@@ -45,11 +47,19 @@
       ".": {
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js"
+      },
+      "./memory": {
+        "types": "./dist/memory.d.ts",
+        "import": "./dist/memory.js"
+      },
+      "./routing": {
+        "types": "./dist/routing.d.ts",
+        "import": "./dist/routing.js"
       }
     }
   },
   "scripts": {
-    "build": "tsdown && tsc -p tsconfig.build.json && api-extractor run",
+    "build": "tsdown && tsc -p tsconfig.build.json && api-extractor run && api-extractor run -c api-extractor.memory.json && api-extractor run -c api-extractor.routing.json",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

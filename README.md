@@ -39,10 +39,14 @@ Different layers, and Orchestral expects you to keep using the others:
 npm install @orchestral/core @orchestral/runtime @orchestral/patterns zod
 ```
 
-Two optional packages sit on top: `@orchestral/discovery` (the BM25 search
-behind a `find_pattern` tool) and `@orchestral/agent` (the orchestrator agent
-pattern).
-Neither pulls in a provider SDK. A third, `@orchestral/adapters-ai-sdk`, is the
+Three optional packages sit on top: `@orchestral/plan` (a pipeline authored as
+data — the schema, the validation, the interpreter and the preflight; you get it
+transitively with the catalog, and install it directly to build or preflight a
+plan yourself), `@orchestral/discovery` (the BM25 search behind a `find_pattern`
+tool — the runtime asks a host for retrieval rather than depending on one, so
+install this to give an agent loop a `find_pattern` tool) and
+`@orchestral/agent` (the orchestrator agent pattern).
+None of them pulls in a provider SDK. A fourth, `@orchestral/adapters-ai-sdk`, is the
 one package that does: it wraps a Vercel AI SDK model instance as a ready-made
 `ModelCapability`, so a host already on the AI SDK skips writing the call
 adapter. It is a leaf — nothing in `@orchestral/*` depends on it.
@@ -94,19 +98,19 @@ Registry, model bridge, router, runtime, one dispatch — the whole surface:
 ```ts
 import {
   PatternRegistry,
-  InMemoryJobStore,
-  createDefaultCapabilityRouter,
   type DispatchContext,
   type DispatchResult,
   type ModelCapability,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { generateImage } from 'ai'
 import { openai } from '@ai-sdk/openai'
 
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
+registry.register(createTextToImagePattern())
 
 // The seam you write: your provider SDK behind a ModelCapability envelope.
 const model: ModelCapability = {
@@ -189,8 +193,8 @@ implementations you swap; the third is the call adapter:
 
 | Seam | What it decides | What ships |
 | --- | --- | --- |
-| `JobStore` | where job rows live | `InMemoryJobStore` for dev/test; bring a durable one (e.g. SQLite-backed) for production |
-| `CapabilityRouter` | which model answers a capability | `createDefaultCapabilityRouter`; you inject `getModels` and an optional enablement gate |
+| `JobStore` | where job rows live | `InMemoryJobStore` (from `@orchestral/core/memory`) for dev/test; bring a durable one (e.g. SQLite-backed) for production |
+| `CapabilityRouter` | which model answers a capability | `createDefaultCapabilityRouter` (from `@orchestral/core/routing`); you inject `getModels` and an optional enablement gate |
 | `ModelCapability.call` | the actual provider invocation | nothing — this is the ~15-line adapter you write over your own SDK (or, for the Vercel AI SDK, the one `@orchestral/adapters-ai-sdk` ships) |
 
 Agent patterns add a fourth seam, `AgentRunImpl`, which drives the inner LLM
@@ -203,10 +207,11 @@ lines — copy it and swap in whatever loop you already run.
 
 | Package | What it is |
 | --- | --- |
-| [`@orchestral/core`](packages/orchestral-core) | The vocabulary and contracts: `Pattern` / `ModelCapability` / `Alternative`, `Job` / `JobStore` / `Runtime`, the default capability router, and the pattern registry. No execution engine, no provider SDK. |
+| [`@orchestral/core`](packages/orchestral-core) | The vocabulary and contracts: `Pattern` / `ModelCapability` / `Alternative`, `Job` / `JobStore` / `Runtime`, and the pattern registry. No execution engine, no provider SDK. The batteries sit one level down, on their own entries: `@orchestral/core/memory` (the three `InMemory*` stores) and `@orchestral/core/routing` (the default capability router). |
 | [`@orchestral/patterns`](packages/orchestral-patterns) | The first-party pattern catalog: one atomic pattern per capability, plus meta pipelines (storyboarding, script-to-video, best-of-N selection, the short-form deliverables, …) with their prompts inlined. |
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
-| [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex` and the `find_pattern` tool handler. Core keeps the input contract; this package owns the searching. |
+| [`@orchestral/plan`](packages/orchestral-plan) | A pipeline authored as data: the wire schema a model fills, `validatePlan` (every problem in a DAG before any of it spends), `planToMeta` (the DAG executed as an ordinary meta) and `preflightPlan` (every step routed, nothing run). Depends on core and nothing else. |
+| [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex`, the `find_pattern` tool handler, and `createPatternSearch` — the ready-made implementation of core's `PatternSearch` seam that `@orchestral/runtime` takes as `patternSearch`. Core keeps the input contract; this package owns the searching, and nothing depends on it. |
 | [`@orchestral/agent`](packages/orchestral-agent) | Optional. The orchestrator agent pattern. A declaration only — the tool loop that runs it is the `AgentRunImpl` you inject. |
 | [`@orchestral/adapters-ai-sdk`](packages/orchestral-adapters-ai-sdk) | Optional. Ready-made `ModelCapability` envelopes over a Vercel AI SDK model instance — `fromLanguageModel` / `fromVisionModel` / `fromImageModel` / `fromSpeechModel` / `fromTranscriptionModel`, covering `text-generation`, `image-to-text`, `text-to-image`, `text-to-speech` and `automatic-speech-recognition` — for hosts already on the AI SDK. A leaf package: it depends on core and `ai`, and nothing depends on it. |
 | [`@orchestral/dsh-plugin`](packages/orchestral-dsh-plugin) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |
@@ -253,6 +258,7 @@ packages/orchestral-core/        @orchestral/core
 packages/orchestral-discovery/   @orchestral/discovery
 packages/orchestral-patterns/    @orchestral/patterns
 packages/orchestral-runtime/     @orchestral/runtime
+packages/orchestral-plan/        @orchestral/plan
 packages/orchestral-agent/       @orchestral/agent
 packages/orchestral-adapters-ai-sdk/  @orchestral/adapters-ai-sdk (leaf: AI SDK model → ModelCapability)
 packages/orchestral-dsh-plugin/  @orchestral/dsh-plugin (independent version line)

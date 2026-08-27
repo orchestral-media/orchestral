@@ -22,6 +22,7 @@ import type {
   StepResult,
 } from '@orchestral/core'
 import { buildAskUserFacade } from '@orchestral/core'
+import { cancelledError } from './errors'
 
 /**
  * Upper bound on a single run's ctx.compute cache. The cache is per dispatch
@@ -175,7 +176,7 @@ export function abortableSleep(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
-      reject(new Error('CANCELLED'))
+      reject(cancelledError('aborted before the retry backoff started'))
       return
     }
     const t = setTimeout(() => {
@@ -184,7 +185,7 @@ export function abortableSleep(
     }, ms)
     const onAbort = () => {
       clearTimeout(t)
-      reject(new Error('CANCELLED'))
+      reject(cancelledError('aborted during the retry backoff'))
     }
     signal.addEventListener('abort', onAbort, { once: true })
   })
@@ -305,7 +306,7 @@ export function buildMetaExecutionContext(
     // entirely closes both.
     useCache = true,
   ): Promise<{ value: T; attempts: number; durationMs: number }> => {
-    if (signal.aborted) throw new Error('CANCELLED')
+    if (signal.aborted) throw cancelledError('aborted before the step ran')
     const cached = useCache ? stepCache.get(id) : undefined
     if (cached) {
       return cached as { value: T; attempts: number; durationMs: number }
@@ -316,7 +317,7 @@ export function buildMetaExecutionContext(
     // Loop attempts; rethrow on no-retry or exhausted maxAttempts.
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      if (signal.aborted) throw new Error('CANCELLED')
+      if (signal.aborted) throw cancelledError('aborted between retry attempts')
       attempt++
       try {
         const value = await fn()
@@ -361,6 +362,7 @@ export function buildMetaExecutionContext(
         // id is `${patternId}#${idx}`, so deriving one here would smuggle the
         // counter straight back into the key and silently deliver the opposite
         // of what was asked for. Refuse instead.
+        // DESIGN: step-identity-requires-step-id
         const byId = options?.identity === 'id'
         if (byId && options?.stepId === undefined) {
           throw Object.assign(
@@ -383,6 +385,7 @@ export function buildMetaExecutionContext(
         // Compute the index once so stepId / stepIndex / counter advance
         // atomically. Counter is shared across nested metas via sharedState
         // — siblings of meta-A and meta-B see one monotonic sequence.
+        // DESIGN: default-step-id-is-positional
         const idx = stepCounter.value++
         // stepId differentiates on patternId only.
         const stepId = options?.stepId ?? `${ref.patternId}#${idx}`
@@ -494,6 +497,7 @@ export function buildMetaExecutionContext(
               // the prefix grows by one segment per meta level, stays
               // deterministic across replays (the effective id is itself
               // deterministic), and never collides with a sibling subtree.
+              // DESIGN: step-id-namespace-nesting
               stepIdNamespace: effectiveStepId,
               // Exactly one identity field reaches the child. By default it is
               // the counter position, which is why inserting a step ahead of
@@ -585,7 +589,7 @@ export function buildMetaExecutionContext(
   const askUserRaw = async <TPayload, TAnswer>(
     opts: AskUserOptions<TPayload, TAnswer>,
   ): Promise<TAnswer> => {
-    if (signal.aborted) throw new Error('CANCELLED')
+    if (signal.aborted) throw cancelledError('aborted before ctx.askUser parked')
     if (!deps.askUser) {
       throw Object.assign(
         new Error(
@@ -614,10 +618,11 @@ export function buildMetaExecutionContext(
     // Race the host promise against abort so cancel unwinds the park cleanly.
     const answer = await new Promise<unknown>((resolve, reject) => {
       if (signal.aborted) {
-        reject(new Error('CANCELLED'))
+        reject(cancelledError('aborted before the ctx.askUser park was registered'))
         return
       }
-      const onAbort = (): void => reject(new Error('CANCELLED'))
+      const onAbort = (): void =>
+        reject(cancelledError('aborted while parked on ctx.askUser'))
       signal.addEventListener('abort', onAbort, { once: true })
       deps.askUser!(request).then(
         (a) => {

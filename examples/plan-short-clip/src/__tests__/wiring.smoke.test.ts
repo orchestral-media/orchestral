@@ -15,19 +15,18 @@
 // each mock's `call` counting how often the runtime actually reached a model.
 
 import {
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
-  PlanOutputSchema,
   silentDiagnosticsLogger,
-  validatePlan,
   type PatternId,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createImageToVideoPattern,
   createTextGenerationPattern,
   createTextToImagePattern,
 } from '@orchestral/patterns'
+import { PlanOutputSchema, validatePlan } from '@orchestral/plan'
 import { deriveIdempotencyKey, InlineRuntime } from '@orchestral/runtime'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -54,12 +53,12 @@ const ALL_ROWS = [
 /** Identical wiring to src/main.ts, minus the latency. */
 function makeHost(store = new InMemoryJobStore()) {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextGenerationPattern())
-  registry.add(createTextToImagePattern())
-  registry.add(createImageToVideoPattern())
+  registry.register(createTextGenerationPattern())
+  registry.register(createTextToImagePattern())
+  registry.register(createImageToVideoPattern())
   const ops = { getPattern: (id: PatternId) => registry.get(id) }
-  registry.add(createShortClip(ops))
-  registry.add(createCaptionedShortClip(ops))
+  registry.register(createShortClip(ops))
+  registry.register(createCaptionedShortClip(ops))
 
   const { getModels, models } = createMockModels()
   const router = createDefaultCapabilityRouter({ getModels })

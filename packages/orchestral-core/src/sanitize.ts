@@ -31,6 +31,7 @@
 // Scope: this narrows only the copy handed to the model. The function returns
 // a new value and never mutates its input, so callers keep the full original
 // output for storage and UI rendering.
+// DESIGN: length-alone-is-not-a-strip-signal
 
 const STRIPPED_MARKER = '<binary stripped — reference via assetId>'
 

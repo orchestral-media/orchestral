@@ -174,7 +174,8 @@ and completes in image-to-image's shape. It also runs as part of the repo's
 ## What's host territory vs. what ships in the box
 
 - **`JobStore` and `CapabilityRouter`** are the zero-dependency defaults
-  (`InMemoryJobStore`, `createDefaultCapabilityRouter`).
+  (`InMemoryJobStore` from `@orchestral/core/memory`,
+  `createDefaultCapabilityRouter` from `@orchestral/core/routing`).
 - **`ModelCapability.call`** — two envelopes in
   [`src/ai-sdk-wiring.ts`](./src/ai-sdk-wiring.ts), both from
   `@orchestral/adapters-ai-sdk`: `fromImageModel` for text-to-image, its

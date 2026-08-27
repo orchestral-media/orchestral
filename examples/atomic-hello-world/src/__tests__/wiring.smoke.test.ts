@@ -9,10 +9,10 @@ import { MockImageModelV3 } from 'ai/test'
 import {
   silentDiagnosticsLogger,
   type Artifact,
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createTextToImagePattern,
   TEXT_TO_IMAGE_PATTERN_ID,
@@ -40,7 +40,7 @@ describe('atomic hello-world wiring', () => {
   it('dispatches text-to-image end to end with a mock model (no API key)', async () => {
     // Identical wiring to src/main.ts, swapping only the model instance.
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(createTextToImagePattern())
+    registry.register(createTextToImagePattern())
 
     const getModels = createImageModels([
       {

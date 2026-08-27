@@ -14,8 +14,8 @@
 // `{ patternId, input, assets, sessionId, stepKey }`), so registering the
 // revision under a second id is enough — no scope juggling, no unregister.
 
-import type { PatternId, PlanDag } from '@orchestral/core'
-import { planToMeta, type PlanMetaPattern } from '@orchestral/patterns'
+import type { PatternId } from '@orchestral/core'
+import { planToMeta, type PlanDag, type PlanMetaPattern } from '@orchestral/plan'
 
 import {
   lookupFrom,

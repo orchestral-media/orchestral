@@ -153,6 +153,7 @@ export function createAutomaticSpeechRecognitionPattern(
     // No first-party default: nothing else in the catalog listens. image-to-text
     // reads pixels, and a transcript cannot be reconstructed from anything but
     // the recording — a guessed transcript is fabrication, not degradation.
+    // DESIGN: asr-no-fallback
     alternatives: init.alternatives,
     // source required (the audio to transcribe). Output is text, so no
     // outputs.assets[] (only declares the input need).

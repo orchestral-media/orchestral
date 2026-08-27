@@ -19,11 +19,14 @@ import {
   createScript2VideoMeta,
   createStoryboardMeta,
   createUgcTestimonialMeta,
+  FIRST_PARTY_PATTERN_IDS,
+  PLAN_PATTERN_ID,
 } from '@orchestral/patterns'
 
 import {
   createOrchestratorAgent,
   AGENT_ORCHESTRATOR_PATTERN_ID,
+  ORCHESTRATOR_DEFAULT_PROMPTS,
 } from '../orchestrator'
 import { ORCHESTRATOR_SYSTEM_PROMPT } from '../orchestrator/prompts'
 
@@ -107,33 +110,28 @@ describe('agent_orchestrator', () => {
     expect(sysB).toContain('infer a consistent style')
   })
 
-  it('whitelists a broad atomic + meta universe and excludes every agent kind in loop.toolPatternIds', () => {
+  it('takes its tool universe from the shipped first-party catalog, minus meta_plan', () => {
     const agent = createOrchestratorAgent()
 
-    // Order is part of the contract — it shapes the catalog order the LLM sees.
-    expect(agent.loop.toolPatternIds).toEqual([
-      'text-to-image',
-      'image-to-image',
-      'text-to-video',
-      'image-to-video',
-      'video-to-video',
-      'text-to-speech',
-      'text-to-audio',
-      'automatic-speech-recognition',
-      'image-to-text',
-      'text-generation',
-      'meta_image-to-image-via-caption',
-      'meta_script2video',
-      'meta_image-best-of-n',
-      'meta_storyboard',
-      'meta_product-ad-short',
-      'meta_product-photo-pack',
-      'meta_ugc-testimonial',
-      'meta_explainer-short',
-    ])
+    // The assertion is the DIFFERENCE against @orchestral/patterns' catalog,
+    // not a second copy of the id list. A first-party Pattern added, renamed
+    // or dropped over there now shows up here as an unexplained gap — the old
+    // hand-copied expectation could not see one, which is how the list drifted.
+    const catalog = [
+      ...FIRST_PARTY_PATTERN_IDS.atomic,
+      ...FIRST_PARTY_PATTERN_IDS.meta,
+    ]
+    expect(agent.loop.toolPatternIds).toEqual(
+      catalog.filter((id) => id !== PLAN_PATTERN_ID),
+    )
+
+    // The one deliberate exclusion: the orchestrator plans as it goes, so
+    // submitting a static DAG overlaps with its own scheduling authority.
+    expect(agent.loop.toolPatternIds).not.toContain(PLAN_PATTERN_ID)
 
     // No agent_* in the universe — orchestration composes atomics + metas, not
-    // agents (and never itself).
+    // agents (and never itself). Structural, not a filter: kind:'agent'
+    // patterns live in this package, so the catalog carries none.
     for (const id of agent.loop.toolPatternIds) {
       expect(id.startsWith('agent_')).toBe(false)
     }
@@ -182,23 +180,73 @@ describe('agent_orchestrator', () => {
     }
   })
 
-  it('flags long-running sub-dispatches via asyncToolPatternIds (subset of toolPatternIds)', () => {
+  it('declares no asyncToolPatternIds — one catalog, because it never runs in async mode', () => {
     const agent = createOrchestratorAgent()
 
-    expect(agent.loop.asyncToolPatternIds).toEqual([
-      'meta_script2video',
-      'meta_image-best-of-n',
-      'meta_storyboard',
-      'meta_product-ad-short',
-      'meta_product-photo-pack',
-      'meta_ugc-testimonial',
-      'meta_explainer-short',
-    ])
+    // The second catalog filter only engages at defaultExecutionMode ===
+    // 'async', which this pattern deliberately never sets. A list that cannot
+    // be reached is a list nothing keeps honest: the old one claimed to route
+    // long-running sub-dispatches through async fan-out, which is not what the
+    // field does (it prunes a catalog) and not what this agent does (it has
+    // one catalog).
+    expect('asyncToolPatternIds' in agent.loop).toBe(false)
+    expect('defaultExecutionMode' in agent).toBe(false)
+  })
 
-    const toolSet = new Set(agent.loop.toolPatternIds)
-    for (const t of agent.loop.asyncToolPatternIds!) {
-      expect(toolSet.has(t)).toBe(true)
-    }
+  it('exports its default prompt and merges an override without dropping the rest', () => {
+    // Same treatment every shipped meta gets (*_DEFAULT_PROMPTS + a `prompts`
+    // override merged by resolvePrompts): tone / house style / localization is
+    // a consumer decision, and the alternative here was forking a package
+    // whose entire content is this declaration.
+    expect(ORCHESTRATOR_DEFAULT_PROMPTS.orchestratorSystem).toBe(
+      ORCHESTRATOR_SYSTEM_PROMPT,
+    )
+    expect(Object.isFrozen(ORCHESTRATOR_DEFAULT_PROMPTS)).toBe(true)
+
+    const custom = createOrchestratorAgent({
+      prompts: { orchestratorSystem: 'CUSTOM ORCHESTRATOR CONTRACT' },
+    })
+    const rendered = (custom.loop.system as (i: unknown, c: unknown) => string)(
+      { description: 'd', prompt: 'p', style: 'noir' },
+      {},
+    )
+    // The override replaces the cached prefix …
+    expect(rendered.indexOf('CUSTOM ORCHESTRATOR CONTRACT')).toBe(0)
+    expect(rendered).not.toContain('You CANNOT see the pixels/frames/audio')
+    // … and the per-dispatch suffix, which is factory machinery rather than
+    // prompt content, survives it.
+    expect(rendered).toContain('## RUN PARAMETERS (this dispatch)')
+    expect(rendered).toContain('Overall style: noir')
+
+    // An empty override map changes nothing (resolvePrompts semantics).
+    const untouched = createOrchestratorAgent({ prompts: {} })
+    expect(
+      (untouched.loop.system as (i: unknown, c: unknown) => string)(
+        { description: 'd', prompt: 'p' },
+        {},
+      ).indexOf(ORCHESTRATOR_SYSTEM_PROMPT),
+    ).toBe(0)
+  })
+
+  it('lets the host narrow the tool universe and take back abort policy', () => {
+    // Both are host policy the package only picked a default for (P2): which
+    // Patterns this deployment will pay for, and whether the dispatching turn
+    // ending should kill the run.
+    const narrowed = createOrchestratorAgent({
+      toolPatternIds: ['text-to-image', 'meta_storyboard'],
+      abortMode: 'inherit',
+    })
+    expect(narrowed.loop.toolPatternIds).toEqual([
+      'text-to-image',
+      'meta_storyboard',
+    ])
+    expect(narrowed.loop.abortMode).toBe('inherit')
+
+    // Defaults are untouched by another call's init — the factory must not
+    // share mutable state between agents.
+    const plain = createOrchestratorAgent()
+    expect(plain.loop.abortMode).toBe('independent')
+    expect(plain.loop.toolPatternIds.length).toBeGreaterThan(2)
   })
 
   it('does not declare a stopWhen — the host owns the stop policy', () => {

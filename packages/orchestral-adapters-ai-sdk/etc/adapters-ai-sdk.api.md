@@ -19,6 +19,7 @@ export interface AdapterOptions {
     mintAssetId?: (artifact: Artifact, index: number, ctx: DispatchContext) => string;
     modelId?: string;
     provider?: string;
+    sdkProviderKey?: string;
     tags?: readonly ModelTag[];
     tier?: 'fast' | 'balanced' | 'premium';
 }

@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "paths": {
-      "@orchestral/core": ["./node_modules/@orchestral/core/dist/index.d.ts"]
+      "@orchestral/core": ["./node_modules/@orchestral/core/dist/index.d.ts"],
+      "@orchestral/plan": ["./node_modules/@orchestral/plan/dist/index.d.ts"]
     }
   }
 }

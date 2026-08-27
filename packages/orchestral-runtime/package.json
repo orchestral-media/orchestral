@@ -59,13 +59,13 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
-    "@orchestral/core": "workspace:*",
-    "@orchestral/discovery": "workspace:*"
+    "@orchestral/core": "workspace:*"
   },
   "peerDependencies": {
     "zod": ">=4.3 <5"
   },
   "devDependencies": {
+    "@orchestral/discovery": "workspace:*",
     "@orchestral/patterns": "workspace:*",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.2",

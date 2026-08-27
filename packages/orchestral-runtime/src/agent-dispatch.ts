@@ -14,10 +14,10 @@ import {
   buildCatalogDescriptors,
   buildFinishDescriptor,
   DEFAULT_AGENT_FINISH_SPEC,
-  DEFAULT_SUBAGENT_BLOCKLIST,
   DispatchPatternInputSchema,
   FindPatternInputSchema,
   isDispatchError,
+  matchSubagentBlocklist,
   projectToolOutputForModel,
   resolveDispatchTarget,
   sanitizeToolOutput,
@@ -28,7 +28,6 @@ import type {
   AgentPattern,
   AgentToolDescriptor,
   BuildCatalogDescriptorsOptions,
-  CapabilityRouter,
   DiagnosticsLogger,
   DispatchContext,
   TranscriptMessage,
@@ -39,12 +38,12 @@ import type {
   Pattern,
   PatternId,
   PatternRegistry,
+  PatternSearch,
   ResolveContext,
   ResolvedAssetRef,
   SystemPromptContext,
   TranscriptStore,
 } from '@orchestral/core'
-import { handleFindPattern, PatternSearchIndex } from '@orchestral/discovery'
 import { normaliseError } from './errors'
 import type { MetaSharedState } from './meta-execution-context'
 import type { AgentChatMessage, AgentRunImpl } from './agent-run'
@@ -91,17 +90,58 @@ const CHILD_FAILURE_RETHROWN_CODES: ReadonlySet<string> = new Set([
  * buildCatalogDescriptors); the host only prepends host tools. With no
  * deriveProviderOptionsZod, this falls back to the base schema (a degraded but
  * acceptable mode).
+ *
+ * The surface is `'agentLoop'`: this catalog is the subagent's, so an
+ * `exposure: 'agent-tool'` Pattern belongs here and a chat-turn-only one does
+ * not. Same gate find_pattern applies for `audience: 'agent-loop'`, so the two
+ * halves of the subagent's catalog agree on who is visible.
+ *
+ * Throws `AGENT_TOOL_PATTERN_NOT_REGISTERED` when the allowlist names an id
+ * the registry does not have. `ownerPatternId` is the agent whose
+ * `loop.toolPatternIds` this is, so the error can say whose declaration went
+ * unsatisfied.
  */
 export function buildAgentInlineCore(
   whitelist: readonly PatternId[],
   registry: { get(id: PatternId): Pattern | undefined },
+  ownerPatternId: PatternId,
 ): { descriptors: AgentToolDescriptor[]; inlineIds: Set<PatternId> } {
   const patterns: Pattern[] = []
+  const missing: PatternId[] = []
   for (const id of whitelist) {
+    // Blocklist first, and on the id alone. `onToolCall` refuses a blocklisted
+    // id whether or not the author listed it, so rendering one here would
+    // advertise a tool whose every call comes back SUBAGENT_BLOCKED — the
+    // catalog and the call side have to say the same sentence, which is what
+    // computeStaticAgentExcludes already gives the find_pattern half. Listing
+    // one is an authoring no-op, not a failure: the blocklist is the one rule,
+    // and naming an id past it has never widened anything. Judging before the
+    // lookup also keeps the missing-id error below honest — telling a host to
+    // register an `agent_` id would be advice that cannot help, since the call
+    // would be refused with it registered.
+    if (matchSubagentBlocklist(id)) continue
     const p = registry.get(id)
     if (p) patterns.push(p)
+    else missing.push(id)
   }
-  const descriptors = buildAlwaysLoadDescriptors(patterns)
+  // Skipping an absent id used to be silent, which made the catalog shrink
+  // under an unchanged system prompt: the agent keeps being told to use tools
+  // it no longer has, and finds out one wasted turn at a time. That is the
+  // quiet adjacent answer, and the allowlist is exactly the place a refusal
+  // is cheap — nothing has been dispatched yet.
+  if (missing.length > 0) {
+    throw Object.assign(
+      new Error(
+        `AGENT_TOOL_PATTERN_NOT_REGISTERED: ${ownerPatternId} declared ` +
+          `loop.toolPatternIds containing ids absent from the registry: ` +
+          `[${missing.join(', ')}]. Register those Patterns, or narrow ` +
+          `loop.toolPatternIds — the agent's system prompt is written against ` +
+          `the full list.`,
+      ),
+      { code: 'AGENT_TOOL_PATTERN_NOT_REGISTERED' },
+    )
+  }
+  const descriptors = buildAlwaysLoadDescriptors(patterns, { surface: 'agentLoop' })
   const inlineIds = new Set<PatternId>(descriptors.map((d) => d.name as PatternId))
   return { descriptors, inlineIds }
 }
@@ -133,7 +173,8 @@ export function buildAgentInlineCore(
  *   • **No finish-tool deliverable resolution.** Handles named in the finish
  *     tool are not validated or resolved (`resolveHandles`).
  *   • **No partial-result salvage.** A failed run reports no produced-so-far
- *     assetIds (`recordedAssetIds`).
+ *     assetIds (`recordedAssetIds`), and a failed child dispatch tells the loop
+ *     only how many assets survived, never their handles (`handlesFor`).
  *
  * Substrate-only tests and hosts whose agents never touch assets can leave it
  * out; anything that expects an agent to hand assets between its own tool
@@ -211,6 +252,23 @@ export interface AgentAssetBridge {
   /** assetIds recorded in a context so far — used to surface partial results
    *  when a run fails. */
   recordedAssetIds(contextId: string): readonly string[]
+
+  /**
+   * The handles this context can name for `assetIds` — the reverse direction
+   * of `resolveHandles`, and the only way an assetId the host holds becomes
+   * something a loop may be told about. Optional: a host whose ledger cannot
+   * answer leaves it out, and a failed dispatch reports how many assets exist
+   * instead of what they are called.
+   *
+   * Returns only the ids this context names, in any order. An id with no
+   * handle here is absent from the result, never a placeholder — a fabricated
+   * handle is one the loop would hand to a dispatch that then fails
+   * resolution, which is worse than being told a count.
+   */
+  handlesFor?(args: {
+    contextId: string
+    assetIds: readonly string[]
+  }): readonly string[]
 }
 
 /**
@@ -278,12 +336,25 @@ function transcriptMessageToChat(
  */
 export interface AgentDispatchDeps {
   registry: PatternRegistry
-  router: CapabilityRouter
+  /**
+   * No `router`. Routing an atomic is `_submitJobInternal`'s job, and the one
+   * thing here that ever needed one was the retrieval that now lives behind
+   * `patternSearch` — a host whose implementation wants satisfiability
+   * filtering closes over its own router (see `createPatternSearch`).
+   */
   maxAgentDepth: number
   agentRunImpl?: AgentRunImpl
   transcriptStore?: TranscriptStore
   agentAssetBridge?: AgentAssetBridge
   catalogOptions?: BuildCatalogDescriptorsOptions
+  /**
+   * `InlineRuntimeInit.patternSearch` — what answers a find_pattern call.
+   * Absent: this loop's catalog carries no find_pattern tool at all (see the
+   * init field's doc for why a tool nothing can answer is worse than no
+   * tool). The runtime holds no retrieval of its own and takes no search
+   * dependency; this is the same shape of seam as `agentRunImpl`.
+   */
+  patternSearch?: PatternSearch
   resolveCtxProvider?: (spec: JobSpec) => ResolveContext
   /**
    * The runtime's diagnostics seam (`InlineRuntimeInit.logger`). Agent
@@ -337,6 +408,7 @@ deps: AgentDispatchDeps,
   // Capture the envelope for `getAgentEnvelope(jobId)` lookup.
   const envelopeStartTs = Date.now()
   let envelopeToolCount = 0
+  // DESIGN: agent-run-impl-not-injected
   if (!deps.agentRunImpl) {
     throw Object.assign(
       new Error(
@@ -386,8 +458,10 @@ deps: AgentDispatchDeps,
   // both ancestor and tool). DEFAULT_SUBAGENT_BLOCKLIST expands `agent_*`
   // prefix into concrete ids so the "a subagent doesn't see
   // grand-subagents" invariant holds structurally, without depending on a
-  // prompt-assembly layer to prune. Pattern authors who legitimately need
-  // to expose a specific agent_ Pattern can opt-in via loop.toolPatternIds.
+  // prompt-assembly layer to prune. It is not overridable per Pattern:
+  // `loop.toolPatternIds` narrows a catalog, it never widens one past the
+  // blocklist, because `onToolCall` refuses a blocklisted id whether or not
+  // the author listed it.
   //
   // Async dispatch tightens the catalog further — it exposes only
   // `toolPatternIds ∩ asyncToolPatternIds`. In sync mode asyncToolPatternIds
@@ -422,11 +496,7 @@ deps: AgentDispatchDeps,
         )
       : pattern.loop.toolPatternIds
 
-  const staticExcludeIds = computeStaticAgentExcludes(
-    deps.registry,
-    pattern.id,
-    effectiveToolPatternIds,
-  )
+  const staticExcludeIds = computeStaticAgentExcludes(deps.registry, pattern.id)
 
   // Host tools are not assembled here. The runtime emits only the catalog
   // routing tools and forwards pattern.id to the AgentRunImpl seam; the host
@@ -438,6 +508,7 @@ deps: AgentDispatchDeps,
   const { descriptors: inlineCore, inlineIds } = buildAgentInlineCore(
     effectiveToolPatternIds,
     deps.registry,
+    pattern.id,
   )
   // Finish tool injection. An outputExtractor Pattern produces its output
   // from the final text, so it gets no finish tool; everything else exposes
@@ -447,23 +518,49 @@ deps: AgentDispatchDeps,
   const finishSpec = pattern.loop.outputExtractor
     ? undefined
     : (pattern.finish ?? DEFAULT_AGENT_FINISH_SPEC)
+  // Retrieval is a host seam. With none injected the catalog does not
+  // advertise find_pattern — the always-load inline core above is a static
+  // catalog and needs no search, and dispatch_pattern still dispatches by id,
+  // so an agent whose allowlist is entirely always-load is unaffected.
+  const patternSearch = deps.patternSearch
+  const hasPatternSearch = patternSearch !== undefined
   const tools: AgentToolDescriptor[] = [
     ...inlineCore,
-    ...buildCatalogDescriptors(deps.catalogOptions),
+    ...buildCatalogDescriptors({
+      ...deps.catalogOptions,
+      includeFindPattern: hasPatternSearch,
+    }),
     ...(finishSpec ? [buildFinishDescriptor(finishSpec.inputs)] : []),
   ]
 
-  // find_pattern search corpus. Scoped to effectiveToolPatternIds
-  // ∖ staticExcludeIds so the subagent's catalog stays inside its declared
-  // loop.toolPatternIds whitelist. Built per-dispatch (cheap — minisearch
-  // indexes ~20 patterns in <1ms; registry doesn't mutate during loop).
-  const subagentSearchIndex = new PatternSearchIndex(deps.registry)
-  // find_pattern corpus = allowlist ∖ already-inlined (those are directly
-  // visible, no need to search for them).
+  // Corpus scoping, handed to the seam on every call. Scoped to
+  // effectiveToolPatternIds ∖ staticExcludeIds so the subagent's discovery
+  // stays inside its declared loop.toolPatternIds whitelist; both sets are
+  // built here and the LLM can neither see nor widen them. Static by
+  // construction (the dynamic ancestor chain is caught in onToolCall), which
+  // is what keeps the descriptor bytes identical across turns.
   const findPatternIncludeOnly = new Set(
     [...effectiveToolPatternIds].filter((id) => !inlineIds.has(id)),
   )
   const findPatternExcludeIds = new Set([...staticExcludeIds, ...visited])
+
+  // Refusal hints must not name a tool this catalog does not have — "call
+  // find_pattern" is advice only a wired host can act on, and a model sent
+  // after a nonexistent tool burns a turn discovering that. The unwired
+  // variants say what IS available rather than what is missing: naming the
+  // absent tool re-primes the very token the model should stop emitting.
+  const rediscoverHint = hasPatternSearch
+    ? 'Use find_pattern to discover which patterns are dispatchable here.'
+    : 'Pick a pattern_id from the allowlist above — this loop cannot search the catalog.'
+  const retryElsewhereHint = hasPatternSearch
+    ? 'Try different input, or pick a different pattern_id via find_pattern.'
+    : 'Try different input, or pick a different pattern_id from your allowlist.'
+  const catalogNames = hasPatternSearch
+    ? 'host tools, find_pattern, dispatch_pattern'
+    : 'host tools, dispatch_pattern'
+  const unknownToolHint = hasPatternSearch
+    ? 'Use find_pattern to discover Pattern ids, then dispatch_pattern to invoke them.'
+    : 'Call dispatch_pattern with a pattern_id from your allowlist; this loop cannot search the catalog.'
 
   // Seed messages — subagent runs fresh, parent chat history NOT inherited.
   //
@@ -789,10 +886,13 @@ deps: AgentDispatchDeps,
         // Three top-level tool name families:
         //   • host tools       → host tool registry (e.g. list_assets,
         //                        prefix-less)
-        //   • find_pattern     → catalog discovery (returns Pattern descriptors)
+        //   • find_pattern     → catalog discovery, and only when a
+        //                        `patternSearch` seam is wired (otherwise the
+        //                        name is not in the catalog at all)
         //   • dispatch_pattern → Pattern invocation (routes to _submitJobInternal)
-        // Per-Pattern tool names no longer exist; the LLM always goes through
-        // find_pattern → dispatch_pattern (or knows pattern_id from prior turn).
+        // Per-Pattern tool names no longer exist; the LLM reaches a deferred
+        // Pattern through find_pattern → dispatch_pattern, or dispatches by an
+        // id it already holds (a prior turn, or its always-load inline core).
 
         // Host tools do NOT pass through this onToolCall — AgentRunImpl must
         // intercept them (rule 2 in agent-run.ts "Implementing
@@ -814,31 +914,37 @@ deps: AgentDispatchDeps,
         }
 
         // ── find_pattern — catalog discovery ───────────────────────────
-        if (routeName === 'find_pattern') {
+        // Only when a seam is wired. Without one the name is not in the
+        // catalog at all, so it falls through to UNKNOWN_TOOL below like any
+        // other hallucinated tool name.
+        if (routeName === 'find_pattern' && patternSearch) {
           const parsed = FindPatternInputSchema.safeParse(input)
           if (!parsed.success) {
             // Surface the validation error as the tool's return value so the
             // LLM can read the zod issues and retry with a corrected query.
+            // The wire contract is validated here, never by the seam: an
+            // implementation should not have to re-derive what core already
+            // guarantees.
             return {
               error: 'INVALID_INPUT',
               tool: 'find_pattern',
               issues: parsed.error.issues,
             }
           }
-          return handleFindPattern(subagentSearchIndex, parsed.data, {
-            router: deps.router,
-            resolveCtx,
+          return await patternSearch({
+            input: parsed.data,
+            // Subagent audience — surfaces exposure='agent-tool' Patterns
+            // (fine-grained primitives meant only for agent loops). chat-turn
+            // audience (the default) would hide them — wrong here.
+            audience: 'agent-loop',
             includeOnly: findPatternIncludeOnly,
             excludeIds: findPatternExcludeIds,
-            // Inline-core patterns are excluded from the search corpus
-            // above — when a zero-match query was
-            // actually aiming at one of them, the diagnostic must point at
-            // the direct tool instead of suggesting synonym roulette.
+            // Inline-core patterns are outside the corpus by design — when a
+            // zero-match query was actually aiming at one of them, the
+            // implementation can point at the direct tool instead of
+            // suggesting synonym roulette.
             directToolIds: inlineIds,
-            // Subagent audience — surfaces exposure='agent-tool'
-            // Patterns (fine-grained primitives meant only for agent loops).
-            // chat-turn audience (default) would hide them — wrong here.
-            audience: 'agent-loop',
+            resolveCtx,
           })
         }
 
@@ -855,7 +961,18 @@ deps: AgentDispatchDeps,
           // Subagent loop runs on agent-loop audience; resolveDispatchTarget
           // enforces exposure scope symmetrically (rejects 'no-tool' patterns,
           // permits 'agent-tool').
-          const target = resolveDispatchTarget(deps.registry, parsed.data, 'agent-loop')
+          //
+          // Its refusals go back to the model verbatim (the `return target`
+          // below), so it needs the same answer the catalog got: hints that
+          // send an unwired loop to find_pattern name a tool this catalog
+          // omits. The wording stays core's — one authority — and this passes
+          // the one fact core cannot know.
+          const target = resolveDispatchTarget(
+            deps.registry,
+            parsed.data,
+            'agent-loop',
+            { hasPatternSearch },
+          )
           if (isDispatchError(target)) {
             // Pattern lookup or input zod validation failed — return as
             // tool_result content so LLM self-corrects on next turn.
@@ -941,6 +1058,7 @@ deps: AgentDispatchDeps,
           // matches the default blocklist prefix.
           //
           // Use effectiveToolPatternIds so the async filter is honoured here too.
+          // DESIGN: subagent-tool-allowlist
           const inAllowlist = effectiveToolPatternIds.includes(fullId)
           if (!inAllowlist) {
             // Host-visible before the model-visible return — see the cycle
@@ -964,18 +1082,15 @@ deps: AgentDispatchDeps,
               message:
                 `${fullId} not in this subagent's loop.toolPatternIds allowlist ` +
                 `(declared: [${effectiveToolPatternIds.join(', ')}]).`,
-              hint: 'Use find_pattern to discover which patterns are dispatchable here.',
+              hint: rediscoverHint,
             }
           }
           // Belt-and-suspenders: DEFAULT_SUBAGENT_BLOCKLIST is still checked
           // even for in-allowlist Patterns (Pattern authors opt-in to
           // allowlisted ids; the blocklist catches deeper authoring mistakes
           // like listing `agent_*` ids in loop.toolPatternIds by accident).
-          const blockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
-            (prefix) => fullId.startsWith(prefix),
-          )
-          const blockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(fullId)
-          if (blockedByPrefix || blockedById) {
+          const blocked = matchSubagentBlocklist(fullId)
+          if (blocked) {
             // Host-visible before the model-visible return — see the cycle
             // guard above.
             await deps.fanoutJobEvent(jobId, (job) => ({
@@ -984,13 +1099,13 @@ deps: AgentDispatchDeps,
               patternId: fullId,
               callerPatternId: pattern.id,
               code: 'SUBAGENT_BLOCKED',
-              matched: blockedByPrefix ? ('prefix' as const) : ('id' as const),
+              matched: blocked,
             }))
             return {
               code: 'SUBAGENT_BLOCKED',
               pattern_id: fullId,
               caller_pattern_id: pattern.id,
-              reason: blockedByPrefix ? ('prefix' as const) : ('id' as const),
+              reason: blocked,
               message:
                 `${fullId} matched DEFAULT_SUBAGENT_BLOCKLIST. ` +
                 `Pattern authors should NOT list blocklist-prefixed ids in loop.toolPatternIds.`,
@@ -1020,6 +1135,7 @@ deps: AgentDispatchDeps,
           // The runtime names no pattern id here. The check keys on the
           // declaration alone, so an interpreted plan, a one-shot plan meta
           // and a shipped meta that opts in later all reach the same code.
+          // DESIGN: planned-dispatches-guard
           if (target.pattern.kind === 'meta' && target.pattern.plannedDispatches) {
             let declared: readonly PatternId[] | undefined
             try {
@@ -1071,14 +1187,11 @@ deps: AgentDispatchDeps,
                     `${fullId} declares it would dispatch ${inner}, which is not in ` +
                     `this subagent's loop.toolPatternIds allowlist ` +
                     `(declared: [${effectiveToolPatternIds.join(', ')}]).`,
-                  hint: 'Use find_pattern to discover which patterns are dispatchable here.',
+                  hint: rediscoverHint,
                 }
               }
-              const innerBlockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
-                (prefix) => inner.startsWith(prefix),
-              )
-              const innerBlockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(inner)
-              if (innerBlockedByPrefix || innerBlockedById) {
+              const innerBlocked = matchSubagentBlocklist(inner)
+              if (innerBlocked) {
                 await deps.fanoutJobEvent(jobId, (job) => ({
                   type: 'job:tool-rejected',
                   job,
@@ -1086,14 +1199,14 @@ deps: AgentDispatchDeps,
                   callerPatternId: pattern.id,
                   via: inner,
                   code: 'SUBAGENT_BLOCKED',
-                  matched: innerBlockedByPrefix ? ('prefix' as const) : ('id' as const),
+                  matched: innerBlocked,
                 }))
                 return {
                   code: 'SUBAGENT_BLOCKED',
                   pattern_id: fullId,
                   caller_pattern_id: pattern.id,
                   via: inner,
-                  reason: innerBlockedByPrefix ? ('prefix' as const) : ('id' as const),
+                  reason: innerBlocked,
                   message:
                     `${fullId} declares it would dispatch ${inner}, which matched ` +
                     `DEFAULT_SUBAGENT_BLOCKLIST. Pattern authors should NOT list ` +
@@ -1232,20 +1345,50 @@ deps: AgentDispatchDeps,
               delete rest.rawOutput
               if (Object.keys(rest).length > 0) details = sanitizeToolOutput(rest)
             }
+            // Partial work from a child that failed. `producedAssets` is the
+            // host-facing carrier — real assetIds — and the model's asset
+            // language is handles, so the ids are translated here rather than
+            // echoed. An assetId in this result would be both unusable (the
+            // loop cannot reference one) and the exact leak
+            // `projectToolOutputForModel` exists to prevent on the success
+            // path; `rawOutput` two blocks up is dropped for the same reason.
+            //
+            // Only assets THIS context can name become handles. A sub-agent's
+            // rows usually live in its own ledger and cannot be named from
+            // here, so those are a count: "there is partial work you cannot
+            // address" is honest and still actionable (the loop can dispatch
+            // again rather than assume it produced nothing), while an id it can
+            // neither resolve nor cite is not.
+            const producedIds = jobError?.producedAssets ?? []
+            let producedHandles: readonly string[] = []
+            if (producedIds.length > 0 && deps.agentAssetBridge?.handlesFor) {
+              try {
+                producedHandles = deps.agentAssetBridge.handlesFor({
+                  contextId: agentContextId,
+                  assetIds: producedIds,
+                })
+              } catch (err) {
+                // A host lookup that throws must not turn a tool-result the
+                // loop can act on into a throw that kills the run.
+                deps.logger.warn(
+                  `[dispatchAgent] agentAssetBridge.handlesFor failed for ${fullId}:`,
+                  err,
+                )
+              }
+            }
             return {
               code: 'SUBAGENT_TOOL_FAILED',
               pattern_id: fullId,
               error_class: errorClass,
               ...(jobError?.code ? { inner_code: jobError.code } : {}),
-              ...(jobError?.producedAssets?.length
-                ? { produced_assets: jobError.producedAssets }
-                : {}),
+              ...(producedHandles.length ? { produced_handles: producedHandles } : {}),
+              ...(producedIds.length ? { produced_count: producedIds.length } : {}),
               message: jobError?.message ?? 'inner pattern dispatch failed',
               ...(details ? { details } : {}),
               hint:
                 errorClass === 'invalid-input'
                   ? 'The provider rejected these parameters (HTTP 4xx). Fix or drop the offending fields named in message, then dispatch again.'
-                  : 'Try different input, or pick a different pattern_id via find_pattern.',
+                  : retryElsewhereHint,
             }
           }
           let child: Job
@@ -1339,6 +1482,7 @@ deps: AgentDispatchDeps,
           // point for the no-assetId invariant), sanitize SECOND (scrubs
           // data: URLs / binary runs that survived inside the projected
           // metadata). Same composition as @orchestral/dsh-plugin's tool.ts.
+          // DESIGN: project-then-sanitize
           const modelFacing = sanitizeToolOutput(
             projectToolOutputForModel(stamped ?? child.output),
           )
@@ -1357,13 +1501,12 @@ deps: AgentDispatchDeps,
         }
 
         // Unknown tool name — LLM emitted something not in our catalog.
-        // Return as tool_result so the LLM self-corrects on the next step
-        // (typically by calling find_pattern to rediscover).
+        // Return as tool_result so the LLM self-corrects on the next step.
         return {
           code: 'UNKNOWN_TOOL',
           tool: name,
-          message: `tool "${name}" not recognized (this subagent's catalog exposes host tools, find_pattern, dispatch_pattern)`,
-          hint: 'Use find_pattern to discover Pattern ids, then dispatch_pattern to invoke them.',
+          message: `tool "${name}" not recognized (this subagent's catalog exposes ${catalogNames})`,
+          hint: unknownToolHint,
         }
       },
     })
@@ -1522,27 +1665,22 @@ deps: AgentDispatchDeps,
  *
  * Note: this does NOT include the ancestor chain — that's caught at
  * runtime in onToolCall to keep the catalog cacheable.
+ *
+ * There is no per-Pattern opt-out. An author who lists an `agent_` id in
+ * `loop.toolPatternIds` used to keep it in the catalog while `onToolCall`
+ * refused the very same id, so the catalog advertised a tool the model could
+ * find and never call. The blocklist is the one rule; opening recursion means
+ * changing the blocklist itself, not naming an id past it.
  */
 export function computeStaticAgentExcludes(
-registry: PatternRegistry,
+  registry: PatternRegistry,
   selfId: PatternId,
-  toolPatternIds: readonly PatternId[] | undefined,
 ): PatternId[] {
   const out: PatternId[] = [selfId]
   // Expand idPrefixes into concrete ids; iterate registry.values().
   for (const p of registry.values()) {
     if (p.id === selfId) continue // self already in out
-    const blockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
-      (prefix) => p.id.startsWith(prefix),
-    )
-    const blockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(p.id)
-    if (blockedByPrefix || blockedById) {
-      // Pattern author opt-in via loop.toolPatternIds wins over default
-      // blocklist — keep id out of the static exclude list so the
-      // catalog builder's `includeOnly` filter can include it.
-      if (toolPatternIds?.includes(p.id)) continue
-      out.push(p.id)
-    }
+    if (matchSubagentBlocklist(p.id)) out.push(p.id)
   }
   return out
 }

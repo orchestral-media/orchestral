@@ -9,10 +9,10 @@ import {
   type DispatchContext,
   type ResolvedAssetRef,
 } from '@orchestral/core'
-import { ImageToTextOutputSchema } from '@orchestral/patterns'
+import { ImageToTextOutputSchema, ImageToTextPrimaryInputSchema } from '@orchestral/patterns'
 import { z } from 'zod'
 
-import { fromVisionModel, type ImageSource } from '../vision'
+import { fromVisionModel, MODE_INSTRUCTION, type ImageSource } from '../vision'
 
 type DoGenerate = MockLanguageModelV3['doGenerate']
 type GenerateResult = Awaited<ReturnType<DoGenerate>>
@@ -221,9 +221,20 @@ describe('fromVisionModel', () => {
     expect(userParts(model, 4).system).toBe('You are a judge.')
     expect(userParts(model, 4).texts).toEqual([])
 
-    await expect(envelope.call({ mode: 'ocr' }, ctx())).rejects.toThrow(
-      'input.mode must be one of "caption", "describe", "judge", "extract-style" (got "ocr")',
-    )
+    // A mode this adapter has no default text for degrades to "no default
+    // text" — patterns is free to add one without breaking every host that
+    // wraps this adapter.
+    const { output } = await envelope.call({ mode: 'ocr' }, ctx())
+    expect(userParts(model, 5).system).toBeUndefined()
+    expect(userParts(model, 5).texts).toEqual([])
+    expect(ImageToTextOutputSchema.parse(output).text).toBe(CAPTION)
+
+    // The caller's own instruction still governs, whatever the mode says.
+    await envelope.call({ mode: 'ocr', prompt: 'Read the sign.' }, ctx())
+    expect(userParts(model, 6).system).toBeUndefined()
+    expect(userParts(model, 6).texts).toEqual([
+      { type: 'text', text: 'Read the sign.' },
+    ])
   })
 
   it('states maxLength to the model as an instruction in text mode, and never cuts the reply', async () => {
@@ -295,5 +306,17 @@ describe('fromVisionModel', () => {
 
     await envelope.call({}, ctx())
     expect(model.doGenerateCalls[1]!.providerOptions).toBeUndefined()
+  })
+
+  it('has a default instruction for every mode the first-party pattern names', () => {
+    // The one thing this adapter copies from @orchestral/patterns is a word
+    // list, and a copy needs a place that goes red when the original moves.
+    // patterns is a devDependency, so this assertion is a CI signal only — at
+    // runtime a mode with no entry degrades rather than throwing.
+    const modes = ImageToTextPrimaryInputSchema.shape.mode.unwrap().options
+    expect(modes.length).toBeGreaterThan(0)
+    for (const mode of modes) {
+      expect(Object.keys(MODE_INSTRUCTION)).toContain(mode)
+    }
   })
 })

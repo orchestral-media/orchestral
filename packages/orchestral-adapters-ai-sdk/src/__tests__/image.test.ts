@@ -8,6 +8,7 @@ import {
   MODEL_SPEC_VERSION,
   type Artifact,
   type DispatchContext,
+  type ResolvedAssetRef,
 } from '@orchestral/core'
 import { TextToImageOutputSchema } from '@orchestral/patterns'
 
@@ -311,5 +312,100 @@ describe('fromImageModel', () => {
     await expect(envelope.call({ prompt: 'x' }, ctx())).rejects.toThrow(
       'openai: the AI SDK image model returned no images',
     )
+  })
+
+  it('nests per-call providerOptions under the SDK provider key, not the routing identity', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => ({
+      images: [PNG_B64],
+      warnings: [],
+      response: { timestamp: new Date(0), modelId: 'gpt-image-1', headers: {} },
+    }))
+    // A real AI SDK image model reports a sub-namespaced provider string; the
+    // key `providerOptions` has to match is its first segment.
+    const model = new MockImageModelV3({
+      provider: 'openai.image',
+      modelId: 'gpt-image-1',
+      doGenerate,
+    })
+    const envelope = fromImageModel(model, {
+      provider: 'relay',
+      modelId: 'relay:gpt-image-1',
+    })
+
+    // The record keeps the catalog identity — that is what excludeModel /
+    // pinnedModel match on.
+    expect(envelope.provider).toBe('relay')
+    expect(envelope.modelId).toBe('relay:gpt-image-1')
+
+    await envelope.call(
+      { prompt: 'x', providerOptions: { quality: 'high' } },
+      ctx({ providerOptions: { openai: { style: 'vivid' } } }),
+    )
+
+    // Under the relay slug these options would have reached the provider
+    // unread: the SDK takes the key it knows and says nothing about the rest.
+    expect(doGenerate.mock.calls[0]![0].providerOptions).toEqual({
+      openai: { style: 'vivid', quality: 'high' },
+    })
+  })
+
+  it('lets sdkProviderKey state the wire key when the first segment is wrong', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => ({
+      images: [PNG_B64],
+      warnings: [],
+      response: { timestamp: new Date(0), modelId: 'gpt-image-1', headers: {} },
+    }))
+    const envelope = fromImageModel(mockImageModel(doGenerate), {
+      provider: 'relay',
+      sdkProviderKey: 'fal',
+    })
+
+    await envelope.call({ prompt: 'x', providerOptions: { seed: 1 } }, ctx())
+
+    expect(doGenerate.mock.calls[0]![0].providerOptions).toEqual({ fal: { seed: 1 } })
+    expect(envelope.provider).toBe('relay')
+  })
+
+  it('refuses a resolved asset slot it cannot send, naming the slot, before paying the provider', async () => {
+    const doGenerate = vi.fn<DoGenerate>()
+    const envelope = fromImageModel(mockImageModel(doGenerate))
+    const reference: ResolvedAssetRef = {
+      slot: 'reference',
+      assetId: 'face-1',
+      modality: 'image',
+      handle: 'image_1',
+    }
+
+    await expect(
+      envelope.call({ prompt: 'a portrait' }, ctx({ assets: [reference] })),
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'ASSET_SLOT_NOT_SUPPORTED: text-to-image call: this adapter does not send the resolved asset slot(s) "reference"',
+      ),
+    })
+    // A caller who attached a reference face asked for that face; a plain
+    // render is a neighbouring answer, not this one.
+    expect(doGenerate).not.toHaveBeenCalled()
+  })
+
+  it('names every unmapped slot once, and still runs with no resolved assets', async () => {
+    const envelope = fromImageModel(mockImageModel())
+
+    await expect(
+      envelope.call(
+        { prompt: 'x' },
+        ctx({
+          assets: [
+            { slot: 'reference', assetId: 'a', modality: 'image' },
+            { slot: 'reference', assetId: 'b', modality: 'image' },
+            { slot: 'control', assetId: 'c', modality: 'image' },
+          ],
+        }),
+      ),
+    ).rejects.toThrow('"reference", "control"')
+
+    const { output } = await envelope.call({ prompt: 'x' }, ctx({ assets: [] }))
+    expect(TextToImageOutputSchema.parse(output).assets).toHaveLength(1)
   })
 })

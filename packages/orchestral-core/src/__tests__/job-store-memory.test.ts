@@ -171,3 +171,91 @@ describe('InMemoryJobStore — insertIfAbsent (atomic dedup-or-create)', () => {
     expect((await store.query()).length).toBe(1)
   })
 })
+
+describe('InMemoryJobStore — transition guard', () => {
+  let store: InMemoryJobStore
+
+  beforeEach(() => {
+    store = new InMemoryJobStore()
+  })
+
+  it('refuses to move a terminal row to another status', async () => {
+    await store.insert(makeJob({ id: 't1', idempotencyKey: 'k-t1', status: 'done' }))
+
+    await expect(store.update('t1', { status: 'running' })).rejects.toThrow(
+      /JOB_STORE_ILLEGAL_TRANSITION/,
+    )
+  })
+
+  it('leaves the row and the subscribers untouched when it refuses', async () => {
+    // A refused write must leave no trace: no half-applied patch, no event.
+    // Otherwise the guard would only stop the status and let the rest of the
+    // row drift, which is worse than not guarding at all.
+    await store.insert(makeJob({ id: 't2', idempotencyKey: 'k-t2', status: 'stale' }))
+    const events: string[] = []
+    store.subscribe((ev) => events.push(ev.type))
+
+    await expect(
+      store.update('t2', { status: 'running', output: { sneaked: true } }),
+    ).rejects.toThrow(/JOB_STORE_ILLEGAL_TRANSITION/)
+
+    const row = await store.get('t2')
+    expect(row?.status).toBe('stale')
+    expect(row?.output).toBeNull()
+    expect(events).toEqual([])
+  })
+
+  it('carries the refused pair on the thrown error', async () => {
+    await store.insert(makeJob({ id: 't3', idempotencyKey: 'k-t3', status: 'cancelled' }))
+
+    const err = await store.update('t3', { status: 'done' }).catch((e: unknown) => e)
+    expect((err as { code?: string }).code).toBe('JOB_STORE_ILLEGAL_TRANSITION')
+    expect((err as { details?: unknown }).details).toEqual({
+      jobId: 't3',
+      from: 'cancelled',
+      to: 'done',
+    })
+  })
+
+  it('refuses a backward transition into queued', async () => {
+    await store.insert(makeJob({ id: 't4', idempotencyKey: 'k-t4', status: 'running' }))
+
+    await expect(store.update('t4', { status: 'queued' })).rejects.toThrow(
+      /JOB_STORE_ILLEGAL_TRANSITION/,
+    )
+    expect((await store.get('t4'))?.status).toBe('running')
+  })
+
+  it('still accepts a same-status patch on a settled row, as job:output', async () => {
+    await store.insert(makeJob({ id: 't5', idempotencyKey: 'k-t5', status: 'done' }))
+    const events: string[] = []
+    store.subscribe((ev) => events.push(ev.type))
+
+    await store.update('t5', { output: { late: true } })
+
+    expect((await store.get('t5'))?.output).toEqual({ late: true })
+    expect(events).toEqual(['job:output'])
+  })
+
+  it('guards conditionalUpdate the same way once its status guard matches', async () => {
+    // The ifStatus guard answers "is this still the row I meant?", not "is this
+    // a legal move" — a matched guard still has to clear the state machine.
+    await store.insert(makeJob({ id: 't6', idempotencyKey: 'k-t6', status: 'done' }))
+
+    await expect(
+      store.conditionalUpdate('t6', { status: 'running' }, 'done'),
+    ).rejects.toThrow(/JOB_STORE_ILLEGAL_TRANSITION/)
+    expect((await store.get('t6'))?.status).toBe('done')
+  })
+
+  it('emits the lifecycle event the state machine names on a legal move', async () => {
+    await store.insert(makeJob({ id: 't7', idempotencyKey: 'k-t7', status: 'queued' }))
+    const events: string[] = []
+    store.subscribe((ev) => events.push(ev.type))
+
+    await store.update('t7', { status: 'running' })
+    await store.update('t7', { status: 'done', output: { ok: true } })
+
+    expect(events).toEqual(['job:started', 'job:completed'])
+  })
+})

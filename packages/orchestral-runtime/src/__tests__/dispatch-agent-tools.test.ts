@@ -1,8 +1,10 @@
 // dispatchAgent tool catalog.
 //
-// Locks the library-side contract: dispatchAgent emits the two router tools
-// (find_pattern / dispatch_pattern), the injected finish tool (complete_task),
-// and forwards the AgentPattern's `pattern.id` to AgentRunImpl.run({ patternId }).
+// Locks the library-side contract: dispatchAgent emits dispatch_pattern, the
+// injected finish tool (complete_task), and forwards the AgentPattern's
+// `pattern.id` to AgentRunImpl.run({ patternId }). find_pattern is NOT in that
+// list — retrieval is an injected seam and this harness injects none; the two
+// halves of that rule live in pattern-search-seam.test.ts.
 // Host-tool assembly/filtering (injection + visibility policy) does not live
 // here — the host injects its per-agent tool surface, keyed by patternId.
 //
@@ -22,7 +24,8 @@ import type {
   ModelCapability,
   Modality,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntimeAdapter, type AgentAssetBridge } from '../inline'
 import type { AgentRunImpl } from '../agent-run'
@@ -82,11 +85,11 @@ async function expectFailed(p: Promise<Job>): Promise<JobError> {
 }
 
 describe('dispatchAgent tool catalog', () => {
-  it('emits find_pattern + dispatch_pattern + complete_task and forwards pattern.id', async () => {
+  it('emits dispatch_pattern + complete_task and forwards pattern.id', async () => {
     let capturedTools: string[] = []
     let capturedPatternId: string | undefined
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeAgent())
+    registry.register(makeAgent())
     const runImpl: AgentRunImpl = {
       async run(args) {
         capturedTools = args.tools.map((t) => t.name)
@@ -102,7 +105,7 @@ describe('dispatchAgent tool catalog', () => {
       agentRunImpl: runImpl,
     })
     await runtime.submitJob({ patternId: 'agent_test', input: { prompt: 'hi' } })
-    expect(capturedTools.sort()).toEqual(['complete_task', 'dispatch_pattern', 'find_pattern'])
+    expect(capturedTools.sort()).toEqual(['complete_task', 'dispatch_pattern'])
     expect(capturedPatternId).toBe('agent_test')
   })
 })
@@ -114,7 +117,7 @@ describe('dispatchAgent tool catalog', () => {
 describe('dispatchAgent sessionId wiring', () => {
   function makeRuntime(capture: { args?: RunArgs }): InlineRuntimeAdapter {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeAgent())
+    registry.register(makeAgent())
     const runImpl: AgentRunImpl = {
       async run(args) {
         capture.args = args
@@ -264,7 +267,7 @@ describe('dispatchAgent finish broker', () => {
     bridge?: AgentAssetBridge
   }): InlineRuntimeAdapter {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(opts.pattern)
+    registry.register(opts.pattern)
     const runImpl: AgentRunImpl = { run: (args) => opts.drive(args) }
     return new InlineRuntimeAdapter({
       store: new MemoryJobStore() as never,
@@ -531,7 +534,7 @@ describe('dispatchAgent finish broker', () => {
       jobId ??= ev.job.id
     })
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeSalvageComposeThrowsAgent())
+    registry.register(makeSalvageComposeThrowsAgent())
     const bridge = makeBridge({ recordedAssetIds: () => ['salvage-produced-1'] })
     const runImpl: AgentRunImpl = {
       async run(args) {
@@ -599,7 +602,7 @@ describe('dispatchAgent finish broker', () => {
       jobId ??= ev.job.id
     })
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(makeDefaultAgent())
+    registry.register(makeDefaultAgent())
     let runtime!: InlineRuntimeAdapter
     const runImpl: AgentRunImpl = {
       async run(args) {

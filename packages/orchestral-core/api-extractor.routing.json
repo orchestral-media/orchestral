@@ -1,0 +1,37 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+
+  "mainEntryPointFilePath": "<projectFolder>/dts/routing.d.ts",
+
+  "compiler": {
+    "tsconfigFilePath": "<projectFolder>/tsconfig.json"
+  },
+
+  "apiReport": {
+    "enabled": true,
+    "reportFolder": "<projectFolder>/etc",
+    "reportFileName": "core-routing.api.md"
+  },
+
+  "docModel": { "enabled": false },
+  "dtsRollup": {
+    "enabled": true,
+    "untrimmedFilePath": "<projectFolder>/dist/routing.d.ts",
+    "omitTrimmingComments": false
+  },
+  "tsdocMetadata": { "enabled": false },
+
+  "messages": {
+    "compilerMessageReporting": {
+      "default": { "logLevel": "warning" }
+    },
+    "extractorMessageReporting": {
+      "default": { "logLevel": "warning" },
+      "ae-missing-release-tag": { "logLevel": "none" },
+      "ae-forgotten-export": { "logLevel": "none", "addToApiReportFile": false }
+    },
+    "tsdocMessageReporting": {
+      "default": { "logLevel": "none" }
+    }
+  }
+}

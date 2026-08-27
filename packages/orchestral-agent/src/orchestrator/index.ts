@@ -25,10 +25,14 @@
 // first-class tool it can delegate to in one hop.
 
 import { z } from 'zod'
-import type { AgentPattern, AssetNeed } from '@orchestral/core'
+import type { AgentPattern, AssetNeed, PatternId } from '@orchestral/core'
 import { agentInputSchema, extendInputsWithReferences } from '@orchestral/core'
 
-import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from '@orchestral/patterns'
+import {
+  FIRST_PARTY_PATTERN_IDS,
+  PLAN_PATTERN_ID,
+  resolvePrompts,
+} from '@orchestral/patterns'
 
 import { ORCHESTRATOR_SYSTEM_PROMPT } from './prompts'
 
@@ -85,7 +89,71 @@ export type OrchestratorInput = z.infer<typeof OrchestratorInputSchema>
 
 export const AGENT_ORCHESTRATOR_PATTERN_ID = 'agent_orchestrator'
 
+// ── tool universe ────────────────────────────────────────────────────────
+
+// The whole shipped first-party catalog, read from @orchestral/patterns
+// instead of re-typed here. The list this replaces was a hand-copy of that
+// package's manifest and had already drifted once (a bare
+// `image-to-image-via-caption` that resolves to nothing in the registry);
+// a copy nobody diffs against its source is a second truth, not a narrower
+// agent.
+//
+// One exclusion, and it is a decision rather than an omission:
+//
+//   • meta_plan — the orchestrator plans as it goes, so committing a static
+//     DAG overlaps with its own scheduling authority. An agent that can both
+//     schedule per step and submit a fixed graph has two planners.
+//
+// Every kind:'agent' Pattern stays out structurally: agents live in THIS
+// package, not in @orchestral/patterns, so the catalog carries none —
+// orchestration composes atomics + metas. (dispatchAgent also auto-filters
+// the self id.)
+const ORCHESTRATOR_TOOL_PATTERN_IDS: readonly PatternId[] = [
+  ...FIRST_PARTY_PATTERN_IDS.atomic,
+  ...FIRST_PARTY_PATTERN_IDS.meta,
+].filter((id) => id !== PLAN_PATTERN_ID)
+
 // ── factory ──────────────────────────────────────────────────────────────
+
+/**
+ * @alpha
+ * Default system prompt for agent_orchestrator, keyed the way every shipped
+ * meta keys its `*_DEFAULT_PROMPTS`. Consumers override via
+ * `OrchestratorAgentInit.prompts`; an unset key falls back to this. Same
+ * reason as the metas': tone / house style / localization is the consumer's
+ * call, and the alternative here was forking a package whose entire content
+ * is this one declaration.
+ */
+export const ORCHESTRATOR_DEFAULT_PROMPTS = Object.freeze({
+  orchestratorSystem: ORCHESTRATOR_SYSTEM_PROMPT,
+})
+
+/** @alpha Prompt overrides for agent_orchestrator. */
+export type OrchestratorPromptOverrides = Partial<
+  Record<keyof typeof ORCHESTRATOR_DEFAULT_PROMPTS, string>
+>
+
+/**
+ * @alpha
+ * Optional init for agent_orchestrator. Every field is a default this package
+ * picked on the host's behalf, not a fact about the pattern: the prompt body,
+ * which Patterns this deployment will pay for, and whether a caller's abort
+ * cascades in. What is NOT here stays absent on purpose — `stopWhen` belongs
+ * to whoever runs the agent, `outputs` / `finish` to the registry backfill,
+ * `modelTags` to the Router.
+ */
+export type OrchestratorAgentInit = {
+  prompts?: OrchestratorPromptOverrides
+  /**
+   * The tool universe. Defaults to the shipped first-party catalog minus
+   * meta_plan (see ORCHESTRATOR_TOOL_PATTERN_IDS) — a host that registers a
+   * subset of @orchestral/patterns must narrow this to match, since an id the
+   * registry lacks now fails the dispatch loudly.
+   */
+  toolPatternIds?: readonly PatternId[]
+  /** Defaults to `'independent'` — see the loop comment for why. */
+  abortMode?: 'inherit' | 'independent'
+}
 
 /**
  * Render the full system prompt for one dispatch: the cache-stable prefix
@@ -95,12 +163,15 @@ export const AGENT_ORCHESTRATOR_PATTERN_ID = 'agent_orchestrator'
  * `prompt` seed (not the system prompt), keeping arbitrary prose out of the
  * cached prefix.
  */
-function buildOrchestratorSystem(input: OrchestratorInput): string {
+function buildOrchestratorSystem(
+  input: OrchestratorInput,
+  systemPrompt: string,
+): string {
   const style =
     input.style && input.style.length > 0
       ? input.style
       : '(infer a consistent style from the task brief, if any)'
-  return `${ORCHESTRATOR_SYSTEM_PROMPT}
+  return `${systemPrompt}
 
 ---
 
@@ -111,7 +182,10 @@ function buildOrchestratorSystem(input: OrchestratorInput): string {
 }
 
 /** @alpha */
-export function createOrchestratorAgent(): AgentPattern<OrchestratorInput> {
+export function createOrchestratorAgent(
+  init: OrchestratorAgentInit = {},
+): AgentPattern<OrchestratorInput> {
+  const resolved = resolvePrompts(ORCHESTRATOR_DEFAULT_PROMPTS, init.prompts)
   return {
     id: AGENT_ORCHESTRATOR_PATTERN_ID,
     kind: 'agent',
@@ -143,55 +217,26 @@ export function createOrchestratorAgent(): AgentPattern<OrchestratorInput> {
       // System is the byte-stable prefix + a small per-dispatch suffix
       // carrying `style`. No embedded SKILL — the orchestrator does not load
       // skills; aesthetic guidance arrives via the brief / references.
-      system: (input: OrchestratorInput) => buildOrchestratorSystem(input),
-      // Broad universe: every user-facing atomic + meta the orchestrator can
-      // compose. Deliberately excludes ALL kind:'agent' patterns (including
-      // itself) — dispatchAgent also auto-filters self, but no other agent is
-      // listed either: orchestration composes atomics + metas, not agents.
-      toolPatternIds: [
-        // atomic generation / understanding capabilities
-        'text-to-image',
-        'image-to-image',
-        'text-to-video',
-        'image-to-video',
-        'video-to-video',
-        'text-to-speech',
-        'text-to-audio',
-        'automatic-speech-recognition',
-        'image-to-text',
-        'text-generation',
-        // Canonical id is `meta_image-to-image-via-caption` (kind:'meta');
-        // the bare name does not resolve in the registry. Import the exported
-        // constant so this can't drift from the pattern's declared id again.
-        IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
-        // user-facing metas — the whole shipped meta catalog
-        'meta_script2video',
-        'meta_image-best-of-n',
-        'meta_storyboard',
-        'meta_product-ad-short',
-        'meta_product-photo-pack',
-        'meta_ugc-testimonial',
-        'meta_explainer-short',
-      ],
-      // Long-running sub-dispatches the agent loop can't block on
-      // synchronously — routed through the async fan-out plumbing.
-      asyncToolPatternIds: [
-        'meta_script2video',
-        'meta_image-best-of-n',
-        'meta_storyboard',
-        'meta_product-ad-short',
-        'meta_product-photo-pack',
-        'meta_ugc-testimonial',
-        'meta_explainer-short',
-      ],
-      // Fire-and-forget: this agent is meant to be started from a
+      system: (input: OrchestratorInput) =>
+        buildOrchestratorSystem(input, resolved.orchestratorSystem),
+      // The tool universe is the shipped catalog minus meta_plan — see
+      // ORCHESTRATOR_TOOL_PATTERN_IDS above for both halves of the reasoning.
+      toolPatternIds: init.toolPatternIds ?? ORCHESTRATOR_TOOL_PATTERN_IDS,
+      // No async catalog: this agent has one tool universe, on purpose.
+      // `asyncToolPatternIds` prunes the catalog to
+      // `toolPatternIds ∩ asyncToolPatternIds`, and only when
+      // defaultExecutionMode is 'async' — which this pattern leaves unset,
+      // because the async catalog would drop the atomics it composes between
+      // metas. Declaring the list anyway would be a second thing to keep in
+      // sync that buys no behaviour.
+      //
+      // Fire-and-forget by default: this agent is meant to be started from a
       // conversational turn and outlive it, so a caller's abort must NOT
-      // cascade in — only an explicit cancellation of this run ends it.
-      // NB: defaultExecutionMode is left UNSET on purpose — setting 'async'
-      // would trim this agent's own tool catalog to asyncToolPatternIds only.
+      // cascade in — only an explicit cancellation of this run ends it. A host
+      // that dispatches it synchronously overrides via init.abortMode.
       // No `stopWhen` here either: the step-count cap belongs to whoever runs
       // the agent, and the runtime's default applies unless overridden.
-      abortMode: 'independent',
+      abortMode: init.abortMode ?? 'independent',
       modelTags: [],
     },
   }

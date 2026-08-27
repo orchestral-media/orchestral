@@ -18,6 +18,7 @@ import {
   optionalNumber,
   optionalString,
   providerOptionsFor,
+  refuseUnmappedAssetSlots,
   requireString,
   resolveIdentity,
 } from './envelope'
@@ -50,7 +51,8 @@ const ASPECT_RE = /^\d+:\d+$/
  * `job:artifact` event, each stamped with the same id on `meta.assetId`),
  * `cost: null`.
  *
- * Not mapped: the `reference` / `control` asset slots (see README).
+ * Refused, not ignored: a resolved `reference` / `control` asset fails the
+ * call with `ASSET_SLOT_NOT_SUPPORTED` (see README).
  */
 export function fromImageModel(
   model: ImageModelInstance,
@@ -68,6 +70,9 @@ export function fromImageModel(
       ctx: DispatchContext,
       events?: CallEvents,
     ): Promise<DispatchResult<O>> {
+      // Nothing on this adapter's side maps them: `generateImage` has no
+      // shared field for a reference or control image.
+      refuseUnmappedAssetSlots(ctx, 'text-to-image', [])
       const fields = asRecord(input)
       const prompt = requireString(fields, 'prompt', 'text-to-image')
       const size = optionalString(fields, 'size')
@@ -84,7 +89,7 @@ export function fromImageModel(
       }
       const n = optionalNumber(fields, 'n')
       const seed = optionalNumber(fields, 'seed')
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const startedAt = Date.now()
       const { images } = await generateImage({

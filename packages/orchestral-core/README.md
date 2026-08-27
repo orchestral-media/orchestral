@@ -12,10 +12,23 @@ provider SDK fits behind the same one-function adapter.)
 
 `@orchestral/core` is the vocabulary and contracts at the centre of Orchestral:
 the `Pattern` / `ModelCapability` / `Alternative` model, the `Job` / `JobStore` /
-`Runtime` interfaces, the default capability router, and the pattern registry. It
-ships **no execution engine** and touches **no provider SDK** — you bring a
-runtime (`@orchestral/runtime`), a pattern catalog (`@orchestral/patterns`), and
-your own model bridge (a ~15-line `call` adapter over the provider SDK you use).
+`Runtime` interfaces, and the pattern registry. It ships **no execution engine**
+and touches **no provider SDK** — you bring a runtime (`@orchestral/runtime`), a
+pattern catalog (`@orchestral/patterns`), and your own model bridge (a ~15-line
+`call` adapter over the provider SDK you use).
+
+Two batteries ship with it, on their own entries so the split is visible in your
+import list rather than only in prose:
+
+| Entry | What it is |
+| --- | --- |
+| `@orchestral/core` | The contracts and pure-function primitives. |
+| `@orchestral/core/memory` | `InMemoryJobStore` / `InMemoryAssetStore` / `InMemoryTranscriptStore` — dev-and-test stores; nothing here survives a restart. |
+| `@orchestral/core/routing` | `createDefaultCapabilityRouter` — one implementation of the `CapabilityRouter` contract (which stays on the root entry, since a host writing its own router needs it). |
+
+The root entry does **not** re-export them. A deprecated alias would leave both
+spellings resolvable, and "core is the vocabulary" would go back to being a
+sentence no import list can contradict.
 
 ## Install
 
@@ -41,12 +54,12 @@ model instance and its key; everything else is plumbing the packages provide.
 ```ts
 import {
   PatternRegistry,
-  InMemoryJobStore,
-  createDefaultCapabilityRouter,
   type DispatchContext,
   type DispatchResult,
   type ModelCapability,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { generateImage } from 'ai'
@@ -54,7 +67,7 @@ import { openai } from '@ai-sdk/openai'
 
 // 1. Register the atomic patterns you want to expose.
 const registry = new PatternRegistry()
-registry.add(createTextToImagePattern())
+registry.register(createTextToImagePattern())
 
 // 2. Bridge your provider SDK to a ModelCapability envelope. The `call` adapter
 //    is the host's — core never imports a provider SDK. It is generic in its
@@ -130,11 +143,22 @@ envelope. (A leaf package — core does not depend on it.)
 A host adopts Orchestral by satisfying three injection points. Two are stores you
 swap; the third is the call adapter:
 
-- **`JobStore`** — where job rows live. `InMemoryJobStore` ships for dev/test; a
-  host supplies a durable store (e.g. a SQLite-backed one) for production.
+- **`JobStore`** — where job rows live. `InMemoryJobStore` (from
+  `@orchestral/core/memory`) ships for dev/test; a host supplies a durable store
+  (e.g. a SQLite-backed one) for production. A store you write does not also get
+  to invent the job state machine: judge every status write with the exported
+  `nextJobState(prevStatus, nextStatus)` and emit the `JobEvent` type it names.
+  It answers both halves — which moves are legal (a terminal row never moves
+  again; nothing goes back to `queued`; a same-status patch is an output write,
+  legal even on a settled row) and which lifecycle event each legal move
+  produces — so the two facts a subscriber depends on are read from one function
+  rather than re-derived per store. A refusal is a caller bug: throw
+  `JOB_STORE_ILLEGAL_TRANSITION` and leave the row and the subscribers
+  untouched.
 - **`CapabilityRouter`** — which model answers a capability. Use
-  `createDefaultCapabilityRouter` and inject `getModels` (the candidate
-  envelopes) plus an optional `getCapabilityOrder` (the enablement gate).
+  `createDefaultCapabilityRouter` (from `@orchestral/core/routing`) and inject
+  `getModels` (the candidate envelopes) plus an optional `getCapabilityOrder`
+  (the enablement gate).
 - **`ModelCapability.call`** — the actual provider invocation. This is
   **host-injected** — core never imports a provider SDK. You write a ~15-line
   adapter over your provider SDK (the runnable `examples/atomic-hello-world`'s
@@ -163,8 +187,8 @@ const contactSheet: MetaPattern<Input, Output> = {
     )
     return {
       assetIds: outs.map((o) => o.assets[0].assetId),
-      // `sumCosts` (from @orchestral/patterns) is null if any step left cost
-      // unreported — a partial sum would read as a confident total.
+      // `sumCosts` is null if any step left cost unreported — a partial sum
+      // would read as a confident total.
       cost: sumCosts(outs.map((o) => o.cost)),
       latencyMs: Date.now() - startedAt,
     }
@@ -297,14 +321,19 @@ with no model for those, a job fails with the router's
 Attaching your own is a first-class move: every atomic factory takes an
 `alternatives` option, which replaces the shipped list outright.
 
+<!-- DESIGN: readme-via-caption-only-alternative -->
+
 ## Swapping the batteries
 
-The example above runs entirely on in-memory dev batteries. Moving to production
-means replacing two implementations — **the `InlineRuntime` construction does not
-change**, only what you hand it:
+The example above runs entirely on in-memory dev batteries — the two entries
+below the root one. Moving to production means replacing two implementations —
+**the `InlineRuntime` construction does not change**, only what you hand it:
 
 - **`InMemoryJobStore` → a durable `JobStore`** (e.g. your host's
-  `SqliteJobStore`). Same `JobStore` interface; jobs now survive a restart.
+  `SqliteJobStore`). Same `JobStore` interface; jobs now survive a restart. The
+  one thing to port rather than reinvent is the state machine: call
+  `nextJobState` from your `insert` / `update` / `conditionalUpdate` exactly as
+  `InMemoryJobStore` does.
 - **`createDefaultCapabilityRouter`'s `getModels` → a DB-backed lookup.** The dev
   example reads a static in-memory registry; a host points `getModels` at its own
   model table and wires `getCapabilityOrder` to its enablement state. The router
@@ -435,6 +464,8 @@ knowing before you rely on it:
 - **The manifest is a declaration, not a permission boundary.** Reading it is
   safe; loading the package runs its code, exactly like any other import.
 
+<!-- DESIGN: manifest-declaration-not-permission -->
+
 `@orchestral/patterns` is the first package to follow the convention — its
 `"orchestral"` field covers all 19 shipped patterns, five of which declare
 host operations (four the ffmpeg-shaped ops, `meta_plan` a `getPattern`
@@ -449,8 +480,8 @@ The barrel is wide; hello-world composes with a handful of symbols:
 | --- | --- |
 | Register patterns | `PatternRegistry` |
 | Bridge your provider SDK | `ModelCapability` (write its `call` adapter) |
-| Route capability → model | `createDefaultCapabilityRouter` / implement `CapabilityRouter` |
-| Run and store jobs | `Runtime` + `InMemoryJobStore` (+ `InlineRuntime` from `@orchestral/runtime`) |
+| Route capability → model | `createDefaultCapabilityRouter` (`@orchestral/core/routing`) / implement `CapabilityRouter` |
+| Run and store jobs | `Runtime` + `InMemoryJobStore` (`@orchestral/core/memory`) (+ `InlineRuntime` from `@orchestral/runtime`) |
 | Author patterns | `defineAtomicPattern` (atomic entry point) / `MetaPattern` / `AgentPattern`, `Alternative` + `when*` builders |
 | Pause for a human | `ctx.askUser` + `AskUserHandler` (see above) |
 | Type a sub-pattern call | `createPatternFn` |
@@ -468,8 +499,10 @@ schemas (`FindPatternInputSchema`, `DispatchPatternInputSchema`), but it does
 registry plus the `handleFindPattern` handler — lives in
 [`@orchestral/discovery`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-discovery),
 because which retrieval algorithm ranks your catalog is a product decision, not
-a contract. `@orchestral/runtime` already depends on it; reach for it directly
-only if you drive the agent loop yourself.
+a contract. Core names WHO answers a call — `PatternSearch` — and implements
+none; `@orchestral/runtime` takes one as `InlineRuntimeInit.patternSearch` and
+depends on no search library, so install `@orchestral/discovery` (or implement
+`PatternSearch` yourself) whenever a catalog must be searchable.
 
 ## Routing knobs in 0.x
 

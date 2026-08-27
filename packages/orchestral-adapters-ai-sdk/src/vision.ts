@@ -18,6 +18,7 @@ import {
   optionalNumber,
   optionalString,
   providerOptionsFor,
+  requireSourceAssets,
   resolveIdentity,
 } from './envelope'
 import type { LanguageModelInstance } from './language'
@@ -67,9 +68,21 @@ export interface VisionAdapterOptions extends AdapterOptions {
 
 const SOURCE_SLOT = 'source'
 
-// The mode-default instruction the pattern leaves to "the host adapter". Sent
-// as the system text when the caller gave neither `system` nor `prompt`.
-const MODE_INSTRUCTION: Readonly<Record<string, string>> = {
+/**
+ * The mode-default instruction the pattern leaves to "the host adapter". Sent
+ * as the system text when the caller gave neither `system` nor `prompt`.
+ *
+ * A copy of `@orchestral/patterns`' `mode` enum, because this package does not
+ * depend on that one — so a mode with no entry here is a mode this adapter has
+ * no default text for, and nothing more: the call proceeds with no system
+ * text, exactly as it does when the caller passes a `prompt`. Failing instead
+ * would turn "patterns added a word" into a hard outage in every host that
+ * wraps this adapter, for a mode whose only effect is a sentence the caller
+ * could have written themselves. `vision.test.ts` asserts this table still
+ * covers the pattern's enum, so the drift shows up in CI rather than in
+ * production.
+ */
+export const MODE_INSTRUCTION: Readonly<Record<string, string>> = {
   caption: 'Write a one-line caption for the image.',
   describe: 'Describe the image in detail, in several sentences.',
   judge: 'Evaluate the image against the instruction and explain your verdict.',
@@ -100,7 +113,9 @@ function toFilePart(source: ImageSource): FilePart {
  * pair `responseFormat` / `jsonSchema`, and a flat `providerOptions`, placed
  * as the pattern's own field descriptions say — `system` wins and `mode` is
  * ignored; without one, `prompt` replaces the mode-default text; with
- * neither, the mode default is the system text and the images go up alone.
+ * neither, the mode default is the system text and the images go up alone. A
+ * `mode` this adapter has no default text for is not an error — the call runs
+ * with no system text.
  * `maxLength` is the soft cap the pattern declares: stated to the model as an
  * instruction in text mode, never cut from the reply, and not applied to JSON
  * output. Returns an `ImageToTextOutput`: `text` (the validated object as
@@ -119,30 +134,24 @@ export function fromVisionModel(
     }),
     async call<I, O>(input: I, ctx: DispatchContext): Promise<DispatchResult<O>> {
       const fields = asRecord(input)
-      const sources = (ctx.assets ?? []).filter((ref) => ref.slot === SOURCE_SLOT)
-      if (sources.length === 0) {
-        // Code attached, not just prefixed: `normaliseError` lifts `.code` onto
-        // `JobError.code`; a prefix alone reaches the host as the generic
-        // DISPATCH_EXECUTE_FAILED.
-        throw Object.assign(
-          new Error(
-            `NO_SOURCE_ASSET: image-to-text call: no resolved asset in slot "${SOURCE_SLOT}" on ctx.assets — the runtime fills it from input.references.${SOURCE_SLOT}`,
-          ),
-          { code: 'NO_SOURCE_ASSET' },
+      const files = (
+        await requireSourceAssets<ImageSource>(
+          ctx,
+          SOURCE_SLOT,
+          { name: 'loadImage', load: options.loadImage },
+          'image-to-text',
         )
-      }
+      ).map(toFilePart)
       const mode = optionalString(fields, 'mode') ?? 'caption'
+      // `undefined` for an unknown mode, and `systemText` below already reads
+      // that as "no default text": the degraded path is the existing one, not
+      // a new branch.
       const modeInstruction = MODE_INSTRUCTION[mode]
-      if (modeInstruction === undefined) {
-        throw new Error(
-          `image-to-text call: input.mode must be one of ${Object.keys(MODE_INSTRUCTION).map((m) => JSON.stringify(m)).join(', ')} (got ${JSON.stringify(mode)})`,
-        )
-      }
       const system = optionalString(fields, 'system')
       const prompt = optionalString(fields, 'prompt')
       const maxLength = optionalNumber(fields, 'maxLength')
       const structured = readStructuredOutput(fields, 'image-to-text')
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const systemText =
         system ?? (prompt === undefined ? modeInstruction : undefined)
@@ -154,21 +163,6 @@ export function fromVisionModel(
       ]
         .filter((part): part is string => part !== undefined)
         .join('\n\n')
-
-      const files = await Promise.all(
-        sources.map(async (ref) => {
-          const loaded = await options.loadImage(ref, ctx)
-          if (loaded == null) {
-            throw Object.assign(
-              new Error(
-                `SOURCE_ASSET_NOT_LOADED: image-to-text call: loadImage returned nothing for asset "${ref.assetId}" in slot "${SOURCE_SLOT}"`,
-              ),
-              { code: 'SOURCE_ASSET_NOT_LOADED' },
-            )
-          }
-          return toFilePart(loaded)
-        }),
-      )
 
       const startedAt = Date.now()
       const result = await generateText({

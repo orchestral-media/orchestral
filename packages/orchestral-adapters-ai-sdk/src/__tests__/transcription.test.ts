@@ -152,4 +152,41 @@ describe('fromTranscriptionModel', () => {
     )
     expect(loadAudio).not.toHaveBeenCalled()
   })
+
+  it('carries a branchable code when no source was resolved, the same one vision uses', async () => {
+    const loadAudio = vi.fn(() => AUDIO)
+    const envelope = fromTranscriptionModel(mockTranscriptionModel(), { loadAudio })
+
+    // Code attached, not just prefixed: without it the host only ever sees
+    // the generic DISPATCH_EXECUTE_FAILED, and cannot tell a missing input
+    // from a provider outage.
+    await expect(envelope.call({}, ctx({ assets: [] }))).rejects.toMatchObject({
+      code: 'NO_SOURCE_ASSET',
+      message: expect.stringContaining(
+        'NO_SOURCE_ASSET: automatic-speech-recognition call: no resolved asset in slot "source" on ctx.assets',
+      ),
+    })
+    await expect(
+      envelope.call({}, ctx({ assets: [{ slot: 'voiceClone', assetId: 'v', modality: 'audio' }] })),
+    ).rejects.toMatchObject({ code: 'NO_SOURCE_ASSET' })
+    expect(loadAudio).not.toHaveBeenCalled()
+  })
+
+  it('fails with a coded message naming the asset when loadAudio hands back nothing', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => transcript())
+    const envelope = fromTranscriptionModel(mockTranscriptionModel(doGenerate), {
+      // A JS host that forgot a return — the type says AudioSource, the
+      // runtime guard is what catches it before the SDK does, where the error
+      // would be unrecognisable.
+      loadAudio: () => undefined as unknown as AudioSource,
+    })
+
+    await expect(envelope.call({}, ctx())).rejects.toMatchObject({
+      code: 'SOURCE_ASSET_NOT_LOADED',
+      message: expect.stringContaining(
+        'SOURCE_ASSET_NOT_LOADED: automatic-speech-recognition call: loadAudio returned nothing for asset "asset-42" in slot "source"',
+      ),
+    })
+    expect(doGenerate).not.toHaveBeenCalled()
+  })
 })

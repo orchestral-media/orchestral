@@ -161,6 +161,17 @@ export type AlternativeAppliesWhen =
     kind: 'always';
 };
 
+// @public
+export interface AlternativeSelectionDeps {
+    // (undocumented)
+    registry: PatternRegistry;
+    // (undocumented)
+    router: CapabilityRouter;
+}
+
+// @public
+export function applicableAlternatives<I, O>(deps: AlternativeSelectionDeps, atomic: AtomicPattern<I, O>, ctx: ResolveContext, requiredTags: readonly ModelTag[], requestedSemantics: readonly Semantics[]): readonly Alternative<unknown, unknown>[];
+
 // @public (undocumented)
 export interface Artifact {
     // (undocumented)
@@ -303,9 +314,6 @@ export interface AskUserRequest<TPayload = unknown> {
     payload: TPayload;
     sessionId?: string;
 }
-
-// @public
-export function assertPlanValid(dag: PlanDag, lookup: PlanPatternLookup, opts?: PlanValidateOptions): void;
 
 // @public
 export function assertSupportedModelSpecVersion(model: {
@@ -484,11 +492,22 @@ export interface AtomicPatternInit<I = unknown, O = unknown> {
 export function auditOutputsSchema(schema: ZodType): OutputsSchemaAudit;
 
 // @public
+export interface AvailableAlternative {
+    description: string;
+    id: string;
+    // (undocumented)
+    losses?: readonly Semantics[];
+    preserves?: readonly Semantics[];
+    targetPatternId: PatternId;
+}
+
+// @public
 export function boundedText(max: number): z.ZodString;
 
 // @public
 export function buildAlwaysLoadDescriptors(patterns: Iterable<Pattern>, opts?: {
     deriveProviderOptionsZod?: (id: string, baseSchema: z.ZodObject<z.ZodRawShape>) => z.ZodObject<z.ZodRawShape> | undefined;
+    surface?: 'chatTurn' | 'agentLoop';
 }): AgentToolDescriptor[];
 
 // @public
@@ -502,6 +521,8 @@ export function buildCatalogDescriptors(opts?: BuildCatalogDescriptorsOptions): 
 
 // @public (undocumented)
 export interface BuildCatalogDescriptorsOptions {
+    includeFindPattern?: boolean;
+    querySyntaxHint?: string;
     slotDefaultNote?: string;
 }
 
@@ -533,9 +554,6 @@ export type CapabilitySource = 'provider-default-official' | 'provider-default-c
 // @public
 export const consoleDiagnosticsLogger: DiagnosticsLogger;
 
-// @public (undocumented)
-export function createDefaultCapabilityRouter(deps: DefaultCapabilityRouterDeps): CapabilityRouter;
-
 // @public
 export function createPatternFn<I = unknown, O = unknown>(patternId: PatternId): PatternFn<I, O>;
 
@@ -557,10 +575,7 @@ export interface CtxStepFn {
 export const DEFAULT_AGENT_FINISH_SPEC: AgentFinishSpec;
 
 // @public
-export const DEFAULT_SUBAGENT_BLOCKLIST: {
-    readonly idPrefixes: readonly string[];
-    readonly patternIds: readonly PatternId[];
-};
+export const DEFAULT_SUBAGENT_BLOCKLIST: SubagentBlocklist;
 
 // @public (undocumented)
 export function defaultAgentFinishCompose(finish: DefaultAgentFinishInput, facts: AgentRunFacts): DefaultAgentFinishOutput;
@@ -590,12 +605,6 @@ export const defaultAgentFinishOutputs: z.ZodObject<{
     summary: z.ZodString;
     stepCount: z.ZodNumber;
 }, z.core.$strip>;
-
-// @public (undocumented)
-export interface DefaultCapabilityRouterDeps {
-    getCapabilityOrder?(cap: Capability): readonly string[] | undefined;
-    getModels(cap: Capability): readonly ModelCapability[];
-}
 
 // @public
 export function defineAtomicPattern<I = unknown, O = unknown>(init: AtomicPatternInit<I, O>): AtomicPattern<I, O> & {
@@ -770,49 +779,6 @@ export interface HandleSnapshot {
 // @public
 export function inferNamespace(id: PatternId): NamespaceId;
 
-// @alpha
-export class InMemoryAssetStore implements AssetStore {
-    // (undocumented)
-    listContext(contextId: string, filter?: ListContextFilter): Promise<AssetRecord[]>;
-    // (undocumented)
-    record(contextId: string, ann: RecordAssetInput): Promise<AssetRecord>;
-}
-
-// @public
-export class InMemoryJobStore implements JobStore {
-    constructor(options?: {
-        onSubscriberError?: (error: unknown, event: JobEvent) => void;
-    });
-    // (undocumented)
-    conditionalUpdate(id: string, patch: Partial<Job>, ifStatus: JobStatus): Promise<boolean>;
-    // (undocumented)
-    findByIdempotencyKey(key: string): Promise<Job | null>;
-    // (undocumented)
-    get(id: string): Promise<Job | null>;
-    // (undocumented)
-    insert(job: Job): Promise<void>;
-    // (undocumented)
-    insertIfAbsent(job: Job): Promise<Job>;
-    // (undocumented)
-    query(filter?: JobQueryFilter): Promise<readonly Job[]>;
-    // (undocumented)
-    subscribe(callback: (event: JobEvent) => void): Unsubscribe;
-    // (undocumented)
-    update(id: string, patch: Partial<Job>): Promise<void>;
-}
-
-// @public
-export class InMemoryTranscriptStore implements TranscriptStore {
-    // (undocumented)
-    append(runId: string, agentId: string, msg: TranscriptMessage): Promise<void>;
-    // (undocumented)
-    clear(runId: string): Promise<void>;
-    // (undocumented)
-    read(runId: string, agentId: string): Promise<readonly TranscriptMessage[]>;
-    // (undocumented)
-    readAll(runId: string, filterPatternIdPrefix?: string): Promise<readonly TranscriptMessageWithAgent[]>;
-}
-
 // @public (undocumented)
 export function isAssetUri(ref: string): boolean;
 
@@ -842,6 +808,9 @@ export interface Job<TInput = unknown, TOutput = unknown> {
     // (undocumented)
     updatedAt: number;
 }
+
+// @public
+export const JOB_TERMINAL_STATUSES: readonly JobStatus[];
 
 // @public (undocumented)
 export interface JobError {
@@ -924,6 +893,9 @@ export type JobEvent<TInput = unknown, TOutput = unknown> = {
 // @public
 export type JobKind = 'pattern' | 'agent';
 
+// @public
+export type JobLifecycleEventType = 'job:submitted' | 'job:started' | 'job:completed' | 'job:failed' | 'job:cancelled' | 'job:stale' | 'job:output';
+
 // @public (undocumented)
 export interface JobQueryFilter {
     // (undocumented)
@@ -976,9 +948,18 @@ export interface JobStore {
     // (undocumented)
     query(filter?: JobQueryFilter): Promise<readonly Job[]>;
     subscribe?(callback: (event: JobEvent) => void): Unsubscribe;
-    // (undocumented)
     update(id: string, patch: Partial<Job>): Promise<void>;
 }
+
+// @public
+export type JobTransition = {
+    readonly ok: true;
+    readonly event: JobLifecycleEventType;
+} | {
+    readonly ok: false;
+    readonly code: 'JOB_STORE_ILLEGAL_TRANSITION';
+    readonly reason: string;
+};
 
 // @public
 export interface JsonSchema {
@@ -1060,6 +1041,9 @@ export type ManifestErrorCode =
 | 'MANIFEST_PATTERN_MISMATCH';
 
 // @public
+export function matchSubagentBlocklist(id: PatternId, blocklist?: SubagentBlocklist): 'prefix' | 'id' | null;
+
+// @public
 export const metaEnvelopeShape: {
     readonly cost: z.ZodNullable<z.ZodNumber>;
     readonly latencyMs: z.ZodNumber;
@@ -1125,29 +1109,6 @@ export interface ModelCapabilityRecord extends ModelCapabilityBlob {
     tags: readonly ModelTag[];
 }
 
-// @public (undocumented)
-export class ModelExcludedError extends Error {
-    constructor(modelStr: string, diagnostic?: {
-        capability: Capability;
-        requiredTags: readonly ModelTag[];
-        excludedByRetry: boolean;
-        excludeModel: readonly string[];
-        candidates: readonly string[];
-    } | undefined);
-    // (undocumented)
-    readonly code = "MODEL_EXCLUDED";
-    // (undocumented)
-    diagnostic?: {
-        capability: Capability;
-        requiredTags: readonly ModelTag[];
-        excludedByRetry: boolean;
-        excludeModel: readonly string[];
-        candidates: readonly string[];
-    } | undefined;
-    // (undocumented)
-    modelStr: string;
-}
-
 // @public
 export interface ModelFacingAsset {
     // (undocumented)
@@ -1202,18 +1163,8 @@ export type ModelTag =
 // @public
 export type NamespaceId = 'image-gen' | 'video-gen' | 'audio-gen' | 'text-gen' | 'meta-pipelines' | 'sub-agents' | 'uncategorized' | (string & {});
 
-// @public (undocumented)
-export class NoModelForCapabilityError extends Error {
-    constructor(cap: Capability, requiredTags: readonly ModelTag[], reason: UnavailabilityReason, remedy?: string);
-    // (undocumented)
-    cap: Capability;
-    // (undocumented)
-    readonly code = "NO_MODEL_FOR_CAPABILITY";
-    // (undocumented)
-    reason: UnavailabilityReason;
-    // (undocumented)
-    requiredTags: readonly ModelTag[];
-}
+// @public
+export function nextJobState(prev: JobStatus | null, next: JobStatus): JobTransition;
 
 // @public
 export type OnStrip = (info: {
@@ -1355,9 +1306,6 @@ export class PatternRegistry {
     constructor(options?: {
         logger?: DiagnosticsLogger;
     });
-    add<I = unknown, O = unknown>(spec: Pattern<I, O> & {
-        alternatives?: readonly Alternative<I, O>[];
-    }): void;
     addFromManifest(manifest: unknown, module: Readonly<Record<string, unknown>>, ops?: Readonly<Record<string, unknown>>, options?: AddFromManifestOptions): AddFromManifestResult;
     attachAlternative<I, O>(parentId: PatternId, alt: Alternative<I, O>): Unsubscribe;
     byNamespace(ns: NamespaceId): readonly Pattern[];
@@ -1366,13 +1314,6 @@ export class PatternRegistry {
     getEntry(id: PatternId): RegistryEntry | undefined;
     // (undocumented)
     has(id: PatternId): boolean;
-    listForCatalog(excludeIds?: readonly PatternId[]): Array<{
-        patternId: PatternId;
-        shortName: string;
-        description: string;
-        primaryDescription: string;
-        primaryInputs: ZodSchema<unknown>;
-    }>;
     register<I = unknown, O = unknown>(pattern: Pattern<I, O> & {
         alternatives?: readonly Alternative<I, O>[];
     }): void;
@@ -1395,6 +1336,19 @@ export interface PatternScope {
 }
 
 // @public
+export type PatternSearch = (req: PatternSearchRequest) => unknown;
+
+// @public
+export interface PatternSearchRequest {
+    audience: 'chat-turn' | 'agent-loop';
+    directToolIds?: ReadonlySet<string>;
+    excludeIds?: ReadonlySet<string>;
+    includeOnly?: ReadonlySet<string>;
+    input: FindPatternInput;
+    resolveCtx?: ResolveContext;
+}
+
+// @public
 export type PermissionResult = {
     ok: true;
 } | {
@@ -1403,151 +1357,8 @@ export type PermissionResult = {
     remedy?: 'reauthorize' | 'reduce-scope' | 'manual';
 };
 
-// @public (undocumented)
-export const PLAN_ASSET_REF_RE: RegExp;
-
-// @public (undocumented)
-export const PLAN_STEP_ID_RE: RegExp;
-
-// @public (undocumented)
-export const PLAN_VALUE_REF_RE: RegExp;
-
-// @public (undocumented)
-export type PlanDag = z.infer<typeof PlanDagSchema>;
-
-// @public (undocumented)
-export const PlanDagSchema: z.ZodObject<{
-    description: z.ZodOptional<z.ZodString>;
-    steps: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
-        pattern: z.ZodString;
-        input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
-        retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
-            kind: z.ZodLiteral<"none">;
-        }, z.core.$strict>, z.ZodObject<{
-            kind: z.ZodLiteral<"exponential">;
-            maxAttempts: z.ZodNumber;
-            baseMs: z.ZodNumber;
-            maxMs: z.ZodOptional<z.ZodNumber>;
-        }, z.core.$strict>, z.ZodObject<{
-            kind: z.ZodLiteral<"fixed">;
-            maxAttempts: z.ZodNumber;
-            delayMs: z.ZodNumber;
-        }, z.core.$strict>], "kind">>;
-    }, z.core.$strict>>;
-    output: z.ZodObject<{
-        assets: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            from: z.ZodString;
-            label: z.ZodString;
-        }, z.core.$strict>>>;
-        values: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
-    }, z.core.$strict>;
-}, z.core.$strict>;
-
 // @public
-export class PlanInvalidError extends Error {
-    constructor(problems: readonly PlanProblem[]);
-    // (undocumented)
-    readonly code = "PLAN_INVALID";
-    // (undocumented)
-    readonly details: {
-        problems: readonly PlanProblem[];
-    };
-}
-
-// @public (undocumented)
-export type PlanOutput = z.infer<typeof PlanOutputSchema>;
-
-// @public
-export const PlanOutputSchema: z.ZodObject<{
-    assets: z.ZodArray<z.ZodObject<{
-        assetId: z.ZodString;
-        modality: z.ZodEnum<{
-            image: "image";
-            audio: "audio";
-            video: "video";
-        }>;
-        url: z.ZodOptional<z.ZodString>;
-        label: z.ZodString;
-    }, z.core.$strict>>;
-    values: z.ZodRecord<z.ZodString, z.ZodString>;
-    steps: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
-        pattern: z.ZodString;
-        cost: z.ZodNullable<z.ZodNumber>;
-    }, z.core.$strict>>;
-    cost: z.ZodNullable<z.ZodNumber>;
-    latencyMs: z.ZodNumber;
-}, z.core.$strict>;
-
-// @public
-export type PlanPatternLookup = Pick<PatternRegistry, 'get' | 'getEntry'>;
-
-// @public
-export interface PlanProblem {
-    // (undocumented)
-    code: PlanProblemCode;
-    details?: Record<string, unknown>;
-    // (undocumented)
-    message: string;
-    path: (string | number)[];
-    stepId?: string;
-}
-
-// @public
-export type PlanProblemCode = 'PLAN_SCHEMA' | 'PLAN_STEP_ID_DUPLICATE' | 'PLAN_STEP_ID_RESERVED' | 'PLAN_REF_SYNTAX' | 'PLAN_REF_UNKNOWN_STEP' | 'PLAN_REF_FORWARD' | 'PLAN_REF_PATH_UNKNOWN' | 'PLAN_REF_INTO_ASSETS' | 'PLAN_REF_INPUT_NOT_ALLOWED' | 'PLAN_PARAM_UNKNOWN' | 'PLAN_REF_IN_LITERAL' | 'PLAN_PATTERN_NOT_FOUND' | 'PLAN_PATTERN_KIND_AGENT' | 'PLAN_PATTERN_SELF' | 'PLAN_PATTERN_ONE_SHOT' | 'PLAN_PATTERN_NOT_EXPOSED' | 'PLAN_PATTERN_NOT_ALLOWED' | 'PLAN_ASSET_PRODUCER_NONE' | 'PLAN_ASSET_LABEL_UNSUPPORTED' | 'PLAN_SLOT_UNKNOWN' | 'PLAN_SLOT_MODALITY' | 'PLAN_SLOT_CARDINALITY' | 'PLAN_SLOT_DUAL_SOURCE' | 'PLAN_SLOT_REQUIRED_UNBOUND' | 'PLAN_STEP_INPUT_INVALID' | 'PLAN_STEP_UNUSED' | 'PLAN_OUTPUT_LABEL_DUPLICATE' | 'PLAN_INPUT_NOT_SERIALISABLE';
-
-// @public
-export function planRefine(lookup: PlanPatternLookup, opts?: PlanValidateOptions): (dag: PlanDag, ctx: z.core.$RefinementCtx<PlanDag>) => void;
-
-// @public (undocumented)
-export type PlanRetry = z.infer<typeof PlanRetrySchema>;
-
-// @public (undocumented)
-export const PlanRetrySchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
-    kind: z.ZodLiteral<"none">;
-}, z.core.$strict>, z.ZodObject<{
-    kind: z.ZodLiteral<"exponential">;
-    maxAttempts: z.ZodNumber;
-    baseMs: z.ZodNumber;
-    maxMs: z.ZodOptional<z.ZodNumber>;
-}, z.core.$strict>, z.ZodObject<{
-    kind: z.ZodLiteral<"fixed">;
-    maxAttempts: z.ZodNumber;
-    delayMs: z.ZodNumber;
-}, z.core.$strict>], "kind">;
-
-// @public (undocumented)
-export type PlanStep = z.infer<typeof PlanStepSchema>;
-
-// @public (undocumented)
-export const PlanStepSchema: z.ZodObject<{
-    id: z.ZodString;
-    pattern: z.ZodString;
-    input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
-    retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
-        kind: z.ZodLiteral<"none">;
-    }, z.core.$strict>, z.ZodObject<{
-        kind: z.ZodLiteral<"exponential">;
-        maxAttempts: z.ZodNumber;
-        baseMs: z.ZodNumber;
-        maxMs: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strict>, z.ZodObject<{
-        kind: z.ZodLiteral<"fixed">;
-        maxAttempts: z.ZodNumber;
-        delayMs: z.ZodNumber;
-    }, z.core.$strict>], "kind">>;
-}, z.core.$strict>;
-
-// @public
-export interface PlanValidateOptions {
-    allow?: readonly PatternId[];
-    audience?: DispatchAudience;
-    inputs?: z.ZodObject;
-    selfId?: PatternId;
-}
+export function pickAlternative<I, O>(deps: AlternativeSelectionDeps, atomic: AtomicPattern<I, O>, ctx: ResolveContext, requiredTags: readonly ModelTag[], requestedSemantics: readonly Semantics[]): Alternative<I, O> | null;
 
 // @public
 export interface PrimaryPath<I = unknown> {
@@ -1579,6 +1390,9 @@ export interface QuerySpec {
     // (undocumented)
     mode: 'latestOfModality' | 'latestBatchOfModality';
 }
+
+// @public
+export function readRequiresSemantics(input: unknown): readonly Semantics[];
 
 // @alpha
 export interface RecordAssetInput {
@@ -1629,6 +1443,9 @@ export interface ResolveContext {
 }
 
 // @public
+export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext;
+
+// @public
 export interface ResolvedAssetRef {
     // (undocumented)
     assetId: string;
@@ -1661,16 +1478,18 @@ export interface ResolvedExposure {
 }
 
 // @public
-export function resolveDispatchTarget(registry: PatternRegistry, input: DispatchPatternInput, audience: DispatchAudience): ResolvedDispatchTarget | DispatchPatternError;
+export interface ResolveDispatchOptions {
+    hasPatternSearch?: boolean;
+}
+
+// @public
+export function resolveDispatchTarget(registry: PatternRegistry, input: DispatchPatternInput, audience: DispatchAudience, opts?: ResolveDispatchOptions): ResolvedDispatchTarget | DispatchPatternError;
 
 // @alpha
 export function resolveExposure(e?: PatternExposure): ResolvedExposure;
 
 // @public
 export function resolveNamespace(id: PatternId, declared: NamespaceId | undefined): NamespaceId;
-
-// @alpha
-export function resolveSlashDispatch(registry: PatternRegistry, patternId: string): SlashDispatchResolution;
 
 // @public
 export type RetryPolicy = {
@@ -1794,26 +1613,6 @@ export interface SkippedManifestPattern {
     readonly missingOps: readonly string[];
 }
 
-// @alpha
-export type SlashDispatchError = {
-    code: 'SLASH_PATTERN_NOT_FOUND';
-    patternId: string;
-    message: string;
-} | {
-    code: 'SLASH_NOT_EXPOSED';
-    patternId: string;
-    message: string;
-};
-
-// @alpha
-export type SlashDispatchResolution = {
-    ok: true;
-    fullId: string;
-} | {
-    ok: false;
-    error: SlashDispatchError;
-};
-
 // @public (undocumented)
 export interface StepMeta {
     // (undocumented)
@@ -1853,6 +1652,17 @@ export type StopConditionDescriptor = {
 export type StripReason = 'data-url' | 'binary-run' | 'control-chars';
 
 // @public
+export interface SubagentBlocklist {
+    // (undocumented)
+    readonly idPrefixes: readonly string[];
+    // (undocumented)
+    readonly patternIds: readonly PatternId[];
+}
+
+// @public
+export function sumCosts(costs: readonly (number | null | undefined)[]): number | null;
+
+// @public
 export const SUPPORTED_MODEL_SPEC_VERSIONS: readonly ModelSpecVersion[];
 
 // @public
@@ -1860,6 +1670,9 @@ export type SystemPromptContext<P = unknown> = Omit<DispatchContext<P>, 'assets'
 
 // @public (undocumented)
 export function toAssetUri(handle: string): string;
+
+// @public
+export function toAvailableAlternative(alt: Alternative<unknown, unknown>): AvailableAlternative;
 
 // @public
 export function toJsonSchema<T>(zodSchema: ZodType<T>): JsonSchema;
@@ -1917,9 +1730,6 @@ export type Unsubscribe = () => void;
 
 // @public
 export function urlField(max?: number): z.ZodString;
-
-// @public
-export function validatePlan(dag: PlanDag, lookup: PlanPatternLookup, opts?: PlanValidateOptions): PlanProblem[];
 
 // @public
 export const whenAlways: AlternativeAppliesWhen;

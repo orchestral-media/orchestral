@@ -19,6 +19,19 @@ is repaired — the orchestral packages, their consumers, and their published AP
 
 Treat any pressure to "just add a small dsh-shaped hook in core" as the bug it is.
 
+<!-- DESIGN: dsh-bridge-is-a-leaf -->
+
+## Not published
+
+This package is `"private": true`. npm refuses to publish it, and that refusal is a property of the
+package rather than of three files elsewhere agreeing to skip it — the root `ci:publish` `--filter` and
+the changesets `ignore` entry remain, now as redundant belt-and-braces rather than the only gates. The
+publish scaffolding (`publishConfig`, `files`, `prepack`) is kept intact on purpose: the bridge is meant
+to ship one day, against a dsh that has stopped breaking.
+
+**Deleting that one line is the act of publishing it**, and it should show up in a diff as exactly that —
+a deliberate, reviewable change, not a side effect of someone loosening a filter.
+
 ## Compatibility
 
 | | |
@@ -41,6 +54,12 @@ orchestral's own exposure rules admit for the configured surface:
   rather than going through `defineTool`, because round-tripping through dsh's `ParameterSchemaSpec` DSL
   would drop constraints the DSL cannot express.
 - A tool call resolves any declared asset slots, then calls `runtime.submitJob`.
+- A host-supplied `sessionId` (via `resolveJobContext`) rides the spec verbatim. When the host supplies
+  none, the spec carries no `sessionId` at all — instead the bridge pre-computes the idempotency key
+  itself, folding the calling dsh agent's id in, so the same prompt asked in two sessions is two jobs, and
+  the same prompt asked twice in one session is still one, without the derived id ever reaching the spec's
+  routing fields (which the runtime would otherwise couple to the asset context via its
+  `assetContextId ?? sessionId` fallback).
 - A dispatch that fails is raised as a tool error. orchestral resolves `submitJob` with the failed Job
   (`status: 'error'` plus a structured `JobError`); dsh's one channel for a failed call is a throw, so the
   bridge re-raises the `JobError` as `CODE: message` and dsh normalizes it into an `isError` result the
@@ -59,6 +78,8 @@ every tool together.
 It consumes one. A `Runtime` needs a `JobStore`, a `CapabilityRouter`, provider credentials, and a
 `resolveCtxProvider` — deployment decisions a plugin has no business guessing. The host constructs an
 `InlineRuntime` and hands it over, live, through config.
+
+<!-- DESIGN: dsh-plugin-builds-no-runtime -->
 
 ## Usage
 
@@ -112,10 +133,11 @@ dsh --profile demo
 |---|---|---|
 | `runtime` | *(required)* | A constructed orchestral `Runtime`, e.g. an `InlineRuntime`. |
 | `registry` | *(required)* | The `PatternRegistry` whose exposed Patterns become tools. |
-| `surface` | `'chatTurn'` | Which orchestral exposure surface this dsh registry represents. `'agentLoop'` additionally admits `'agent-tool'` Patterns and suits a subagent-scoped mount. |
+| `surface` | `'chatTurn'` | Which orchestral exposure surface this dsh registry represents. `'agentLoop'` additionally admits `'agent-tool'` Patterns *and* subtracts every `agent_*` Pattern via `DEFAULT_SUBAGENT_BLOCKLIST`, the same recursion guard orchestral runs on its own sub-agent catalog. Suits a subagent-scoped mount. |
 | `toolNamePrefix` | `''` | Prepended to every tool name. PatternIds are already valid LLM tool names by design; set a prefix only to avoid collisions with other plugins. |
+| `exposeDeferred` | `false` | Register every exposed Pattern as a first-class tool, not just the `exposureMode: 'always-load'` ones. Off by default: `'deferred'` means "reachable through find_pattern", and promoting understanding atomics (`image-to-text` / `text-generation`) is what that field exists to prevent. A promoted Pattern is also exposed with its BASE input schema — the `providerOptions` lift happens in find_pattern, which this path skips. |
 | `timeoutMs` | *(none)* | Per-call deadline, enforced by dsh's timeout policy. |
-| `resolveJobContext` | *(none)* | `(args) => { sessionId?, assetContextId?, assetEvents? }`. Supplies the host-owned asset ledger a call's `input.references` handles resolve against. Patterns with no `assetNeeds` never consult it. |
+| `resolveJobContext` | *(none)* | `(args) => { sessionId?, assetContextId?, assetEvents? }`. Supplies the host-owned asset ledger a call's `input.references` handles resolve against, and may override the dedup boundary. **Supplying `sessionId` is optional for dedup:** the bridge's own pre-computed idempotency key already scopes dedup per dsh session. Supply it anyway if you want dsh job rows findable via `JobQueryFilter.sessionId`, or want `ctx.sessionId` visible to your `checkPermissions` or adapters — the bridge deliberately puts nothing on those fields on its own. |
 
 ## Known limitations
 

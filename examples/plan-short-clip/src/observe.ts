@@ -16,7 +16,8 @@
 // to happen inside it — `submitJob` resolves only after the job is terminal, so
 // a subscription made afterwards observes nothing.
 
-import type { Job, PatternId, PlanOutput } from '@orchestral/core'
+import type { Job, PatternId } from '@orchestral/core'
+import type { PlanOutput } from '@orchestral/plan'
 import type { InlineRuntime, InlineRuntimeInit } from '@orchestral/runtime'
 
 import type { ShortClipInput } from './pattern'

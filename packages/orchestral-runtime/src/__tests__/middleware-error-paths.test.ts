@@ -31,9 +31,9 @@ import type {
 import {
   silentDiagnosticsLogger,
   type DiagnosticsLogger,
-  InMemoryJobStore as MemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
@@ -76,7 +76,7 @@ function makeRuntime(
   logger?: DiagnosticsLogger,
 ): InlineRuntime {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(makeInstantPattern() as never)
+  registry.register(makeInstantPattern() as never)
   return new InlineRuntime({
     router: makeInstantRouter(),
     registry,

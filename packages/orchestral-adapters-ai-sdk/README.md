@@ -27,7 +27,7 @@ pass in comes from your copy of the AI SDK, and the package must share it.
 
 ```ts
 import { openai } from '@ai-sdk/openai'
-import { createDefaultCapabilityRouter } from '@orchestral/core'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   fromImageModel,
   fromLanguageModel,
@@ -122,10 +122,16 @@ Two sources feed the SDK's `providerOptions`, and they are shaped differently:
 - `input.providerOptions` — the **flat** per-model object the first-party
   patterns carry on the top level of their input (a meta `compose()` sets it; the
   derived LLM-facing schema fills it per model) — is nested under the model's
-  provider key.
+  **SDK provider key**: the first `.`-separated segment of the model instance's
+  own `.provider` (`openai.image` → `openai`), which is the name the SDK's
+  provider matches against. That is deliberately *not* `options.provider`: the
+  routing identity is yours to overwrite with a relay slug, and options nested
+  under a slug no provider answers to are dropped without a word. Override the
+  wire key with `options.sdkProviderKey` when the segment rule is wrong for the
+  provider you registered.
 
 Per-call wins: a key in `input.providerOptions` overrides the same key in
-`ctx.providerOptions[provider]`.
+`ctx.providerOptions[sdkProviderKey]`.
 
 ### Structured output (`responseFormat: 'json'`)
 
@@ -236,13 +242,17 @@ store — enough for a host that only ever reads the artifacts, and what
   the output envelope's `null` means exactly "not reported" — a `0` would claim
   the call was free. A host with a price list fills it in afterwards (a
   `DispatchMiddleware`, or its own wrapper around `call`).
-- **Asset slots other than the two `source` slots are not mapped.**
+- **Asset slots other than the two `source` slots are refused, loudly.**
   `text-to-image`'s `reference` / `control` images and `text-to-speech`'s
-  `voiceClone` audio are resolved onto `ctx.assets` by the runtime but ignored
-  here: `generateImage`'s image-editing input and the various voice-cloning
-  APIs are provider-specific enough that a generic mapping would be a guess. A
-  host that needs them writes its own adapter (or wraps this one and adds
-  them). ASR's and image-to-text's `source` are mapped, through `loadAudio` /
+  `voiceClone` audio are resolved onto `ctx.assets` by the runtime, and this
+  adapter cannot send them: `generateImage`'s image-editing input and the
+  various voice-cloning APIs are provider-specific enough that a generic
+  mapping would be a guess. So the call fails with
+  `ASSET_SLOT_NOT_SUPPORTED` naming the slot, rather than returning a picture
+  that ignored your reference face — that output is indistinguishable from a
+  correct one. A host that needs those slots writes its own adapter (or wraps
+  this one and adds them); a host that does not, drops the reference from the
+  input. ASR's and image-to-text's `source` are mapped, through `loadAudio` /
   `loadImage`.
 - **`loadImage` / `loadAudio` are the host's, not defaults.** `@orchestral/core`
   defines no assetId → bytes read on purpose (an id is whatever the host's

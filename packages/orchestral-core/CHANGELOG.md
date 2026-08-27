@@ -321,6 +321,8 @@ on output envelopes are a different thing: reported by the host after the
 call, carried for cost meters and UIs, and never validated — which is why
 `cost` is nullable rather than defaulting to 0.
 
+<!-- DESIGN: changelog-no-cost-on-routing-types -->
+
 Routing today is therefore ordering plus a small precedence. Candidates are
 filtered and ordered by the stored enablement order (`getCapabilityOrder`) or by
 the caller's own `ResolveContext.rankedModels`, falling back to the order
@@ -329,6 +331,8 @@ provider → tier match (if requested) → first candidate.
 
 There is no per-step timeout and no job TTL. Cancellation is by `AbortSignal`
 (`ctx.signal`); wall-clock deadlines are the host's to impose.
+
+<!-- DESIGN: changelog-no-timeout-no-ttl -->
 
 ---
 

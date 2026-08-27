@@ -26,22 +26,32 @@
 //     `addFromManifest` runs before any pattern is registered.
 //
 // Layer 2 (the per-step parse of the *substituted* input, at execution) lives
-// with the interpreter in @orchestral/patterns.
+// with the interpreter, interpreter.ts.
 
 import type { z } from 'zod'
 
-import type { AssetNeed } from './asset-index.types'
-import type { DispatchAudience } from './dispatch-pattern'
-import type { PatternId } from './foundational'
-import type { Pattern } from './pattern'
-import { resolveExposure } from './pattern'
+import type {
+  AssetNeed,
+  DispatchAudience,
+  Pattern,
+  PatternId,
+  PatternRegistry,
+} from '@orchestral/core'
+import { resolveExposure } from '@orchestral/core'
+
 import {
   PLAN_ASSET_REF_RE,
   PLAN_VALUE_REF_RE,
   PlanDagSchema,
   type PlanDag,
 } from './plan'
-import type { PatternRegistry } from './registry'
+import {
+  PLAN_REF_MAX_DEPTH,
+  collectRefHeads,
+  parseAssetRef,
+  parseValueRef,
+  type ParsedValueRef,
+} from './refs'
 
 // ── Vocabulary ──────────────────────────────────────────────────────────
 
@@ -222,20 +232,11 @@ interface RefSite {
   stepId?: string
 }
 
-const REF_HEAD_RE = /^\$([A-Za-z][A-Za-z0-9_-]{0,63})/
-const VALUE_SEGMENT_RE = /\.([A-Za-z_][A-Za-z0-9_]{0,63})|\[([0-9]{1,3})\]/g
 /** A ref-shaped run anywhere inside a longer string — rule 9's needle. */
 const EMBEDDED_REF_RE =
   /\$([A-Za-z][A-Za-z0-9_-]{0,63})((?:\.[A-Za-z_][A-Za-z0-9_]{0,63}|\[[0-9]{1,3}\])+)/g
 /** "Looks like it was meant to be a reference" — rule 4's trigger. */
 const REF_INTENT_RE = /^\$[A-Za-z]/
-/**
- * How deep a step input may nest before the walk gives up and calls it
- * unserialisable. Well past anything a real `providerOptions` blob reaches; the
- * point is that a host handing in a cyclic object gets a problem back rather
- * than a RangeError.
- */
-const MAX_INPUT_DEPTH = 64
 
 class PlanWalk {
   private readonly problems: PlanProblem[] = []
@@ -367,7 +368,7 @@ class PlanWalk {
   //      PATTERN_NOT_REGISTERED at the level this step sits on, after the
   //      levels above it had spent.
   // 11 — an agent: by kind, not by prefix, because `idCarriesKind` is not on
-  //      the core barrel. An agent inside a plan is an unbounded LLM loop
+  //      @orchestral/core's barrel. An agent inside a plan is an unbounded LLM loop
   //      inside something sold as a fixed pipeline.
   // 12 — the plan itself: the runtime refuses it as CIRCULAR_META_STEP
   //      (meta-execution-context.ts:396-404), again after earlier steps ran.
@@ -477,7 +478,7 @@ class PlanWalk {
     ): void => {
       // A cycle or a pathological nesting depth is rule 24's problem, and it
       // reports one — stop here rather than blowing the stack on the way.
-      if (depth > MAX_INPUT_DEPTH) return
+      if (depth > PLAN_REF_MAX_DEPTH) return
       if (typeof value === 'string') {
         this.ruleInputString(step, value, path)
         return
@@ -507,6 +508,7 @@ class PlanWalk {
     // word "$describe.text". The head must name a real step (or `input`), so
     // prose that merely mentions a dollar sign is untouched. Checked before
     // rule 4 because it is the more specific diagnosis of the same string.
+    // DESIGN: plan-no-interpolation
     const fragment = findEmbeddedRef(value, this.knownHeads)
     if (fragment !== null) {
       this.add({
@@ -1033,72 +1035,11 @@ class PlanWalk {
 }
 
 // ── Reference parsing ───────────────────────────────────────────────────
-
-interface ParsedValueRef {
-  head: string
-  isInput: boolean
-  segments: (string | number)[]
-}
-
-interface ParsedAssetRef {
-  head: string
-  index?: number
-  label?: string
-}
-
-/**
- * Parse a whole-string value reference. Note that `$render.assets[0]` parses
- * here as well as through {@link parseAssetRef} — the value production has no
- * way to exclude a field literally called `assets`, which is why rule 7 checks
- * the first segment rather than the regex.
- */
-function parseValueRef(value: string): ParsedValueRef | null {
-  if (!PLAN_VALUE_REF_RE.test(value)) return null
-  // The head alternation in PLAN_VALUE_REF_RE lists `input` first for
-  // readability, but `[A-Za-z][A-Za-z0-9_-]*` matches it too — so read the head
-  // greedily and compare, or `$inputs.x` would parse with head `input`.
-  const head = REF_HEAD_RE.exec(value)?.[1]
-  if (head === undefined) return null
-  const segments: (string | number)[] = []
-  for (const m of value.slice(1 + head.length).matchAll(VALUE_SEGMENT_RE)) {
-    segments.push(m[1] !== undefined ? m[1] : Number(m[2]))
-  }
-  return { head, isInput: head === 'input', segments }
-}
-
-function parseAssetRef(value: string): ParsedAssetRef | null {
-  const m = PLAN_ASSET_REF_RE.exec(value)
-  if (m === null) return null
-  const selector = m[2]
-  return selector.startsWith('label=')
-    ? { head: m[1], label: selector.slice('label='.length) }
-    : { head: m[1], index: Number(selector) }
-}
-
-/**
- * Add the head of every whole-string reference in `value` to `into`, reporting
- * nothing. Used for a subtree the grammar rules deliberately skip (a nested
- * plan's own DAG): the refusals would be false, but a head that names one of
- * THIS plan's steps is still a read, and rule 22 has to see it or an
- * only-consumed-by-a-nested-plan step reads as unused.
- */
-function collectRefHeads(value: unknown, into: Set<string>, depth = 0): void {
-  // Same cap the reporting walk uses: `validatePlan` promises never to throw,
-  // and a cyclic host-constructed input is rule 24's problem, not a RangeError.
-  if (depth > MAX_INPUT_DEPTH) return
-  if (typeof value === 'string') {
-    const head = parseValueRef(value)?.head ?? parseAssetRef(value)?.head
-    if (head !== undefined && head !== 'input') into.add(head)
-    return
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectRefHeads(entry, into, depth + 1)
-    return
-  }
-  if (isRecord(value)) {
-    for (const v of Object.values(value)) collectRefHeads(v, into, depth + 1)
-  }
-}
+//
+// `parseValueRef` / `parseAssetRef` / `collectRefHeads` are refs.ts's — the one
+// walk this package has. What stays here are the two needles no other walk
+// wants: rule 9's embedded-reference scan and rule 4's "looks like it was meant
+// to be a reference".
 
 /** The first `$<known>.…` run inside `value`, or null. Rule 9's needle. */
 function findEmbeddedRef(
@@ -1249,15 +1190,15 @@ function exposedTo(pattern: Pattern, audience: DispatchAudience): boolean {
 
 /**
  * Top-level `.passthrough()` when the schema supports it — byte-for-byte what
- * `resolveDispatchTarget` does (dispatch-pattern.ts:198-201), so rule 21's
+ * `resolveDispatchTarget` does (its `parseSchema` branch), so rule 21's
  * verdict and the dispatch path's verdict cannot disagree.
  */
 /**
  * The one-shot interpreter, recognised structurally: interpreted-from-steps by
  * `origin`, but carrying no step list of its own — its input IS a DAG. A
- * `planToMeta` product carries its frozen list as `.plan` (a field core does
- * not declare on `Pattern`; patterns' `PlanMetaPattern` does, hence the cast)
- * and is an ordinary steppable meta.
+ * `planToMeta` product carries its frozen list as `.plan` (a field
+ * @orchestral/core does not declare on `Pattern`; `PlanMetaPattern` in
+ * interpreter.ts does, hence the cast) and is an ordinary steppable meta.
  */
 function isOneShotPlan(pattern: Pattern): boolean {
   return (
@@ -1281,8 +1222,8 @@ function passthroughOf(schema: unknown): z.ZodType<unknown> {
 /**
  * Mirror of `canonicalise`'s refusals (idempotency.ts:77-127), collecting every
  * offending path instead of throwing on the first. Re-implemented rather than
- * imported because `canonicalise` is private to @orchestral/runtime and core
- * cannot depend on it; keep the two in step.
+ * imported because `canonicalise` is private to @orchestral/runtime, which this
+ * package does not depend on; keep the two in step.
  */
 function collectNonSerialisable(
   value: unknown,
@@ -1294,7 +1235,11 @@ function collectNonSerialisable(
   // depth in a host-constructed input blows the stack there. Reporting it is
   // this rule's whole job — and `validatePlan` promises never to throw — so the
   // cap is here rather than a RangeError anywhere.
-  if (depth > MAX_INPUT_DEPTH) {
+  //
+  // Same cap every reference walk uses (refs.ts). Sharing it is what makes
+  // "a plan that validates has every $ref inside every walk's reach" a
+  // property instead of an argument: this rule refuses anything deeper.
+  if (depth > PLAN_REF_MAX_DEPTH) {
     bad.push(path)
     return
   }

@@ -20,10 +20,11 @@
 import { openai } from '@ai-sdk/openai'
 import {
   type Artifact,
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createInProcessAgentRunImpl } from './agent-runner'
@@ -48,8 +49,8 @@ if (!process.env.OPENAI_API_KEY) {
 //    loop.toolPatternIds names 'text-to-image', so that atomic must be in the
 //    registry for the loop to resolve + dispatch it.
 const registry = new PatternRegistry()
-registry.add(createAgentHelloWorldPattern())
-registry.add(createTextToImagePattern())
+registry.register(createAgentHelloWorldPattern())
+registry.register(createTextToImagePattern())
 
 // 2. The model that serves the text-to-image TOOL call (router territory),
 //    bridged by the same host-local ai-sdk wiring the atomic example uses.
@@ -84,6 +85,20 @@ const runtime = new InlineRuntime({
   registry,
   router,
   agentRunImpl,
+  // Retrieval is a seam, like the loop and the model call: the runtime holds
+  // no search. `createPatternSearch` is the first-party BM25 one — pass the
+  // router so Patterns no model can serve never reach the LLM. This agent's
+  // single tool is always-load (a direct tool, no discovery needed), so the
+  // demo would run without this line and simply get no find_pattern tool; it
+  // is wired anyway because it is the line to copy the moment a host has a
+  // Pattern the model must discover.
+  patternSearch: createPatternSearch(registry, { router }),
+  // The other half of the same wiring, and it is a pair: the implementation
+  // parses a query mini-language (`select:`, `+term`, `namespace:`) that
+  // nothing tells the model about unless this hint is spliced into
+  // find_pattern's description. Wire the search without it and the model only
+  // ever writes prose at an index that can do better.
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
   onJobCreated: (jobId) =>
     runtime.subscribe(jobId, (ev) => {
       if (ev.type === 'job:artifact') artifacts.push(ev.artifact)

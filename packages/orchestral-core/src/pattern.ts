@@ -74,27 +74,26 @@ export interface PatternBase<I = unknown, O = unknown> {
   /** Public outputs schema — shared by primary + alternatives. */
   outputs: ZodSchema<O>
   /**
-   * High-signal BM25 retrieval field — `find_pattern` uses it as the primary
-   * match signal for tool-selection (same boost tier as patternId tokens). A
-   * short, natural 3-10 word English phrase, verb-first, describing the
-   * capability itself.
+   * Author-supplied retrieval hint: a short, natural 3-10 word English phrase,
+   * verb-first, naming the capability itself. It is the most direct lever a
+   * Pattern author has over which queries find this Pattern.
    *
-   * Avoid repeating tokens patternId already contains — `patternIdParts`
-   * already indexes those. The runtime's `find_pattern.query` describe text
-   * already asks the LLM to translate non-English requests into English
-   * keywords before calling, so write English only here (see
-   * find-pattern-schema.ts, `FindPatternInputSchema.query`).
+   * Deliberately implementation-neutral. What a retrieval implementation does
+   * with it — weight it, embed it, ignore it — is that implementation's
+   * business, and this package ships none (see `PatternSearch`); the
+   * first-party index in @orchestral/discovery treats it as a high-signal
+   * field. Two consequences for the author: don't repeat words the pattern id
+   * already carries, and write English, because no implementation is obliged
+   * to translate a query.
    *
    * Examples:
    *   • image-to-text → 'describe an image or extract text via OCR'
    *   • text-to-image → 'generate an image from a text prompt'
    *   • text-to-speech → 'synthesize speech audio from text (TTS)'
    *
-   * Optional; when omitted, BM25 relies mainly on `primary.tool.description`
-   * (which feeds toolDescriptions) + patternId tokens. Strongly recommended
-   * for every first-party Pattern — it's the author's most direct
-   * retrieval-tuning lever and a high-IDF signal source when the LLM walks the
-   * catalog.
+   * Optional — a Pattern without one is still discoverable through its tool
+   * description and its id. Strongly recommended for every first-party
+   * Pattern.
    */
   searchHint?: string
   /**
@@ -180,6 +179,7 @@ export interface PatternBase<I = unknown, O = unknown> {
    * capabilities are off by default, opened explicitly by the author. Holding
    * this invariant means a newly added third-party package can't accidentally
    * inject behavior into a first-party Pattern.
+   * DESIGN: extensible-closed-by-default
    */
   extensible?: boolean
 
@@ -317,6 +317,7 @@ export interface ToolDescriptor<I = unknown> {
  *   - `slash`     — slash-command exposure
  *   - `canvas`    — per-node canvas exposure
  *   - `host`      — host-direct `runtime.submitJob` (no LLM involved)
+ * DESIGN: exposure-fail-closed
  */
 export type PatternExposure = PatternExposureShorthand | PatternExposureMap
 
@@ -365,6 +366,7 @@ export interface ResolvedExposure {
  * `host` is never gated (host-direct is reachable), so `'no-tool'` still keeps
  * `host:true`.
  * @alpha
+ * DESIGN: resolve-exposure-single-reader
  */
 export function resolveExposure(e?: PatternExposure): ResolvedExposure {
   if (e === undefined || e === 'tool') {
@@ -550,6 +552,7 @@ export interface AgentPattern<I = unknown, O = unknown>
      * announcement). When assembling from (input, ctx), the author should keep
      * it byte-stable. Tier-specific behavior goes through modelTags + Router
      * resolution, or by picking a different patternId per tier at host dispatch.
+     * DESIGN: system-prompt-context-on-loop-system
      */
     system: string | ((input: I, ctx: SystemPromptContext) => string)
 
@@ -557,6 +560,7 @@ export interface AgentPattern<I = unknown, O = unknown>
      * The subset of the Pattern catalog visible to the inner LLM. Must be
      * listed explicitly (no '*' wildcard). dispatchAgent automatically filters
      * out the self id (prevents self-call recursion).
+     * DESIGN: tool-pattern-ids-explicit
      */
     toolPatternIds: readonly PatternId[]
 
@@ -640,6 +644,7 @@ export interface AgentPattern<I = unknown, O = unknown>
  *   • { kind: 'token-count', n } → a custom isLoopFinished predicate that
  *                                  accumulates and compares steps[].usage.totalTokens
  * @alpha
+ * DESIGN: stop-condition-not-a-predicate
  */
 export type StopConditionDescriptor =
   | { kind: 'step-count'; n: number }

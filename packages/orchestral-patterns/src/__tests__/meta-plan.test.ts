@@ -13,24 +13,24 @@
 
 import {
   auditOutputsSchema,
-  InMemoryJobStore,
-  PlanDagSchema,
-  PlanOutputSchema,
   toJsonSchema,
   type PatternId,
+} from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import {
+  createPlanMeta,
+  planToMeta,
+  PlanDagSchema,
+  PlanOutputSchema,
+  PLAN_PATTERN_ID,
+  PLAN_TOOL_DESCRIPTION,
   type PlanDag,
   type PlanOutput,
-} from '@orchestral/core'
+} from '@orchestral/plan'
 import { deriveIdempotencyKey } from '@orchestral/runtime'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import {
-  createPlanMeta,
-  planToMeta,
-  PLAN_PATTERN_ID,
-  PLAN_TOOL_DESCRIPTION,
-} from '../meta/plan'
 import { makePlanHost, type PlanHost } from './helpers/plan-host'
 
 // ── fixtures ────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ function hostWithPlanMeta(store?: InMemoryJobStore, latencyMs?: number): PlanHos
     ...(store !== undefined ? { store } : {}),
     ...(latencyMs !== undefined ? { latencyMs } : {}),
   })
-  registryHolder.registry.add(planMetaFor(registryHolder))
+  registryHolder.registry.register(planMetaFor(registryHolder))
   return registryHolder
 }
 
@@ -212,7 +212,7 @@ describe('planToMeta — three takes, a judge, and a winner', () => {
 
   function host(): PlanHost {
     const h = makePlanHost({ bestOfN: true, latencyMs: 5 })
-    h.registry.add(
+    h.registry.register(
       planToMeta(THREE_TAKES, {
         id: 'meta_shortlist' as PatternId,
         lookup: h.registry,

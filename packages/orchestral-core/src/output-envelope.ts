@@ -53,7 +53,7 @@ export const dispatchEnvelopeShape = {
  * The meta envelope every meta Pattern output must carry, in addition to its
  * domain fields: `cost` = aggregated USD across sub-steps, or `null` when any
  * sub-step left its cost unreported (a partial sum would read as a confident
- * total — `sumCosts` in `@orchestral/patterns` applies that rule); `latencyMs`
+ * total — `sumCosts` below applies that rule); `latencyMs`
  * = measured compose wall time. Deliberately a subset of
  * `dispatchEnvelopeShape` — a meta spans many models, so it carries no `model` /
  * `provider`. Both are `>= 0` like the dispatch envelope (`cost` when non-null);
@@ -67,6 +67,44 @@ export const metaEnvelopeShape = {
   cost: z.number().min(0).nullable(),
   latencyMs: z.number().min(0),
 } as const
+
+/**
+ * Total the `cost` values a compose() has collected from its sub-steps. Every
+ * envelope's `cost` is `number | null` — `null` meaning the adapter behind that
+ * call did not report one — and the aggregate keeps that distinction:
+ *
+ * - If ANY input is `null`, the result is `null`. A partial sum is more
+ *   dangerous than no sum: it renders as a confident small number, which a
+ *   host reads as the real total of a run that was in fact unpriced.
+ * - `undefined` counts as 0 — a sub-step that did not run, or a value that was
+ *   never a cost field, adds nothing.
+ * - NaN / Infinity from a buggy adapter also count as 0. The runtime does not
+ *   zod-validate dispatch outputs, so this is the last line of defence against
+ *   one bad value poisoning every parent meta's aggregate.
+ *
+ * Takes an array rather than variadics so the call reads as what it is —
+ * `sumCosts([a.cost, ...bs.map((b) => b.cost)])` — and a sub-total that is
+ * already `number | null` feeds straight back in. Kept intentionally dumb — no
+ * latency logic (metas measure wall time with Date.now() locally).
+ *
+ * Here rather than in @orchestral/patterns, where it was born, because
+ * `metaEnvelopeShape.cost` above is the rule's definition and two packages now
+ * aggregate against it: the shipped metas and @orchestral/plan's interpreter.
+ * @orchestral/patterns re-exports it, so its public surface is unchanged.
+ */
+export function sumCosts(
+  costs: readonly (number | null | undefined)[],
+): number | null {
+  let total = 0
+  for (const cost of costs) {
+    if (cost === null) return null
+    // Number.isFinite guards NaN/Infinity from a buggy adapter — `?? 0` alone
+    // would let a single NaN poison the whole aggregate (and every parent meta
+    // summing it).
+    if (typeof cost === 'number' && Number.isFinite(cost)) total += cost
+  }
+  return total
+}
 
 /** Modality of a produced media asset. */
 export type ProducedAssetModality = 'image' | 'audio' | 'video'

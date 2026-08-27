@@ -18,7 +18,7 @@
 //   • satisfiability filter applied here so the LLM doesn't see
 //     Patterns whose modelTags no provider can satisfy
 
-import { z } from 'zod'
+import type { z } from 'zod'
 
 import type {
   Capability,
@@ -28,7 +28,7 @@ import type {
   PatternBase,
   ResolveContext,
 } from '@orchestral/core'
-import { resolveExposure } from '@orchestral/core'
+import { resolveExposure, toJsonSchema } from '@orchestral/core'
 import type { PatternSearchIndex, PatternSearchFilter } from './pattern-search-index'
 import { DEFAULT_SEARCH_K } from './pattern-search-index'
 
@@ -194,7 +194,7 @@ export interface HandleFindPatternOptions {
    *   - replaces `input.providerOptions` with a typed `z.object(remaining)`
    *     (the model's leftover provider-specific fields) so structured-output
    *     generation can fill them by name instead of guessing.
-   * find_pattern just `z.toJSONSchema()`-es the returned schema. The lift/merge
+   * find_pattern just `toJsonSchema()`-es the returned schema. The lift/merge
    * function itself (`deriveLlmFacingInputSchema`) ships in @orchestral/core;
    * this package never calls it directly — the host does, behind this closure.
    *
@@ -305,7 +305,7 @@ export function handleFindPattern(
       }
     }
     // Degraded fallback: when the closure returns a merged LLM-facing schema,
-    // buildMatchDescriptor z2js-es it directly; when it returns undefined,
+    // buildMatchDescriptor serialises it directly; when it returns undefined,
     // buildMatchDescriptor falls back to the base pattern.primary.tool.inputs
     // (see getPrimaryInputSchema below — the `!mergedInputSchema` branch).
     // Either way the atomic surfaces. providerOptions is per-model fine-tuning,
@@ -424,6 +424,32 @@ interface SelectorResult {
   candidates: readonly Pattern[]
   emptySuggestion: string
 }
+
+/**
+ * The query syntax THIS package parses, as one sentence a host splices into
+ * the `find_pattern` tool description (`BuildCatalogDescriptorsOptions.
+ * querySyntaxHint`).
+ *
+ * It lives next to `parseSelector` on purpose: the prose and the parser are
+ * one thing split in two, and the previous arrangement — the prose in
+ * @orchestral/core's `FindPatternInputSchema.query`, the parser here, no
+ * compile-time link between them — could only drift. A host that replaces
+ * retrieval replaces this string with its own; a host that drops the hint
+ * entirely still gets a working tool, because every shape below is optional
+ * sugar over free-form prose.
+ *
+ * Spliced into a byte-stable tool prefix, so treat it as a constant: editing
+ * it invalidates every provider-side prompt cache built on the old text.
+ */
+export const QUERY_SYNTAX_HINT =
+  'Prefer English keywords: the first-party catalog is written in English and the tokenizer does not translate across languages. ' +
+  'CJK queries are tokenized too, but only match catalog text written in that language — translate the user intent to English keywords when in doubt. ' +
+  'Prefix a word with + to make it mandatory — only patterns containing it are returned, e.g. "edit photo +inpaint". ' +
+  'When you already know what you want, use a selector instead of prose: ' +
+  '"select:<id>[,<id>...]" for specific patterns (id or short name); ' +
+  '"namespace:<ns>" for a whole group; ' +
+  '"<prefix>*" for every id starting with that prefix, e.g. "meta_*"; ' +
+  'a bare "<id>" for exactly one pattern.'
 
 /**
  * Parse a find_pattern query into a precise selector, or return `null` to let
@@ -584,35 +610,34 @@ function buildMatchDescriptor(
    * Pre-merged LLM-facing input ZodObject for atomic Patterns. `handleFindPattern`
    * calls `deriveProviderOptionsZod(patternId, baseSchema)` once in the outer
    * loop — the host invokes the lift/merge internally and returns the merged
-   * schema, which is passed here to be z2js-ed directly. Meta/agent Patterns and
+   * schema, which is passed here to be serialised directly. Meta/agent Patterns and
    * atomic Patterns called without the callback (or whose top model has no
    * curated schema) get `undefined` — see `getPrimaryInputSchema` below for the
-   * no-lift fallback path (z2js the base schema).
+   * no-lift fallback path (serialise the base schema).
    */
   mergedInputSchema?: z.ZodObject<z.ZodRawShape>,
 ): FindPatternMatch {
-  // zod v4 native JSON-Schema serialiser. Replaces the legacy `zod-to-json-schema`
-  // package, which was incompatible with zod v4's `_def.type` (vs v3's
-  // `_def.typeName`) and silently emitted empty schemas for any ZodObject.
-  // Byte-stability: `z.toJSONSchema` is deterministic for a given
-  // ZodSchema (property order = ZodObject shape order).
-  const z2js = (s: unknown): unknown =>
-    z.toJSONSchema(s as z.ZodTypeAny, { target: 'draft-2020-12' })
+  // Serialisation goes through @orchestral/core's `toJsonSchema`, which owns
+  // the draft-2020-12 target. A find_pattern result and the always-load tool
+  // prefix describe the same Pattern to the same model, so a second local
+  // serialiser here would be a second place for those bytes to be decided.
+  // (Byte-stability itself comes from zod: the render is deterministic for a
+  // given ZodSchema — property order = ZodObject shape order.)
 
   // The host closure returns the merged LLM-facing schema
   // (LIFTABLE fields lifted to top level + typed z.object(remaining) for
-  // providerOptions). We just z2js it. Only atomic Patterns with a primary
+  // providerOptions). We just serialise it. Only atomic Patterns with a primary
   // path + a curated top-model schema get the merged shape; everything else
   // (meta, agent, or no-curated-schema atomics) falls back to the base inputs.
   function getPrimaryInputSchema(): unknown {
     if (pattern.kind === 'meta') {
-      return z2js(pattern.tool.inputs)
+      return toJsonSchema(pattern.tool.inputs)
     }
     if (!pattern.primary) return {}
     if (pattern.kind !== 'atomic' || !mergedInputSchema) {
-      return z2js(pattern.primary.tool.inputs)
+      return toJsonSchema(pattern.primary.tool.inputs)
     }
-    return z2js(mergedInputSchema)
+    return toJsonSchema(mergedInputSchema)
   }
 
   // Fallback for primary.toolDescription when neither primary nor meta tool
@@ -645,6 +670,7 @@ function buildMatchDescriptor(
  * the wrong tool (worst case: a paid generation call) costs far more than
  * the one extra find_pattern round-trip a miss costs, and flailing models
  * converge to id-shaped queries on their own.
+ * DESIGN: no-bm25-direct-tool-hint
  */
 function findDirectToolHit(
   index: PatternSearchIndex,

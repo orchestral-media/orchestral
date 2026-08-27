@@ -4,8 +4,21 @@
 // would implement this same interface.
 
 import type { AgentDispatchEnvelope } from './agent-envelope'
+import type { ResolveContext } from './capability-model'
 import type { Job, JobSpec, JobEvent } from './job'
 import type { Unsubscribe } from './job-store'
+
+/**
+ * Host-supplied builder for the ResolveContext given a JobSpec. Called once
+ * per dispatch so the host can read the live session row / project defaults
+ * at resolution time. Keeps host-specific override layers (node / session /
+ * global) outside any one substrate's interface.
+ *
+ * A contract, not an implementation detail: @orchestral/runtime takes one on
+ * `InlineRuntimeInit.resolveCtxProvider`, and @orchestral/plan's preflight
+ * takes the SAME provider so the report names the model the run would pick.
+ */
+export type ResolveCtxProvider = (spec: JobSpec) => ResolveContext
 
 export interface Runtime {
   /**
@@ -54,6 +67,7 @@ export interface Runtime {
    * that can genuinely resume lost work should expose that as its own call
    * rather than hiding resumption behind this one, so a caller can always
    * read the returned rows as dead.
+   * DESIGN: abandonment-with-bookkeeping
    */
   abandonOrphanedJobs(): Promise<readonly Job[]>
   /**

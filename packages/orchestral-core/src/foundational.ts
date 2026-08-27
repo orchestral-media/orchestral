@@ -16,6 +16,7 @@
 // keeps the union structurally ≡ string, so call sites are unaffected — the
 // value of narrowing is that on `switch (pattern.kind)` TS can narrow the id
 // type and the types serve as documentation for the reader.
+// DESIGN: pattern-id-is-capability
 import type { Capability } from './capability'
 
 export type AtomicPatternId = Capability // 'text-to-image' / 'image-to-image' / ... + (string & {})
@@ -27,6 +28,7 @@ export type MetaPatternId = `meta_${string}` // e.g. 'meta_image-to-image-via-ca
  * by it too. An agent Pattern id without the prefix compiles only through
  * `Capability`'s `(string & {})` tail and silently loses both — it stays
  * visible inside another agent's catalog and can recurse.
+ * DESIGN: agent-id-prefix-normative
  */
 export type AgentPatternId = `agent_${string}`
 export type PatternId = AtomicPatternId | MetaPatternId | AgentPatternId

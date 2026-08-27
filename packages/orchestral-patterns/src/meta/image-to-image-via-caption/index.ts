@@ -10,7 +10,11 @@
 // the caption step's output feeding directly into the render step's input.
 //
 // Input mirrors the relevant subset of `image-to-image` so this Meta slots
-// cleanly into that Pattern's `alternatives[]` via declarative redirect.
+// cleanly into that Pattern's `alternatives[]` via declarative redirect. The
+// entry that does the slotting — `VIA_CAPTION_ALTERNATIVE`, at the bottom of
+// this file — lives here rather than in the parent: what a caller keeps and
+// loses by landing here is a fact about *this* chain, and it changes when this
+// chain changes.
 
 import { z } from 'zod'
 import {
@@ -18,13 +22,15 @@ import {
   extendInputsWithReferences,
   metaEnvelopeShape,
   producedAssetShape,
+  whenCapabilityUnavailable,
+  type Alternative,
   type AssetNeed,
   type DerivedReferences,
   type MetaPattern,
 } from '@orchestral/core'
-import { sumCosts } from '../meta/_shared/meta-utils'
-import { IMAGE_TO_TEXT_PATTERN_ID, imageToText } from './image-to-text'
-import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from './text-to-image'
+import { sumCosts } from '../_shared/meta-utils'
+import { IMAGE_TO_TEXT_PATTERN_ID, imageToText } from '../../atomic/image-to-text'
+import { TEXT_TO_IMAGE_PATTERN_ID, textToImage } from '../../atomic/text-to-image'
 
 // ── Schemas ─────────────────────────────────────────────────────────────
 
@@ -239,4 +245,94 @@ export function createImageToImageViaCaptionPattern(): MetaPattern<
       }
     },
   }
+}
+
+// ── The Alternative image-to-image redirects through ────────────────────
+
+/**
+ * The slice of the redirecting parent this entry reads. Spelled out here
+ * instead of importing `ImageToImageInput`: that import would re-close the
+ * atomic → meta → atomic loop this file was moved to break, and it would buy
+ * nothing — the parent's `alternatives: [VIA_CAPTION_ALTERNATIVE]` assignment
+ * is itself the compile-time check that the two shapes still line up, and
+ * drift on either side fails to compile there.
+ */
+interface RedirectingImageEditInput {
+  prompt: string
+}
+
+/**
+ * What the parent hands back to its caller: this meta's envelope minus the two
+ * fields only this path has. `degraded` is dropped because the runtime already
+ * reports the degradation out-of-band on `job:alternative-selected` (carrying
+ * this entry's `losses`), and `requestedSize` is this chain's own echo, not a
+ * field `image-to-image` declares. The remainder — modality, assets, cost,
+ * latencyMs, model, provider — is exactly `dispatchEnvelopeShape` plus the
+ * produced assets, which is why the projection below is lossless.
+ */
+type RedirectedImageEditOutput = Omit<
+  ImageToImageViaCaptionOutput,
+  'degraded' | 'requestedSize'
+>
+
+/**
+ * First-party degradation path for `image-to-image`: with no image-to-image
+ * model in the catalog, approximate the edit by captioning the source image and
+ * re-rendering that caption together with the edit instruction. Only style
+ * descriptors survive the round-trip — subject identity and composition do not
+ * — and an inpaint `mask` has no meaning on this target, which regenerates the
+ * whole frame.
+ *
+ * Declaring the path does not take it: @orchestral/runtime only redirects when
+ * constructed with `alternatives: 'auto'`, and raises
+ * ALTERNATIVE_PATTERN_NOT_REGISTERED in that mode if this meta is not
+ * registered alongside `image-to-image`. Under the default `'off'` the dispatch
+ * fails with ALTERNATIVES_NOT_ENABLED, which names this path rather than
+ * running it, so the target need not be registered for that failure to be
+ * well-formed.
+ * DESIGN: via-caption-first-party-fallback
+ */
+export const VIA_CAPTION_ALTERNATIVE: Alternative<
+  RedirectingImageEditInput,
+  RedirectedImageEditOutput
+> = {
+  id: 'via-caption',
+  description:
+    'No image-to-image model is available: caption the source image, then re-render it from that caption plus the edit instruction. Subject identity and composition are lost, and a mask is ignored — the whole frame is regenerated.',
+  appliesWhen: whenCapabilityUnavailable(),
+  preserves: ['style'],
+  // `mask-guidance` is listed because the redirect silently has no use for the
+  // `mask` slot — see mapInput below. A caller that asked for a masked edit
+  // gets a full-frame regeneration, and the degradation notice must say so.
+  losses: ['subject-identity', 'composition', 'mask-guidance'],
+  via: {
+    patternId: IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
+    mapInput: (input): ImageToImageViaCaptionInput => ({
+      // The edit instruction is the whole of the parent's intent; the source
+      // image rides along in the dispatch context, which the runtime forwards
+      // to the redirect target unchanged.
+      //
+      // The `mask` slot is intentionally not projected: this target has no mask
+      // input to project it onto, because captioning and re-rendering replaces
+      // the whole frame — there is no preserved region for a mask to protect.
+      // The `mask-guidance` loss above is what makes that visible.
+      editPrompt: input.prompt,
+      // Draft resolution: the source image's dimensions are not part of the
+      // parent input, so a 2048 render would be a guess, not a match.
+      tier: 'preview',
+    }),
+    mapOutput: (childOutput): RedirectedImageEditOutput => {
+      const out = childOutput as ImageToImageViaCaptionOutput
+      // Lossless projection — this meta's envelope is a superset of the
+      // parent's.
+      return {
+        modality: 'image',
+        assets: out.assets,
+        cost: out.cost,
+        latencyMs: out.latencyMs,
+        model: out.model,
+        provider: out.provider,
+      }
+    },
+  },
 }

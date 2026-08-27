@@ -14,10 +14,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   silentDiagnosticsLogger,
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
 import {
   createImageToVideoPattern,
   createTextGenerationPattern,
@@ -41,10 +41,10 @@ const RED_BIKE: ShortClipInput = { prompt: 'a red bicycle', motion: 'slow pan' }
 // two hosts can share one (the restart case).
 function makeHost(store = new InMemoryJobStore()) {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  registry.add(createTextGenerationPattern())
-  registry.add(createTextToImagePattern())
-  registry.add(createImageToVideoPattern())
-  registry.add(createShortClipMeta())
+  registry.register(createTextGenerationPattern())
+  registry.register(createTextToImagePattern())
+  registry.register(createImageToVideoPattern())
+  registry.register(createShortClipMeta())
 
   const { getModels, models } = createMockModels()
   const router = createDefaultCapabilityRouter({ getModels })

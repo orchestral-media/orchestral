@@ -22,7 +22,7 @@ import {
 
 function freshIndex(patterns: readonly Pattern[]): PatternSearchIndex {
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-  for (const p of patterns) registry.add(p as never)
+  for (const p of patterns) registry.register(p as never)
   return new PatternSearchIndex(registry)
 }
 

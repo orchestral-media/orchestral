@@ -24,7 +24,7 @@ export interface AtomicPatternInit<I = unknown, O = unknown> {
   primary: PrimaryPath<I>
   outputs: ZodSchema<O>
   /**
-   * Authoring-only sugar: `registry.add()` strips this off the Pattern and
+   * Authoring-only sugar: `registry.register()` strips this off the Pattern and
    * expands each entry into an `attachAlternative` call. The registered
    * `Pattern` does not carry it — the registry's attachment table is the
    * runtime source of truth (read via `registry.getEntry()`).
@@ -48,7 +48,7 @@ export interface AtomicPatternInit<I = unknown, O = unknown> {
  * into its input schema).
  *
  * The return type keeps `alternatives` visible as registration sugar —
- * hand the result to `registry.add()`, which strips the field and attaches
+ * hand the result to `registry.register()`, which strips the field and attaches
  * each entry.
  */
 export function defineAtomicPattern<I = unknown, O = unknown>(

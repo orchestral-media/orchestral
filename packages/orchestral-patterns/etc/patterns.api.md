@@ -6,18 +6,15 @@
 
 import { Alternative } from '@orchestral/core';
 import { AtomicPattern } from '@orchestral/core';
+import type { AtomicPatternId } from '@orchestral/core';
+import { createPlanMeta } from '@orchestral/plan';
 import { DerivedReferences } from '@orchestral/core';
-import { DispatchAudience } from '@orchestral/core';
-import { ExecutionContext } from '@orchestral/core';
 import { MetaPattern } from '@orchestral/core';
-import { Pattern } from '@orchestral/core';
-import { PatternExposure } from '@orchestral/core';
+import type { MetaPatternId } from '@orchestral/core';
 import { PatternFn } from '@orchestral/core';
-import { PatternId } from '@orchestral/core';
-import { PlanDag } from '@orchestral/core';
-import { PlanOutput } from '@orchestral/core';
-import { PlanPatternLookup } from '@orchestral/core';
+import { PLAN_PATTERN_ID } from '@orchestral/plan';
 import { ProducedAssetModality } from '@orchestral/core';
+import { sumCosts } from '@orchestral/core';
 import { z } from 'zod';
 
 // @public
@@ -134,12 +131,7 @@ export function createImageToTextPattern(init?: ImageToTextPatternInit): AtomicP
 // @public (undocumented)
 export function createImageToVideoPattern(init?: ImageToVideoPatternInit): AtomicPattern<ImageToVideoInput, ImageToVideoOutput>;
 
-// @alpha
-export function createPlanMeta(ops: {
-    getPattern: (id: PatternId) => Pattern | undefined;
-}, init?: {
-    audience?: DispatchAudience;
-}): MetaPattern<PlanDag, PlanOutput>;
+export { createPlanMeta }
 
 // @alpha (undocumented)
 export function createProductAdShortMeta(deps: ProductAdShortMetaDeps): MetaPattern<ProductAdShortInput, ProductAdShortOutput>;
@@ -239,6 +231,12 @@ export const ExplainerShortOutputSchema: z.ZodObject<{
 
 // @alpha
 export type ExplainerShortPromptOverrides = Partial<Record<keyof typeof EXPLAINER_SHORT_DEFAULT_PROMPTS, string>>;
+
+// @alpha
+export const FIRST_PARTY_PATTERN_IDS: Readonly<{
+    atomic: readonly AtomicPatternId[];
+    meta: readonly MetaPatternId[];
+}>;
 
 // @public
 export function firstAsset<A extends {
@@ -600,29 +598,7 @@ export const PanelSchema: z.ZodObject<{
 // @public
 export function parseJsonWithSchema<T>(text: string, schema: z.ZodType<T>, label: string): T;
 
-// @alpha
-export const PLAN_PATTERN_ID: "meta_plan";
-
-// @alpha
-export const PLAN_TOOL_DESCRIPTION: string;
-
-// @alpha
-export interface PlanMetaPattern<I = Record<string, unknown>> extends MetaPattern<I, PlanOutput> {
-    readonly plan: PlanDag;
-}
-
-// @alpha
-export function planToMeta<I extends Record<string, unknown> = Record<string, unknown>>(dag: PlanDag, opts: PlanToMetaOptions): PlanMetaPattern<I>;
-
-// @alpha
-export interface PlanToMetaOptions {
-    description?: string;
-    exposure?: PatternExposure;
-    id: PatternId;
-    inputs?: z.ZodObject;
-    lookup: PlanPatternLookup;
-    searchHint?: string;
-}
+export { PLAN_PATTERN_ID }
 
 // @alpha
 export const PRODUCT_AD_SHORT_DEFAULT_PROMPTS: Readonly<{
@@ -717,15 +693,6 @@ export type ProductPhotoPackPromptOverrides = Partial<Record<keyof typeof PRODUC
 
 // @public
 export function resolvePrompts<T extends Record<string, string>>(defaults: T, overrides?: Partial<T>): T;
-
-// @alpha
-export function runPlan(dag: PlanDag, lookup: PlanPatternLookup, opts: RunPlanOptions, planInput: Record<string, unknown>, ctx: ExecutionContext): Promise<PlanOutput>;
-
-// @alpha
-export interface RunPlanOptions {
-    inputs?: z.ZodObject;
-    selfId: PatternId;
-}
 
 // @alpha
 export const SCRIPT2VIDEO_DEFAULT_PROMPTS: Readonly<{
@@ -893,8 +860,7 @@ export type StoryboardPromptOverrides = Partial<Record<keyof typeof STORYBOARD_D
 // @public
 export function styleTag(style: string | undefined): string;
 
-// @public
-export function sumCosts(costs: readonly (number | null | undefined)[]): number | null;
+export { sumCosts }
 
 // @public (undocumented)
 export const TEXT_GENERATION_PATTERN_ID = "text-generation";

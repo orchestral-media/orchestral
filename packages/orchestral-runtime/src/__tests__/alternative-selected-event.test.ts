@@ -14,7 +14,8 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 
@@ -63,7 +64,7 @@ describe('job:alternative-selected event', () => {
     }
 
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add({
+    registry.register({
       ...atomic('parent_cap'),
       alternatives: [
         {
@@ -147,7 +148,7 @@ describe('job:alternative-selected event', () => {
       },
     }
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add({
+    registry.register({
       ...atomic('parent_cap'),
       alternatives: [
         {

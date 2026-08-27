@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ExecutionContext, PatternRef } from '@orchestral/core'
-import { createImageToImageViaCaptionPattern } from '../atomic/image-to-image-via-caption'
+import { createImageToImageViaCaptionPattern } from '../meta/image-to-image-via-caption'
 
 // Fake ExecutionContext: routes by patternId — the caption step
 // (image-to-text) returns a canned description, the render step

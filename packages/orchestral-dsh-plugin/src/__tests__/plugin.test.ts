@@ -14,6 +14,7 @@ import {
   type Runtime,
 } from '@orchestral/core'
 import { createTextToImagePattern } from '@orchestral/patterns'
+import { deriveIdempotencyKey } from '@orchestral/runtime'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -87,8 +88,19 @@ function fakeRuntime(
   } as unknown as Runtime & { specs: JobSpec[] }
 }
 
-function runContext(signal = new AbortController().signal): ToolRunContext {
-  return { signal } as unknown as ToolRunContext
+/**
+ * dsh hands a tool the execution it runs inside. Only two members matter to
+ * this bridge: the caller's signal, and `agent` — whose `id` IS the dsh
+ * SessionId (agent and session share one identity).
+ */
+function runContext(
+  signal = new AbortController().signal,
+  agentId?: string,
+): ToolRunContext {
+  return {
+    signal,
+    ...(agentId === undefined ? {} : { agent: { id: agentId } }),
+  } as unknown as ToolRunContext
 }
 
 function atomic(
@@ -99,6 +111,10 @@ function atomic(
   return defineAtomicPattern({
     id,
     description: `${id} pattern`,
+    // These tests are about `exposure`; opt every fixture into the first-class
+    // tool table so the exposureMode gate below is the only thing a fixture
+    // has to say out loud when it wants to test it.
+    exposureMode: 'always-load' as const,
     ...(exposure === undefined ? {} : { exposure }),
     primary: {
       tool: {
@@ -110,6 +126,34 @@ function atomic(
     outputs: z.object({ ok: z.boolean() }),
     ...extra,
   })
+}
+
+/**
+ * A minimal AgentPattern. Hand-rolled rather than factory-built: the only
+ * thing under test is that the `agent_` prefix routes, and the registry
+ * backfills the default finish trio when an agent declares neither `finish`
+ * nor `loop.outputExtractor` nor `outputs`.
+ */
+function agentPattern(id: string, exposure: Pattern['exposure']) {
+  return {
+    kind: 'agent' as const,
+    id,
+    description: `${id} pattern`,
+    exposureMode: 'always-load' as const,
+    ...(exposure === undefined ? {} : { exposure }),
+    primary: {
+      tool: {
+        description: `call ${id}`,
+        inputs: z.object({ task: z.string() }),
+      },
+      modelTags: [],
+    },
+    loop: {
+      system: 'probe',
+      toolPatternIds: [],
+      modelTags: [],
+    },
+  }
 }
 
 /**
@@ -238,6 +282,80 @@ describe('tool registration', () => {
     )
     expect(registered.map((t) => t.name)).toEqual(['text-to-image'])
     expect(registered[0]?.description).toMatch(/image from a text prompt/i)
+  })
+
+  it('applies the sub-agent blocklist on the agentLoop surface', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          atomic('visible', 'tool'),
+          agentPattern('agent_probe', { chatTurn: true, agentLoop: true }),
+        ),
+        surface: 'agentLoop',
+      }),
+    )
+
+    // orchestral's own agentLoop catalog is exposure AND the recursion guard
+    // (catalog.ts calls the `agent_` prefix match "a normative contract, not a
+    // coincidence of naming"). Running only the first gate here would make the
+    // bridge strictly more permissive than the surface it claims to mirror.
+    expect(registered.map((t) => t.name)).toEqual(['visible'])
+  })
+
+  it('leaves an agent pattern reachable on the chatTurn surface', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          agentPattern('agent_probe', { chatTurn: true, agentLoop: true }),
+        ),
+      }),
+    )
+
+    // The blocklist is a SUB-AGENT guard, not a global ban: a top-level turn
+    // delegating to an agent is exactly what `agent_*` exists for.
+    expect(registered.map((t) => t.name)).toEqual(['agent_probe'])
+  })
+
+  it('registers only always-load patterns by default', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          atomic('always', 'tool'),
+          atomic('deferred-atomic', 'tool', { exposureMode: 'deferred' }),
+        ),
+      }),
+    )
+
+    // `exposureMode` is orthogonal to `exposure`: 'deferred' (the default)
+    // means "reachable only through find_pattern → dispatch_pattern". A bridge
+    // that promotes the whole registry to first-class tools forces every
+    // Pattern to always-load — the exact failure the field exists to prevent.
+    expect(registered.map((t) => t.name)).toEqual(['always'])
+  })
+
+  it('registers deferred patterns when the host asks for the flat catalog', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          atomic('always', 'tool'),
+          atomic('deferred-atomic', 'tool', { exposureMode: 'deferred' }),
+        ),
+        exposeDeferred: true,
+      }),
+    )
+    expect(registered.map((t) => t.name)).toEqual(['always', 'deferred-atomic'])
   })
 })
 
@@ -486,5 +604,156 @@ describe('tool execution', () => {
     expect(runtime.specs[0]?.assets).toEqual([
       { slot: 'source', assetId: 'ast_1', handle: 'image_1', modality: 'image' },
     ])
+  })
+})
+
+// ── the dedup boundary ───────────────────────────────────────────────────
+
+describe('idempotency isolation', () => {
+  it('derives the dedup boundary from the calling dsh agent', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_b'),
+    )
+
+    // The verifiable half, stated in the runtime's own terms: two sessions,
+    // one Pattern, byte-identical input → two keys. Without this the second
+    // session's model is handed the first session's job row and its handles.
+    // The bridge hands the runtime the key itself rather than a `sessionId`
+    // for it to hash — same isolation, and no claim about an asset context
+    // (see the meta test below).
+    const keys = runtime.specs.map((s) => s.idempotencyKey)
+    expect(keys[0]).toBe(
+      deriveIdempotencyKey({
+        patternId: 'p',
+        input: { prompt: 'a cat' },
+        sessionId: 'sess_a',
+      }),
+    )
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('keeps the same session deduping with itself', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+
+    // Isolation is a boundary, not a nonce: re-asking the same question inside
+    // one session must still be one billed dispatch.
+    const keys = runtime.specs.map((s) => s.idempotencyKey)
+    expect(keys[0]).toBeDefined()
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('folds the resolved assets into the derived key, as the runtime would', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(
+      ctx,
+      config({
+        runtime,
+        registry: registryOf(
+          atomic('edit', 'tool', {
+            assetNeeds: [
+              {
+                slot: 'source',
+                modality: 'image',
+                cardinality: 'single',
+                required: true,
+              },
+            ],
+          }),
+        ),
+        resolveJobContext: () => ({
+          assetEvents: [
+            {
+              kind: 'asset',
+              orderHint: 1,
+              annotation: { assetId: 'ast_1', modality: 'image' },
+            },
+          ],
+        }),
+      }),
+    )
+
+    const input = { prompt: 'x', references: { source: 'image_1' } }
+    await registered[0]!.execute(input, runContext(undefined, 'sess_a'))
+
+    // Pre-computing the key means the bridge owes the runtime every identity
+    // field the runtime would have hashed itself — `assets` included, or the
+    // same literal input over two different source images would collapse into
+    // one job.
+    expect(runtime.specs[0]?.idempotencyKey).toBe(
+      deriveIdempotencyKey({
+        patternId: 'edit',
+        input,
+        assets: runtime.specs[0]?.assets,
+        sessionId: 'sess_a',
+      }),
+    )
+  })
+
+  it('never hands the derived session to the runtime as an asset context', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+
+    // The runtime reads `spec.assetContextId ?? spec.sessionId` as the asset
+    // context a dispatched meta's sub-steps resolve their references against,
+    // and a host-installed AgentAssetBridge fails closed on a context it never
+    // recorded. A session id this bridge invented is exactly such a context, so
+    // neither routing field may carry it: with the host silent, the spec stays
+    // silent too, and the meta falls back to its internal `ref.assets` channel
+    // as it did before the dedup boundary was ever derived.
+    expect(runtime.specs[0]?.sessionId).toBeUndefined()
+    expect(runtime.specs[0]?.assetContextId).toBeUndefined()
+    // …and the isolation the derivation exists for is still in force.
+    expect(runtime.specs[0]?.idempotencyKey).toBeDefined()
+  })
+
+  it('lets resolveJobContext override the derived session', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(
+      ctx,
+      config({
+        runtime,
+        registry: registryOf(atomic('p', 'tool')),
+        resolveJobContext: () => ({ sessionId: 'tenant_7' }),
+      }),
+    )
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+    // A host that shares one dedup space across a tenant's agents says so; the
+    // derived default is what happens when it says nothing. A named session is
+    // the host's word on both meanings of the field, so it goes on the spec and
+    // the runtime derives the key from it — the bridge pre-computes nothing.
+    expect(runtime.specs[0]?.sessionId).toBe('tenant_7')
+    expect(runtime.specs[0]?.idempotencyKey).toBeUndefined()
   })
 })

@@ -10,7 +10,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { Job, JobSpec, PatternId } from '@orchestral/core'
 
-import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 import type {
   AtomicPattern,
   CapabilityRouter,

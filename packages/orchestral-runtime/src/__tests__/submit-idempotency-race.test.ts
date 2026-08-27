@@ -14,7 +14,8 @@ import type {
   Modality,
   ModelCapability,
 } from '@orchestral/core'
-import { silentDiagnosticsLogger, InMemoryJobStore, PatternRegistry } from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
 
@@ -50,7 +51,7 @@ function makeRuntime(store: InMemoryJobStore, onCall: () => void): InlineRuntime
     primary: { tool: { description: 'g', inputs: z.object({ prompt: z.string() }) } },
     outputs: z.object({ ok: z.boolean() }),
   } as unknown as AtomicPattern
-  registry.add(atomic as unknown as Parameters<typeof registry.add>[0])
+  registry.register(atomic as unknown as Parameters<typeof registry.register>[0])
   return new InlineRuntime({
     router: makeRouter(onCall),
     registry,

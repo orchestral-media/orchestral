@@ -17,10 +17,11 @@ import { MockImageModelV3, MockLanguageModelV3 } from 'ai/test'
 import {
   silentDiagnosticsLogger,
   type Artifact,
-  createDefaultCapabilityRouter,
-  InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { InMemoryJobStore } from '@orchestral/core/memory'
+import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
+import { createPatternSearch } from '@orchestral/discovery'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createInProcessAgentRunImpl } from '../agent-runner'
@@ -104,8 +105,8 @@ describe('agent hello-world wiring', () => {
   it('runs the agent loop end to end with a mock LLM (no API key)', async () => {
     // Identical wiring to src/main.ts, swapping only the model instances.
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(createAgentHelloWorldPattern())
-    registry.add(createTextToImagePattern())
+    registry.register(createAgentHelloWorldPattern())
+    registry.register(createTextToImagePattern())
 
     const getModels = createImageModels([
       {
@@ -130,6 +131,7 @@ describe('agent hello-world wiring', () => {
       registry,
       router,
       agentRunImpl,
+      patternSearch: createPatternSearch(registry, { router }),
       onJobCreated: (jobId) =>
         runtime.subscribe(jobId, (ev) => {
           if (ev.type === 'job:artifact') artifacts.push(ev.artifact)
@@ -166,8 +168,8 @@ describe('agent hello-world wiring', () => {
 
   it('recurses through onToolCall into the runtime for the tool dispatch', async () => {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
-    registry.add(createAgentHelloWorldPattern())
-    registry.add(createTextToImagePattern())
+    registry.register(createAgentHelloWorldPattern())
+    registry.register(createTextToImagePattern())
 
     // Spy on the image model's doGenerate to prove the tool call actually
     // round-tripped: onToolCall → runtime.submitJob(text-to-image) → router →
@@ -194,6 +196,9 @@ describe('agent hello-world wiring', () => {
     const agentRunImpl = createInProcessAgentRunImpl({
       resolveModel: () => scriptedLlm(),
     })
+    // No `patternSearch` here, deliberately: this agent's one tool is
+    // always-load, so it reaches the loop as a direct tool and the loop runs
+    // to completion with no find_pattern in its catalog at all.
     const runtime = new InlineRuntime({
       store: new InMemoryJobStore(),
       registry,

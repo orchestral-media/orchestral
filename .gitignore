@@ -10,3 +10,10 @@ coverage
 # api-extractor scratch output. The golden report in each package's etc/ is
 # committed; temp/ is regenerated on every run.
 temp/
+
+# Planning artifacts (plans, per-task reports, ledgers) written while a branch
+# is being built. Deliberately untracked: they describe how the work was
+# arrived at, and the repo's own record of that is the commits, the changesets
+# and DESIGN.md. Ignored rather than merely uncommitted so one `git add -A`
+# cannot fold a working notebook into the published history.
+docs/superpowers/

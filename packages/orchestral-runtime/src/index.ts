@@ -27,23 +27,16 @@ export type {
 
 export { resolveAssets } from './asset-resolution'
 
-// ── Preflight ────────────────────────────────────────────────────────────
-// What a plan would cost, routed but not run: `validatePlan` plus a routing
-// decision per step, computed with the host's own resolveCtx provider and the
-// runtime's own Alternative machinery — which is why it lives here and not in
-// core beside the rest of the plan contract.
-export {
-  formatPlanPreflight,
-  preflightPlan,
-  type PlanPreflightDeps,
-  type PlanPreflightReport,
-  type PlanPreflightStep,
-  type PlanStepRouting,
-  type PreflightAlternative,
-} from './preflight-plan'
+// Preflight — what a plan would cost, routed but not run — moved to
+// @orchestral/plan with the rest of the feature. It takes the same
+// `ResolveCtxProvider` this package's `InlineRuntimeInit` takes, so the report
+// names the model the run would pick:
+//
+//   import { preflightPlan } from '@orchestral/plan'
 
-// The shape a declined alternative is reported in, on `PlanStepRouting` here
-// and on ALTERNATIVES_NOT_ENABLED's diagnostic (which reaches a host as
-// `JobError.details.diagnostic`). The error class itself stays internal —
-// hosts narrow on `JobError.code` — but this is the payload they read.
+// The shape a declined alternative is reported in on ALTERNATIVES_NOT_ENABLED's
+// diagnostic (which reaches a host as `JobError.details.diagnostic`). The error
+// class itself stays internal — hosts narrow on `JobError.code` — but this is
+// the payload they read. Defined in @orchestral/core, where the selection that
+// produces it is; re-exported here because this is where the error is.
 export type { AvailableAlternative } from './alternatives'
