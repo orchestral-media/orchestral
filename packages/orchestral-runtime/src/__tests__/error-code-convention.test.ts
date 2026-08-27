@@ -31,8 +31,14 @@ const SRC = new URL('../', import.meta.url).pathname
  */
 const EXEMPT: ReadonlySet<string> = new Set<string>()
 
-/** A code-shaped message prefix: `SOME_CODE:` at the very start of the literal. */
-const CODE_PREFIX = /^([A-Z][A-Z0-9_]{2,}):/
+/**
+ * A code-shaped message: `SOME_CODE:` at the start of the literal, or a
+ * literal that is nothing BUT the code. The second shape is the hole the first
+ * scan left open — `new Error('CANCELLED')` says its code and attaches
+ * nothing, and CANCELLED is the one code the agent loop reads to decide
+ * whether an abort ends the run.
+ */
+const CODE_PREFIX = /^([A-Z][A-Z0-9_]{2,})(?::|$)/
 
 interface Finding {
   file: string

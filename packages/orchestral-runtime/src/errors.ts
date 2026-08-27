@@ -63,6 +63,25 @@ export function normaliseError(err: unknown, defaultCode?: string): JobError {
 }
 
 /**
+ * The one way this package throws CANCELLED.
+ *
+ * `normaliseError` reads `.code` and nothing else, and CANCELLED is the code
+ * carrying the most weight in the runtime: `CHILD_FAILURE_RETHROWN_CODES` uses
+ * it to decide whether a failed child kills an agent loop or comes back as a
+ * tool result. A bare Error whose message is only the word CANCELLED says the
+ * code in prose alone, so it normalises to DISPATCH_EXECUTE_FAILED — and a
+ * host cancelling one child job directly (the parent's signal never aborts)
+ * had its cancel handed to the model as a retryable tool failure.
+ *
+ * `detail` is the site, not the code: the message reads `CANCELLED: <detail>`
+ * so a host reading `JobError.message` learns WHERE the abort was noticed,
+ * while it still narrows on `JobError.code`.
+ */
+export function cancelledError(detail: string): Error {
+  return Object.assign(new Error(`CANCELLED: ${detail}`), { code: 'CANCELLED' })
+}
+
+/**
  * Sentinel thrown by the afterDispatch loop so the outer catch can route
  * its `cause` through `normaliseError` with the `MIDDLEWARE_AFTER_FAILED`
  * override code — keeps the markErrored / onError-chain path centralised.

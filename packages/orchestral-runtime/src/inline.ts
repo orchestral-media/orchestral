@@ -84,7 +84,7 @@ import {
   nextRetryDelayMs,
   type MetaSharedState,
 } from './meta-execution-context'
-import { MiddlewareAfterFailure, normaliseError } from './errors'
+import { cancelledError, MiddlewareAfterFailure, normaliseError } from './errors'
 import {
   type AgentAssetBridge,
   type AgentDispatchDeps,
@@ -1218,7 +1218,7 @@ export class InlineRuntime implements Runtime {
     const fallbackBound = baseCtx.fallbackDepth ?? this.fallbackDepth
     const transientRetry = this.transientRetry
     for (let hop = 0; hop <= fallbackBound; hop++) {
-      if (signal.aborted) throw new Error('CANCELLED')
+      if (signal.aborted) throw cancelledError('aborted before the next fallback hop')
       const ctx: ResolveContext = { ...baseCtx, excludeModel }
       let model
       try {
