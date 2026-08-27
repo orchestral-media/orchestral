@@ -1,8 +1,10 @@
 // dispatchAgent tool catalog.
 //
-// Locks the library-side contract: dispatchAgent emits the two router tools
-// (find_pattern / dispatch_pattern), the injected finish tool (complete_task),
-// and forwards the AgentPattern's `pattern.id` to AgentRunImpl.run({ patternId }).
+// Locks the library-side contract: dispatchAgent emits dispatch_pattern, the
+// injected finish tool (complete_task), and forwards the AgentPattern's
+// `pattern.id` to AgentRunImpl.run({ patternId }). find_pattern is NOT in that
+// list — retrieval is an injected seam and this harness injects none; the two
+// halves of that rule live in pattern-search-seam.test.ts.
 // Host-tool assembly/filtering (injection + visibility policy) does not live
 // here — the host injects its per-agent tool surface, keyed by patternId.
 //
@@ -82,7 +84,7 @@ async function expectFailed(p: Promise<Job>): Promise<JobError> {
 }
 
 describe('dispatchAgent tool catalog', () => {
-  it('emits find_pattern + dispatch_pattern + complete_task and forwards pattern.id', async () => {
+  it('emits dispatch_pattern + complete_task and forwards pattern.id', async () => {
     let capturedTools: string[] = []
     let capturedPatternId: string | undefined
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
@@ -102,7 +104,7 @@ describe('dispatchAgent tool catalog', () => {
       agentRunImpl: runImpl,
     })
     await runtime.submitJob({ patternId: 'agent_test', input: { prompt: 'hi' } })
-    expect(capturedTools.sort()).toEqual(['complete_task', 'dispatch_pattern', 'find_pattern'])
+    expect(capturedTools.sort()).toEqual(['complete_task', 'dispatch_pattern'])
     expect(capturedPatternId).toBe('agent_test')
   })
 })

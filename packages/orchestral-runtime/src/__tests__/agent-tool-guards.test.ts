@@ -45,6 +45,11 @@ import type {
   PatternId,
 } from '@orchestral/core'
 import { silentDiagnosticsLogger, InMemoryJobStore as MemoryJobStore, PatternRegistry } from '@orchestral/core'
+// Retrieval is a host seam now, so a suite that asserts on what find_pattern
+// returns has to wire one. The first-party implementation is the right choice
+// here: these tests pin the corpus scoping dispatchAgent hands OVER, and a
+// stub that ignores it would pin nothing.
+import { createPatternSearch } from '@orchestral/discovery'
 
 import { InlineRuntime } from '../inline'
 import type { AgentRunImpl } from '../agent-run'
@@ -254,6 +259,7 @@ function makeHarness(opts: {
     registry,
     router: makeRouter(calls),
     agentRunImpl: makeRunImpl(opts.scripts, results),
+    patternSearch: createPatternSearch(registry),
     onJobCreated: (jobId) => {
       runtime.subscribe(jobId, (ev) => events.push(ev))
     },

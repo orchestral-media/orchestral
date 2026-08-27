@@ -39,12 +39,12 @@ import type {
   Pattern,
   PatternId,
   PatternRegistry,
+  PatternSearch,
   ResolveContext,
   ResolvedAssetRef,
   SystemPromptContext,
   TranscriptStore,
 } from '@orchestral/core'
-import { handleFindPattern, PatternSearchIndex } from '@orchestral/discovery'
 import { normaliseError } from './errors'
 import type { MetaSharedState } from './meta-execution-context'
 import type { AgentChatMessage, AgentRunImpl } from './agent-run'
@@ -343,6 +343,14 @@ export interface AgentDispatchDeps {
   transcriptStore?: TranscriptStore
   agentAssetBridge?: AgentAssetBridge
   catalogOptions?: BuildCatalogDescriptorsOptions
+  /**
+   * `InlineRuntimeInit.patternSearch` — what answers a find_pattern call.
+   * Absent: this loop's catalog carries no find_pattern tool at all (see the
+   * init field's doc for why a tool nothing can answer is worse than no
+   * tool). The runtime holds no retrieval of its own and takes no search
+   * dependency; this is the same shape of seam as `agentRunImpl`.
+   */
+  patternSearch?: PatternSearch
   resolveCtxProvider?: (spec: JobSpec) => ResolveContext
   /**
    * The runtime's diagnostics seam (`InlineRuntimeInit.logger`). Agent
@@ -506,23 +514,49 @@ deps: AgentDispatchDeps,
   const finishSpec = pattern.loop.outputExtractor
     ? undefined
     : (pattern.finish ?? DEFAULT_AGENT_FINISH_SPEC)
+  // Retrieval is a host seam. With none injected the catalog does not
+  // advertise find_pattern — the always-load inline core above is a static
+  // catalog and needs no search, and dispatch_pattern still dispatches by id,
+  // so an agent whose allowlist is entirely always-load is unaffected.
+  const patternSearch = deps.patternSearch
+  const hasPatternSearch = patternSearch !== undefined
   const tools: AgentToolDescriptor[] = [
     ...inlineCore,
-    ...buildCatalogDescriptors(deps.catalogOptions),
+    ...buildCatalogDescriptors({
+      ...deps.catalogOptions,
+      includeFindPattern: hasPatternSearch,
+    }),
     ...(finishSpec ? [buildFinishDescriptor(finishSpec.inputs)] : []),
   ]
 
-  // find_pattern search corpus. Scoped to effectiveToolPatternIds
-  // ∖ staticExcludeIds so the subagent's catalog stays inside its declared
-  // loop.toolPatternIds whitelist. Built per-dispatch (cheap — minisearch
-  // indexes ~20 patterns in <1ms; registry doesn't mutate during loop).
-  const subagentSearchIndex = new PatternSearchIndex(deps.registry)
-  // find_pattern corpus = allowlist ∖ already-inlined (those are directly
-  // visible, no need to search for them).
+  // Corpus scoping, handed to the seam on every call. Scoped to
+  // effectiveToolPatternIds ∖ staticExcludeIds so the subagent's discovery
+  // stays inside its declared loop.toolPatternIds whitelist; both sets are
+  // built here and the LLM can neither see nor widen them. Static by
+  // construction (the dynamic ancestor chain is caught in onToolCall), which
+  // is what keeps the descriptor bytes identical across turns.
   const findPatternIncludeOnly = new Set(
     [...effectiveToolPatternIds].filter((id) => !inlineIds.has(id)),
   )
   const findPatternExcludeIds = new Set([...staticExcludeIds, ...visited])
+
+  // Refusal hints must not name a tool this catalog does not have — "call
+  // find_pattern" is advice only a wired host can act on, and a model sent
+  // after a nonexistent tool burns a turn discovering that. The unwired
+  // variants say what IS available rather than what is missing: naming the
+  // absent tool re-primes the very token the model should stop emitting.
+  const rediscoverHint = hasPatternSearch
+    ? 'Use find_pattern to discover which patterns are dispatchable here.'
+    : 'Pick a pattern_id from the allowlist above — this loop cannot search the catalog.'
+  const retryElsewhereHint = hasPatternSearch
+    ? 'Try different input, or pick a different pattern_id via find_pattern.'
+    : 'Try different input, or pick a different pattern_id from your allowlist.'
+  const catalogNames = hasPatternSearch
+    ? 'host tools, find_pattern, dispatch_pattern'
+    : 'host tools, dispatch_pattern'
+  const unknownToolHint = hasPatternSearch
+    ? 'Use find_pattern to discover Pattern ids, then dispatch_pattern to invoke them.'
+    : 'Call dispatch_pattern with a pattern_id from your allowlist; this loop cannot search the catalog.'
 
   // Seed messages — subagent runs fresh, parent chat history NOT inherited.
   //
@@ -848,10 +882,13 @@ deps: AgentDispatchDeps,
         // Three top-level tool name families:
         //   • host tools       → host tool registry (e.g. list_assets,
         //                        prefix-less)
-        //   • find_pattern     → catalog discovery (returns Pattern descriptors)
+        //   • find_pattern     → catalog discovery, and only when a
+        //                        `patternSearch` seam is wired (otherwise the
+        //                        name is not in the catalog at all)
         //   • dispatch_pattern → Pattern invocation (routes to _submitJobInternal)
-        // Per-Pattern tool names no longer exist; the LLM always goes through
-        // find_pattern → dispatch_pattern (or knows pattern_id from prior turn).
+        // Per-Pattern tool names no longer exist; the LLM reaches a deferred
+        // Pattern through find_pattern → dispatch_pattern, or dispatches by an
+        // id it already holds (a prior turn, or its always-load inline core).
 
         // Host tools do NOT pass through this onToolCall — AgentRunImpl must
         // intercept them (rule 2 in agent-run.ts "Implementing
@@ -873,31 +910,37 @@ deps: AgentDispatchDeps,
         }
 
         // ── find_pattern — catalog discovery ───────────────────────────
-        if (routeName === 'find_pattern') {
+        // Only when a seam is wired. Without one the name is not in the
+        // catalog at all, so it falls through to UNKNOWN_TOOL below like any
+        // other hallucinated tool name.
+        if (routeName === 'find_pattern' && patternSearch) {
           const parsed = FindPatternInputSchema.safeParse(input)
           if (!parsed.success) {
             // Surface the validation error as the tool's return value so the
             // LLM can read the zod issues and retry with a corrected query.
+            // The wire contract is validated here, never by the seam: an
+            // implementation should not have to re-derive what core already
+            // guarantees.
             return {
               error: 'INVALID_INPUT',
               tool: 'find_pattern',
               issues: parsed.error.issues,
             }
           }
-          return handleFindPattern(subagentSearchIndex, parsed.data, {
-            router: deps.router,
-            resolveCtx,
+          return await patternSearch({
+            input: parsed.data,
+            // Subagent audience — surfaces exposure='agent-tool' Patterns
+            // (fine-grained primitives meant only for agent loops). chat-turn
+            // audience (the default) would hide them — wrong here.
+            audience: 'agent-loop',
             includeOnly: findPatternIncludeOnly,
             excludeIds: findPatternExcludeIds,
-            // Inline-core patterns are excluded from the search corpus
-            // above — when a zero-match query was
-            // actually aiming at one of them, the diagnostic must point at
-            // the direct tool instead of suggesting synonym roulette.
+            // Inline-core patterns are outside the corpus by design — when a
+            // zero-match query was actually aiming at one of them, the
+            // implementation can point at the direct tool instead of
+            // suggesting synonym roulette.
             directToolIds: inlineIds,
-            // Subagent audience — surfaces exposure='agent-tool'
-            // Patterns (fine-grained primitives meant only for agent loops).
-            // chat-turn audience (default) would hide them — wrong here.
-            audience: 'agent-loop',
+            resolveCtx,
           })
         }
 
@@ -1024,7 +1067,7 @@ deps: AgentDispatchDeps,
               message:
                 `${fullId} not in this subagent's loop.toolPatternIds allowlist ` +
                 `(declared: [${effectiveToolPatternIds.join(', ')}]).`,
-              hint: 'Use find_pattern to discover which patterns are dispatchable here.',
+              hint: rediscoverHint,
             }
           }
           // Belt-and-suspenders: DEFAULT_SUBAGENT_BLOCKLIST is still checked
@@ -1129,7 +1172,7 @@ deps: AgentDispatchDeps,
                     `${fullId} declares it would dispatch ${inner}, which is not in ` +
                     `this subagent's loop.toolPatternIds allowlist ` +
                     `(declared: [${effectiveToolPatternIds.join(', ')}]).`,
-                  hint: 'Use find_pattern to discover which patterns are dispatchable here.',
+                  hint: rediscoverHint,
                 }
               }
               const innerBlocked = matchSubagentBlocklist(inner)
@@ -1330,7 +1373,7 @@ deps: AgentDispatchDeps,
               hint:
                 errorClass === 'invalid-input'
                   ? 'The provider rejected these parameters (HTTP 4xx). Fix or drop the offending fields named in message, then dispatch again.'
-                  : 'Try different input, or pick a different pattern_id via find_pattern.',
+                  : retryElsewhereHint,
             }
           }
           let child: Job
@@ -1443,13 +1486,12 @@ deps: AgentDispatchDeps,
         }
 
         // Unknown tool name — LLM emitted something not in our catalog.
-        // Return as tool_result so the LLM self-corrects on the next step
-        // (typically by calling find_pattern to rediscover).
+        // Return as tool_result so the LLM self-corrects on the next step.
         return {
           code: 'UNKNOWN_TOOL',
           tool: name,
-          message: `tool "${name}" not recognized (this subagent's catalog exposes host tools, find_pattern, dispatch_pattern)`,
-          hint: 'Use find_pattern to discover Pattern ids, then dispatch_pattern to invoke them.',
+          message: `tool "${name}" not recognized (this subagent's catalog exposes ${catalogNames})`,
+          hint: unknownToolHint,
         }
       },
     })

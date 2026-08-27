@@ -56,6 +56,7 @@ import type {
   Pattern,
   PatternId,
   PatternRegistry,
+  PatternSearch,
   ResolveContext,
   ResolveCtxProvider,
   ResolvedAssetRef,
@@ -433,6 +434,30 @@ export interface InlineRuntimeInit {
    */
   catalogOptions?: BuildCatalogDescriptorsOptions
   /**
+   * Host seam — what answers a `find_pattern` call from an agent loop. The
+   * runtime ships no retrieval and takes no search dependency: which algorithm
+   * ranks a free-form query is a product decision, the same kind of decision
+   * `agentRunImpl` and `ModelCapability.call` already leave to the host. Wire
+   * the first-party BM25 one with `createPatternSearch(registry, { router })`
+   * from `@orchestral/discovery`, or implement `PatternSearch` over your own
+   * embeddings / hosted search.
+   *
+   * Absent — the default — an agent loop's catalog contains no `find_pattern`
+   * tool at all. The always-load inline core (a static catalog; no search
+   * involved) and `dispatch_pattern` are untouched, so an agent whose
+   * `loop.toolPatternIds` are all always-load runs exactly as before. An agent
+   * that was meant to DISCOVER Patterns will not: a tool whose only possible
+   * answer is "no retrieval wired" spends prompt-prefix bytes and buys a
+   * round-trip the model cannot complete, so it is not advertised.
+   *
+   * Satisfiability filtering is not applied for you. An implementation that
+   * wants unroutable atomics dropped takes the same `CapabilityRouter` this
+   * runtime got — `createPatternSearch(registry, { router })` does exactly
+   * that, and omitting it means the model may be shown a Pattern the dispatch
+   * will then fail to route.
+   */
+  patternSearch?: PatternSearch
+  /**
    * Where diagnostics that have no JobEvent go. Anything that belongs to a
    * job — a model the fallback walk gave up on, a meta step landing, a refused
    * agent tool call — is an event on that job's stream, never a log line.
@@ -474,6 +499,7 @@ export class InlineRuntime implements Runtime {
   private readonly agentAssetBridge?: AgentAssetBridge
   private readonly askUser?: AskUserHandler
   private readonly catalogOptions?: BuildCatalogDescriptorsOptions
+  private readonly patternSearch?: PatternSearch
   private readonly logger: DiagnosticsLogger
   /**
    * Capture the per-dispatch envelope under the jobId of the agent dispatch.
@@ -511,6 +537,7 @@ export class InlineRuntime implements Runtime {
     this.agentAssetBridge = init.assetBridge
     this.askUser = init.askUser
     this.catalogOptions = init.catalogOptions
+    this.patternSearch = init.patternSearch
     this.logger = init.logger ?? consoleDiagnosticsLogger
   }
 
@@ -1767,6 +1794,7 @@ export class InlineRuntime implements Runtime {
       transcriptStore: this.transcriptStore,
       agentAssetBridge: this.agentAssetBridge,
       catalogOptions: this.catalogOptions,
+      patternSearch: this.patternSearch,
       resolveCtxProvider: this.resolveCtxProvider,
       logger: this.logger,
       recordEnvelope: (jobId, envelope) => {

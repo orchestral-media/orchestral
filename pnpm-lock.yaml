@@ -404,10 +404,10 @@ importers:
       '@orchestral/core':
         specifier: workspace:*
         version: link:../orchestral-core
+    devDependencies:
       '@orchestral/discovery':
         specifier: workspace:*
         version: link:../orchestral-discovery
-    devDependencies:
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../orchestral-patterns
