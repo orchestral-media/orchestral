@@ -1162,9 +1162,9 @@ describe('validatePlan — rule 24, PLAN_INPUT_NOT_SERIALISABLE', () => {
   })
 
   it('mirrors every refusal canonicalise makes', () => {
-    // canonicalise lives in @orchestral/runtime, which core cannot import, so
-    // this list is the hand-maintained twin — keep it in step with
-    // idempotency.ts.
+    // canonicalise lives in @orchestral/runtime, which this package does not
+    // depend on, so this list is the hand-maintained twin — keep it in step
+    // with idempotency.ts.
     const refused: Record<string, unknown> = {
       map: new Map(),
       set: new Set(),

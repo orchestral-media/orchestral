@@ -368,7 +368,7 @@ class PlanWalk {
   //      PATTERN_NOT_REGISTERED at the level this step sits on, after the
   //      levels above it had spent.
   // 11 — an agent: by kind, not by prefix, because `idCarriesKind` is not on
-  //      the core barrel. An agent inside a plan is an unbounded LLM loop
+  //      @orchestral/core's barrel. An agent inside a plan is an unbounded LLM loop
   //      inside something sold as a fixed pipeline.
   // 12 — the plan itself: the runtime refuses it as CIRCULAR_META_STEP
   //      (meta-execution-context.ts:396-404), again after earlier steps ran.
@@ -1196,9 +1196,9 @@ function exposedTo(pattern: Pattern, audience: DispatchAudience): boolean {
 /**
  * The one-shot interpreter, recognised structurally: interpreted-from-steps by
  * `origin`, but carrying no step list of its own — its input IS a DAG. A
- * `planToMeta` product carries its frozen list as `.plan` (a field core does
- * not declare on `Pattern`; patterns' `PlanMetaPattern` does, hence the cast)
- * and is an ordinary steppable meta.
+ * `planToMeta` product carries its frozen list as `.plan` (a field
+ * @orchestral/core does not declare on `Pattern`; `PlanMetaPattern` in
+ * interpreter.ts does, hence the cast) and is an ordinary steppable meta.
  */
 function isOneShotPlan(pattern: Pattern): boolean {
   return (
@@ -1222,8 +1222,8 @@ function passthroughOf(schema: unknown): z.ZodType<unknown> {
 /**
  * Mirror of `canonicalise`'s refusals (idempotency.ts:77-127), collecting every
  * offending path instead of throwing on the first. Re-implemented rather than
- * imported because `canonicalise` is private to @orchestral/runtime and core
- * cannot depend on it; keep the two in step.
+ * imported because `canonicalise` is private to @orchestral/runtime, which this
+ * package does not depend on; keep the two in step.
  */
 function collectNonSerialisable(
   value: unknown,
