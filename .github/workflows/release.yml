@@ -2,7 +2,7 @@
 #
 # The shape: every push to main lands here. If there are pending changesets,
 # changesets/action opens (or refreshes) a "Version Packages" PR — versions
-# bumped across the fixed six-package line, CHANGELOG sections prepended.
+# bumped across the fixed seven-package line, CHANGELOG sections prepended.
 # Nothing publishes on that path. When that PR merges, main has no pending
 # changesets, so the action runs `ci:publish` instead: the FULL verification
 # wall (build, catalog drift, typecheck, tests, lint, api:check, smoke-dist —
@@ -29,14 +29,28 @@
 #     emit — better no releases than releases keyed on a parse that cannot
 #     match. The v<version> git tag below is the release marker.
 #
-# Auth: npm trusted publishing (OIDC). Each of the six packages names this
+# Auth: npm trusted publishing (OIDC). Each published package names this
 # repo + this workflow file as its trusted publisher (configured via
 # `npm trust github`, PUBLISH.md records the command); `id-token: write`
-# below lets pnpm mint the short-lived credential per publish, and provenance
-# attestation comes with it. No long-lived token is involved — the NPM_TOKEN
-# repository secret is unused and kept only as a rollback (re-add
-# `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to the changesets step's env if
-# OIDC ever has to be backed out).
+# below lets the npm CLI mint the short-lived credential per publish, and
+# provenance attestation comes with it. Two facts this workflow has to
+# respect, both learned from the first real OIDC publish (E404 on the PUT):
+#   - The PUT is executed by the npm CLI that `pnpm -r publish` delegates
+#     to, and trusted publishing needs npm >= 11.5.1 — Node 22 bundles npm
+#     10.x, so a current npm 11 is installed explicitly below. The range
+#     floats minors (OIDC fixes keep landing) and stops at the major: a new
+#     npm major enters this pipeline by a reviewed bump, never by surprise.
+#     The fix lives in npm rather than a pnpm bump because pnpm 11's native
+#     publish has an open OIDC regression (pnpm/pnpm#11513).
+#   - setup-node's `registry-url` writes an `_authToken=${NODE_AUTH_TOKEN}`
+#     line into .npmrc and exports a placeholder token when none is given,
+#     which poisons the OIDC path (actions/setup-node#1551) — so it is
+#     deliberately absent.
+# No long-lived token is involved — the NPM_TOKEN repository secret is
+# unused and kept only as a rollback (re-add
+# `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to the changesets step's env
+# and restore `registry-url` on setup-node if OIDC ever has to be backed
+# out).
 #
 # Node 22 is the release floor on purpose: it is what ci.yml tests, and a
 # publish artifact should never be built by an older toolchain than CI runs.
@@ -51,9 +65,9 @@ concurrency: release-${{ github.ref }}
 permissions:
   contents: write
   pull-requests: write
-  # Trusted publishing: pnpm exchanges the workflow's OIDC token for the
+  # Trusted publishing: npm exchanges the workflow's OIDC token for the
   # publish credential; without this the publish falls back to (absent)
-  # token auth and 401s.
+  # token auth and the registry refuses the PUT.
   id-token: write
 
 jobs:
@@ -71,7 +85,10 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+
+      # Node 22 bundles npm 10.x; trusted publishing needs npm >= 11.5.1
+      # (the Auth note above argues the range).
+      - run: npm install -g npm@^11.5.1
 
       - run: pnpm install --frozen-lockfile
 
