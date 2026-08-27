@@ -25,14 +25,32 @@ import type { JsonSchemaNode, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { PatternToolDescriptor } from './expose'
 
 /**
- * Per-call routing metadata the host derives from the calling agent.
+ * Per-call routing metadata for one dispatch. Two unrelated concerns ride
+ * here, and conflating them is how a bridge leaks one session's work into
+ * another's.
  *
- * orchestral's asset handles (`image_1`, …) are minted per asset context and
- * collide across contexts, so a bridge that returns handles to a model must be
- * told which ledger those handles name. A host with no asset ledger simply
- * omits this — Patterns with no `assetNeeds` never consult it.
+ * `sessionId` is the IDEMPOTENCY ISOLATION BOUNDARY. `deriveIdempotencyKey`
+ * hashes it — "dedup never crosses a session boundary" — so two dispatches of
+ * the same Pattern over the same input collapse into one job exactly when
+ * they agree on it. Left undefined everywhere, every dsh session shares one
+ * dedup space and the second session's model is handed the first session's
+ * output and handles. That is why the bridge DERIVES it (from the calling
+ * agent, see `buildPatternTool`) instead of leaving it to host wiring; this
+ * field only overrides that default.
+ *
+ * `assetContextId` / `assetEvents` are the asset-ledger concern: orchestral's
+ * handles (`image_1`, …) are minted per asset context and collide across
+ * contexts, so a bridge that returns handles to a model must be told which
+ * ledger names them. A host with no asset ledger omits both — Patterns with
+ * no `assetNeeds` never consult them.
  */
 export interface JobContext {
+  /**
+   * Override the derived dedup boundary. Set it to WIDEN one (several dsh
+   * agents sharing a tenant's cached work) or to NARROW one (a per-request
+   * scope inside one long-lived agent); leave it out to get the agent's own
+   * session.
+   */
   sessionId?: string
   assetContextId?: string
   /** The host-owned asset ledger this call's `input.references` resolve against. */
@@ -185,7 +203,15 @@ export function buildPatternTool(opts: BuildToolOptions): ToolDefinition {
         spec.assets = resolved.assets
       }
 
-      if (jobCtx.sessionId !== undefined) spec.sessionId = jobCtx.sessionId
+      // The dedup boundary, derived rather than configured. dsh's `Agent.id`
+      // IS a `SessionId` — "the single identity shared with session" — and it
+      // is the only session-scale identity on the tool-call surface:
+      // `callId` / `rootCallId` are per-call, so hashing either would defeat
+      // dedup outright. A call arriving with no `agent` is not a loop turn
+      // (a host-direct execution) and has no session to belong to, so it is
+      // left unscoped rather than given a fabricated one.
+      const sessionId = jobCtx.sessionId ?? exec.agent?.id
+      if (sessionId !== undefined) spec.sessionId = sessionId
       if (jobCtx.assetContextId !== undefined) {
         spec.assetContextId = jobCtx.assetContextId
       }

@@ -41,6 +41,9 @@ orchestral's own exposure rules admit for the configured surface:
   rather than going through `defineTool`, because round-tripping through dsh's `ParameterSchemaSpec` DSL
   would drop constraints the DSL cannot express.
 - A tool call resolves any declared asset slots, then calls `runtime.submitJob`.
+- Every dispatch carries a `sessionId`, defaulted to the calling dsh agent's id. orchestral hashes it into
+  the idempotency key, so the same prompt asked in two sessions is two jobs — and the same prompt asked
+  twice in one session is still one.
 - A dispatch that fails is raised as a tool error. orchestral resolves `submitJob` with the failed Job
   (`status: 'error'` plus a structured `JobError`); dsh's one channel for a failed call is a throw, so the
   bridge re-raises the `JobError` as `CODE: message` and dsh normalizes it into an `isError` result the
@@ -116,7 +119,7 @@ dsh --profile demo
 | `toolNamePrefix` | `''` | Prepended to every tool name. PatternIds are already valid LLM tool names by design; set a prefix only to avoid collisions with other plugins. |
 | `exposeDeferred` | `false` | Register every exposed Pattern as a first-class tool, not just the `exposureMode: 'always-load'` ones. Off by default: `'deferred'` means "reachable through find_pattern", and promoting understanding atomics (`image-to-text` / `text-generation`) is what that field exists to prevent. A promoted Pattern is also exposed with its BASE input schema — the `providerOptions` lift happens in find_pattern, which this path skips. |
 | `timeoutMs` | *(none)* | Per-call deadline, enforced by dsh's timeout policy. |
-| `resolveJobContext` | *(none)* | `(args) => { sessionId?, assetContextId?, assetEvents? }`. Supplies the host-owned asset ledger a call's `input.references` handles resolve against. Patterns with no `assetNeeds` never consult it. |
+| `resolveJobContext` | *(none)* | `(args) => { sessionId?, assetContextId?, assetEvents? }`. Supplies the host-owned asset ledger a call's `input.references` handles resolve against, and may override the dedup boundary. **`sessionId` is not something you must supply:** the bridge defaults it to the calling dsh agent's id, so two sessions never share an idempotency space. Set it only to deliberately widen or narrow that boundary. |
 
 ## Known limitations
 

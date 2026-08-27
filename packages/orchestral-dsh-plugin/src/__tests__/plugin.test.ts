@@ -14,6 +14,7 @@ import {
   type Runtime,
 } from '@orchestral/core'
 import { createTextToImagePattern } from '@orchestral/patterns'
+import { deriveIdempotencyKey } from '@orchestral/runtime'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -87,8 +88,19 @@ function fakeRuntime(
   } as unknown as Runtime & { specs: JobSpec[] }
 }
 
-function runContext(signal = new AbortController().signal): ToolRunContext {
-  return { signal } as unknown as ToolRunContext
+/**
+ * dsh hands a tool the execution it runs inside. Only two members matter to
+ * this bridge: the caller's signal, and `agent` — whose `id` IS the dsh
+ * SessionId (agent and session share one identity).
+ */
+function runContext(
+  signal = new AbortController().signal,
+  agentId?: string,
+): ToolRunContext {
+  return {
+    signal,
+    ...(agentId === undefined ? {} : { agent: { id: agentId } }),
+  } as unknown as ToolRunContext
 }
 
 function atomic(
@@ -592,5 +604,85 @@ describe('tool execution', () => {
     expect(runtime.specs[0]?.assets).toEqual([
       { slot: 'source', assetId: 'ast_1', handle: 'image_1', modality: 'image' },
     ])
+  })
+})
+
+// ── the dedup boundary ───────────────────────────────────────────────────
+
+describe('idempotency isolation', () => {
+  it('derives the dedup boundary from the calling dsh agent', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_b'),
+    )
+
+    expect(runtime.specs.map((s) => s.sessionId)).toEqual(['sess_a', 'sess_b'])
+
+    // The verifiable half, stated in the runtime's own terms: two sessions,
+    // one Pattern, byte-identical input → two keys. Without this the second
+    // session's model is handed the first session's job row and its handles.
+    const keys = runtime.specs.map((s) =>
+      deriveIdempotencyKey({
+        patternId: s.patternId,
+        input: s.input,
+        sessionId: s.sessionId,
+      }),
+    )
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('keeps the same session deduping with itself', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+
+    // Isolation is a boundary, not a nonce: re-asking the same question inside
+    // one session must still be one billed dispatch.
+    const keys = runtime.specs.map((s) =>
+      deriveIdempotencyKey({
+        patternId: s.patternId,
+        input: s.input,
+        sessionId: s.sessionId,
+      }),
+    )
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('lets resolveJobContext override the derived session', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(
+      ctx,
+      config({
+        runtime,
+        registry: registryOf(atomic('p', 'tool')),
+        resolveJobContext: () => ({ sessionId: 'tenant_7' }),
+      }),
+    )
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+    // A host that shares one dedup space across a tenant's agents says so; the
+    // derived default is what happens when it says nothing.
+    expect(runtime.specs[0]?.sessionId).toBe('tenant_7')
   })
 })
