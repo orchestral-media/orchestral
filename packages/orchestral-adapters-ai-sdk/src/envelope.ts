@@ -216,6 +216,43 @@ function describeId(id: unknown): string {
   return `a ${id.length}-character string`
 }
 
+// ── Unmapped asset slots ──────────────────────────────────────────────────
+
+/**
+ * Refuse a dispatch whose resolved assets include a slot this adapter does not
+ * send to the provider.
+ *
+ * `text-to-image`'s `reference` / `control` and `text-to-speech`'s
+ * `voiceClone` change what the output MEANS — a caller who attached a
+ * reference face asked for that face, not for a plausible portrait. Dropping
+ * them silently is the one failure a host cannot see in the output it gets
+ * back. The generic mapping is still a guess (`generateImage`'s editing input
+ * and the voice-cloning APIs are provider-specific), so the adapter refuses
+ * instead of inventing one, and names the slot so the host knows exactly what
+ * its own adapter has to carry.
+ */
+export function refuseUnmappedAssetSlots(
+  ctx: DispatchContext,
+  capability: Capability,
+  mapped: readonly string[],
+): void {
+  const unmapped = [
+    ...new Set(
+      (ctx.assets ?? [])
+        .filter((ref) => !mapped.includes(ref.slot))
+        .map((ref) => ref.slot),
+    ),
+  ]
+  if (unmapped.length === 0) return
+  const slots = unmapped.map((slot) => JSON.stringify(slot)).join(', ')
+  throw Object.assign(
+    new Error(
+      `ASSET_SLOT_NOT_SUPPORTED: ${capability} call: this adapter does not send the resolved asset slot(s) ${slots} to the provider — write an adapter that does, wrap this one and add them, or drop the reference from the input to call this model without them`,
+    ),
+    { code: 'ASSET_SLOT_NOT_SUPPORTED' },
+  )
+}
+
 // ── Input readers ─────────────────────────────────────────────────────────
 // `call` receives `unknown`-shaped input (the runtime's caller picks `I`), so
 // the adapters read fields defensively and fail with a message naming the

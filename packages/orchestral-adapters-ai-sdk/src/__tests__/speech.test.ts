@@ -177,4 +177,24 @@ describe('fromSpeechModel', () => {
     ).rejects.toThrow('text-to-speech call: input.text (non-empty string) is required')
     expect(doGenerate).not.toHaveBeenCalled()
   })
+
+  it('refuses the voiceClone slot rather than synthesising a preset voice', async () => {
+    const doGenerate = vi.fn<DoGenerate>()
+    const envelope = fromSpeechModel(mockSpeechModel(doGenerate))
+
+    await expect(
+      envelope.call(
+        { text: 'hello' },
+        ctx({
+          assets: [{ slot: 'voiceClone', assetId: 'voice-1', modality: 'audio' }],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'ASSET_SLOT_NOT_SUPPORTED: text-to-speech call: this adapter does not send the resolved asset slot(s) "voiceClone"',
+      ),
+    })
+    expect(doGenerate).not.toHaveBeenCalled()
+  })
 })

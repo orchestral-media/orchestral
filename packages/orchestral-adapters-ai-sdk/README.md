@@ -242,13 +242,17 @@ store — enough for a host that only ever reads the artifacts, and what
   the output envelope's `null` means exactly "not reported" — a `0` would claim
   the call was free. A host with a price list fills it in afterwards (a
   `DispatchMiddleware`, or its own wrapper around `call`).
-- **Asset slots other than the two `source` slots are not mapped.**
+- **Asset slots other than the two `source` slots are refused, loudly.**
   `text-to-image`'s `reference` / `control` images and `text-to-speech`'s
-  `voiceClone` audio are resolved onto `ctx.assets` by the runtime but ignored
-  here: `generateImage`'s image-editing input and the various voice-cloning
-  APIs are provider-specific enough that a generic mapping would be a guess. A
-  host that needs them writes its own adapter (or wraps this one and adds
-  them). ASR's and image-to-text's `source` are mapped, through `loadAudio` /
+  `voiceClone` audio are resolved onto `ctx.assets` by the runtime, and this
+  adapter cannot send them: `generateImage`'s image-editing input and the
+  various voice-cloning APIs are provider-specific enough that a generic
+  mapping would be a guess. So the call fails with
+  `ASSET_SLOT_NOT_SUPPORTED` naming the slot, rather than returning a picture
+  that ignored your reference face — that output is indistinguishable from a
+  correct one. A host that needs those slots writes its own adapter (or wraps
+  this one and adds them); a host that does not, drops the reference from the
+  input. ASR's and image-to-text's `source` are mapped, through `loadAudio` /
   `loadImage`.
 - **`loadImage` / `loadAudio` are the host's, not defaults.** `@orchestral/core`
   defines no assetId → bytes read on purpose (an id is whatever the host's

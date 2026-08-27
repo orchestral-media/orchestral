@@ -18,6 +18,7 @@ import {
   optionalNumber,
   optionalString,
   providerOptionsFor,
+  refuseUnmappedAssetSlots,
   requireString,
   resolveIdentity,
 } from './envelope'
@@ -41,7 +42,8 @@ export type SpeechModelInstance = Exclude<SpeechModel, string>
  * same id on `meta.assetId`), `cost: null`. `audioDurationMs` is omitted —
  * the SDK does not report it.
  *
- * Not mapped: the `voiceClone` asset slot (see README).
+ * Refused, not ignored: a resolved `voiceClone` asset fails the call with
+ * `ASSET_SLOT_NOT_SUPPORTED` (see README).
  */
 export function fromSpeechModel(
   model: SpeechModelInstance,
@@ -59,6 +61,10 @@ export function fromSpeechModel(
       ctx: DispatchContext,
       events?: CallEvents,
     ): Promise<DispatchResult<O>> {
+      // `generateSpeech` has no shared field for a cloning sample; the voice
+      // is the preset one, and that is not what a voiceClone reference asked
+      // for.
+      refuseUnmappedAssetSlots(ctx, 'text-to-speech', [])
       const fields = asRecord(input)
       const text = requireString(fields, 'text', 'text-to-speech')
       const voice = optionalString(fields, 'voice')

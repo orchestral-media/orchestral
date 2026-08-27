@@ -8,6 +8,7 @@ import {
   MODEL_SPEC_VERSION,
   type Artifact,
   type DispatchContext,
+  type ResolvedAssetRef,
 } from '@orchestral/core'
 import { TextToImageOutputSchema } from '@orchestral/patterns'
 
@@ -363,5 +364,48 @@ describe('fromImageModel', () => {
 
     expect(doGenerate.mock.calls[0]![0].providerOptions).toEqual({ fal: { seed: 1 } })
     expect(envelope.provider).toBe('relay')
+  })
+
+  it('refuses a resolved asset slot it cannot send, naming the slot, before paying the provider', async () => {
+    const doGenerate = vi.fn<DoGenerate>()
+    const envelope = fromImageModel(mockImageModel(doGenerate))
+    const reference: ResolvedAssetRef = {
+      slot: 'reference',
+      assetId: 'face-1',
+      modality: 'image',
+      handle: 'image_1',
+    }
+
+    await expect(
+      envelope.call({ prompt: 'a portrait' }, ctx({ assets: [reference] })),
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'ASSET_SLOT_NOT_SUPPORTED: text-to-image call: this adapter does not send the resolved asset slot(s) "reference"',
+      ),
+    })
+    // A caller who attached a reference face asked for that face; a plain
+    // render is a neighbouring answer, not this one.
+    expect(doGenerate).not.toHaveBeenCalled()
+  })
+
+  it('names every unmapped slot once, and still runs with no resolved assets', async () => {
+    const envelope = fromImageModel(mockImageModel())
+
+    await expect(
+      envelope.call(
+        { prompt: 'x' },
+        ctx({
+          assets: [
+            { slot: 'reference', assetId: 'a', modality: 'image' },
+            { slot: 'reference', assetId: 'b', modality: 'image' },
+            { slot: 'control', assetId: 'c', modality: 'image' },
+          ],
+        }),
+      ),
+    ).rejects.toThrow('"reference", "control"')
+
+    const { output } = await envelope.call({ prompt: 'x' }, ctx({ assets: [] }))
+    expect(TextToImageOutputSchema.parse(output).assets).toHaveLength(1)
   })
 })
