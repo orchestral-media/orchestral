@@ -8,7 +8,11 @@
 // `dispatch-pattern.ts` already makes for `dispatch_pattern`.
 //
 // The retrieval that answers a validated call — the BM25 index and the
-// `handleFindPattern` handler — ships in `@orchestral/discovery`.
+// `handleFindPattern` handler — ships in `@orchestral/discovery`, so the
+// describe text below stays implementation-neutral: a query mini-language
+// (mandatory terms, selectors) is the retrieval implementation's to advertise,
+// through `BuildCatalogDescriptorsOptions.querySyntaxHint`. Core describing a
+// syntax it does not parse is a drift only human eyes can catch.
 
 import { z } from 'zod'
 
@@ -19,14 +23,8 @@ export const FindPatternInputSchema = z.object({
     .min(1)
     .describe(
       [
-        'Free-form task description. Prefer English keywords: the first-party catalog is written in English and the tokenizer does not translate across languages. CJK queries are tokenized too, but only match catalog text written in that language — translate the user intent to English keywords when in doubt.',
+        'Free-form description of the task you need a Pattern for.',
         'Examples: "describe image content", "replace person with cyberpunk style", "transcribe podcast to subtitles".',
-        'Prefix a word with + to make it mandatory — only patterns containing it are returned, e.g. "edit photo +inpaint".',
-        'When you already know what you want, use a selector instead of prose:',
-        '"select:<id>[,<id>...]" for specific patterns (id or short name);',
-        '"namespace:<ns>" for a whole group;',
-        '"<prefix>*" for every id starting with that prefix, e.g. "meta_*";',
-        'a bare "<id>" for exactly one pattern.',
       ].join(' '),
     ),
   kind: z

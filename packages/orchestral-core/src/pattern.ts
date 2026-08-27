@@ -74,27 +74,26 @@ export interface PatternBase<I = unknown, O = unknown> {
   /** Public outputs schema — shared by primary + alternatives. */
   outputs: ZodSchema<O>
   /**
-   * High-signal BM25 retrieval field — `find_pattern` uses it as the primary
-   * match signal for tool-selection (same boost tier as patternId tokens). A
-   * short, natural 3-10 word English phrase, verb-first, describing the
-   * capability itself.
+   * Author-supplied retrieval hint: a short, natural 3-10 word English phrase,
+   * verb-first, naming the capability itself. It is the most direct lever a
+   * Pattern author has over which queries find this Pattern.
    *
-   * Avoid repeating tokens patternId already contains — `patternIdParts`
-   * already indexes those. The runtime's `find_pattern.query` describe text
-   * already asks the LLM to translate non-English requests into English
-   * keywords before calling, so write English only here (see
-   * find-pattern-schema.ts, `FindPatternInputSchema.query`).
+   * Deliberately implementation-neutral. What a retrieval implementation does
+   * with it — weight it, embed it, ignore it — is that implementation's
+   * business, and this package ships none (see `PatternSearch`); the
+   * first-party index in @orchestral/discovery treats it as a high-signal
+   * field. Two consequences for the author: don't repeat words the pattern id
+   * already carries, and write English, because no implementation is obliged
+   * to translate a query.
    *
    * Examples:
    *   • image-to-text → 'describe an image or extract text via OCR'
    *   • text-to-image → 'generate an image from a text prompt'
    *   • text-to-speech → 'synthesize speech audio from text (TTS)'
    *
-   * Optional; when omitted, BM25 relies mainly on `primary.tool.description`
-   * (which feeds toolDescriptions) + patternId tokens. Strongly recommended
-   * for every first-party Pattern — it's the author's most direct
-   * retrieval-tuning lever and a high-IDF signal source when the LLM walks the
-   * catalog.
+   * Optional — a Pattern without one is still discoverable through its tool
+   * description and its id. Strongly recommended for every first-party
+   * Pattern.
    */
   searchHint?: string
   /**
