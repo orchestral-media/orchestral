@@ -102,6 +102,7 @@ export function createTextToVideoPattern(
     // at an id the host has not registered would be strictly worse than the
     // current behaviour: the runtime raises ALTERNATIVE_PATTERN_NOT_REGISTERED
     // in place of the router's actionable "no model for text-to-video".
+    // DESIGN: text-to-video-no-fallback
     alternatives: init.alternatives,
     // reference[] (optional) + endFrame (optional single). Refs are image
     // assets even though the output is video; both optional (references opt-in).

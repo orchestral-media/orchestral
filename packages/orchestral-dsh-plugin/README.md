@@ -19,6 +19,8 @@ is repaired — the orchestral packages, their consumers, and their published AP
 
 Treat any pressure to "just add a small dsh-shaped hook in core" as the bug it is.
 
+<!-- DESIGN: dsh-bridge-is-a-leaf -->
+
 ## Not published
 
 This package is `"private": true`. npm refuses to publish it, and that refusal is a property of the
@@ -73,6 +75,8 @@ every tool together.
 It consumes one. A `Runtime` needs a `JobStore`, a `CapabilityRouter`, provider credentials, and a
 `resolveCtxProvider` — deployment decisions a plugin has no business guessing. The host constructs an
 `InlineRuntime` and hands it over, live, through config.
+
+<!-- DESIGN: dsh-plugin-builds-no-runtime -->
 
 ## Usage
 

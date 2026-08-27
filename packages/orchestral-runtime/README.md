@@ -137,6 +137,8 @@ Comparable orchestration libraries surveyed at the time of writing all fail
 explicitly here and leave the substitution to the caller; so does this one, by
 default.
 
+<!-- DESIGN: readme-alternatives-off-by-default -->
+
 What you get instead is a failure that names the paths you turned down. When the
 capability cannot be served **and** a declared alternative's `appliesWhen`
 matches, the job fails with a structured `JobError`:

@@ -19,6 +19,8 @@ export default defineConfig({
       './examples/plan-short-clip/vitest.config.ts',
       './examples/consented-fallback/vitest.config.ts',
       './examples/long-form-video/vitest.config.ts',
+      // Repo-level guards (DESIGN.md citations) — not owned by any package.
+      './tests/vitest.config.ts',
     ],
     coverage: {
       provider: 'v8',

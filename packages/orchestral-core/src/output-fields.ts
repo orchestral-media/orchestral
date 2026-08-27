@@ -9,6 +9,7 @@
 // slipped through at registration, and the runtime holds every atomic and
 // meta output to its schema at the dispatch exit (OUTPUT_SCHEMA_MISMATCH), so
 // the bound is enforced on what an adapter returns, not only declared.
+// DESIGN: bounded-output-vocabulary
 
 import { z, type ZodType } from 'zod'
 

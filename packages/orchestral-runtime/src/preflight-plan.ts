@@ -27,6 +27,7 @@
 //
 // Both directions of the dependency are one-way: `@orchestral/runtime` depends
 // on `@orchestral/core`, never the reverse.
+// DESIGN: preflight-prices-nothing
 
 import type {
   Alternative,
@@ -72,6 +73,7 @@ import type { ResolveCtxProvider } from './inline'
  * (DESIGN.md), under which the dispatch fails with ALTERNATIVES_NOT_ENABLED
  * naming this path rather than taking it. A report that said "will fall back"
  * to a host running the default would be wrong about the one thing it is for.
+ * DESIGN: preflight-alternative-would-fire
  */
 export type PreflightAlternative = AvailableAlternative & {
   wouldFire: boolean

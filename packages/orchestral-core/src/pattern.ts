@@ -180,6 +180,7 @@ export interface PatternBase<I = unknown, O = unknown> {
    * capabilities are off by default, opened explicitly by the author. Holding
    * this invariant means a newly added third-party package can't accidentally
    * inject behavior into a first-party Pattern.
+   * DESIGN: extensible-closed-by-default
    */
   extensible?: boolean
 
@@ -317,6 +318,7 @@ export interface ToolDescriptor<I = unknown> {
  *   - `slash`     — slash-command exposure
  *   - `canvas`    — per-node canvas exposure
  *   - `host`      — host-direct `runtime.submitJob` (no LLM involved)
+ * DESIGN: exposure-fail-closed
  */
 export type PatternExposure = PatternExposureShorthand | PatternExposureMap
 
@@ -365,6 +367,7 @@ export interface ResolvedExposure {
  * `host` is never gated (host-direct is reachable), so `'no-tool'` still keeps
  * `host:true`.
  * @alpha
+ * DESIGN: resolve-exposure-single-reader
  */
 export function resolveExposure(e?: PatternExposure): ResolvedExposure {
   if (e === undefined || e === 'tool') {
@@ -550,6 +553,7 @@ export interface AgentPattern<I = unknown, O = unknown>
      * announcement). When assembling from (input, ctx), the author should keep
      * it byte-stable. Tier-specific behavior goes through modelTags + Router
      * resolution, or by picking a different patternId per tier at host dispatch.
+     * DESIGN: system-prompt-context-on-loop-system
      */
     system: string | ((input: I, ctx: SystemPromptContext) => string)
 
@@ -557,6 +561,7 @@ export interface AgentPattern<I = unknown, O = unknown>
      * The subset of the Pattern catalog visible to the inner LLM. Must be
      * listed explicitly (no '*' wildcard). dispatchAgent automatically filters
      * out the self id (prevents self-call recursion).
+     * DESIGN: tool-pattern-ids-explicit
      */
     toolPatternIds: readonly PatternId[]
 
@@ -640,6 +645,7 @@ export interface AgentPattern<I = unknown, O = unknown>
  *   • { kind: 'token-count', n } → a custom isLoopFinished predicate that
  *                                  accumulates and compares steps[].usage.totalTokens
  * @alpha
+ * DESIGN: stop-condition-not-a-predicate
  */
 export type StopConditionDescriptor =
   | { kind: 'step-count'; n: number }

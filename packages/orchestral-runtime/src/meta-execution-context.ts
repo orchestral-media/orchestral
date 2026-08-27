@@ -362,6 +362,7 @@ export function buildMetaExecutionContext(
         // id is `${patternId}#${idx}`, so deriving one here would smuggle the
         // counter straight back into the key and silently deliver the opposite
         // of what was asked for. Refuse instead.
+        // DESIGN: step-identity-requires-step-id
         const byId = options?.identity === 'id'
         if (byId && options?.stepId === undefined) {
           throw Object.assign(
@@ -384,6 +385,7 @@ export function buildMetaExecutionContext(
         // Compute the index once so stepId / stepIndex / counter advance
         // atomically. Counter is shared across nested metas via sharedState
         // — siblings of meta-A and meta-B see one monotonic sequence.
+        // DESIGN: default-step-id-is-positional
         const idx = stepCounter.value++
         // stepId differentiates on patternId only.
         const stepId = options?.stepId ?? `${ref.patternId}#${idx}`
@@ -495,6 +497,7 @@ export function buildMetaExecutionContext(
               // the prefix grows by one segment per meta level, stays
               // deterministic across replays (the effective id is itself
               // deterministic), and never collides with a sibling subtree.
+              // DESIGN: step-id-namespace-nesting
               stepIdNamespace: effectiveStepId,
               // Exactly one identity field reaches the child. By default it is
               // the counter position, which is why inserting a step ahead of

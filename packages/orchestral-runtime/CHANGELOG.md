@@ -235,6 +235,8 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
   parked `ctx.askUser` prompt lives in memory and does not survive a restart
   either.
 
+<!-- DESIGN: changelog-no-durable-queue -->
+
 - **Agent resume is lossy.** An agent job can be resumed from a persisted
   `TranscriptStore`, but the replay is best-effort, not byte-exact: the
   transcript stores the agent-loop step projection (text + tool calls + usage),
@@ -246,6 +248,8 @@ jobs, resolves each pattern through a `CapabilityRouter`, and runs the resolved
 - **No throttling and no deadlines.** There is no concurrency limit, no
   per-step timeout and no job TTL. Cancellation is by `AbortSignal`;
   concurrency limits and wall-clock deadlines are the host's to impose.
+
+<!-- DESIGN: changelog-no-throttling-no-deadlines -->
 
 ---
 

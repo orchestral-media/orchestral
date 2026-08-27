@@ -410,6 +410,7 @@ function projectFromEntries(
  * Pure, no SDK. Returns a new object, never mutates the input. After projection
  * the structure contains no real assetId, so `JSON.stringify` can't leak one —
  * this is the verifiable assertion point for the no-assetId invariant.
+ * DESIGN: project-tool-output-hard-projection
  */
 export function projectToolOutputForModel(output: unknown): unknown {
   if (output === null || typeof output !== 'object' || Array.isArray(output)) {

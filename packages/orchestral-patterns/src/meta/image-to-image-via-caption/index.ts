@@ -290,6 +290,7 @@ type RedirectedImageEditOutput = Omit<
  * fails with ALTERNATIVES_NOT_ENABLED, which names this path rather than
  * running it, so the target need not be registered for that failure to be
  * well-formed.
+ * DESIGN: via-caption-first-party-fallback
  */
 export const VIA_CAPTION_ALTERNATIVE: Alternative<
   RedirectingImageEditInput,

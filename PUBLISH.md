@@ -303,6 +303,8 @@ README and show the Apache-2.0 license.
 
 ## 7. `@orchestral/dsh-plugin`, separately
 
+<!-- DESIGN: publish-dsh-separately -->
+
 The bridge is a leaf package on its own version line: it depends on
 `@orchestral/core` and `@orchestral/runtime`, and nothing depends on it. Publish
 it *after* the `@orchestral/*` line it pins, and only when you mean to — a

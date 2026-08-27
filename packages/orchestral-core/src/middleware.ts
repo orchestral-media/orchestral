@@ -37,6 +37,7 @@ export interface DispatchMiddleware {
    *     before any provider is touched (e.g. content moderation).
    *
    * Returning undefined is equivalent to { kind: 'continue', spec: <unchanged> }.
+   * DESIGN: before-dispatch-hook
    */
   beforeDispatch?(
     spec: JobSpec,

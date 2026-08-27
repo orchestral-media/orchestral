@@ -644,6 +644,7 @@ function buildMatchDescriptor(
  * the wrong tool (worst case: a paid generation call) costs far more than
  * the one extra find_pattern round-trip a miss costs, and flailing models
  * converge to id-shaped queries on their own.
+ * DESIGN: no-bm25-direct-tool-hint
  */
 function findDirectToolHit(
   index: PatternSearchIndex,

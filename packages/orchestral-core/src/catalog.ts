@@ -66,6 +66,7 @@ export interface SubagentBlocklist {
  *
  * Same idea as denylisting the agent-dispatch tool itself to stop a sub-agent
  * from spawning further agents.
+ * DESIGN: subagent-blocklist-prefix
  */
 export const DEFAULT_SUBAGENT_BLOCKLIST: SubagentBlocklist = {
   idPrefixes: ['agent_'],
@@ -141,6 +142,7 @@ const CAPABILITY_NAMESPACE: Readonly<Record<string, NamespaceId>> = {
  *
  * Naming prefix: underscore rather than colon — the tool-name regex
  * `[a-zA-Z0-9_-]` most providers enforce does not accept colons.
+ * DESIGN: infer-namespace-by-prefix
  */
 export function inferNamespace(id: PatternId): NamespaceId {
   if (id.startsWith('agent_')) return 'sub-agents'

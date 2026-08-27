@@ -15,6 +15,7 @@
 // activation events. A pattern package is an ordinary npm package whose
 // factories a host could equally well call by hand; the manifest only removes
 // the hand-written wiring and the drift that comes with it.
+// DESIGN: manifest-not-a-plugin-framework
 
 import { z } from 'zod'
 import type { Pattern } from './pattern'
@@ -63,6 +64,7 @@ export const OrchestralManifestPatternSchema = z
      * of what a manifest is for. Declared here, `addFromManifest` can check
      * each entry against the ops it was given and let the caller take the part
      * it can run (see its `missingOps` option).
+     * DESIGN: required-ops-per-pattern
      */
     requiredOps: z.array(z.string().min(1)).optional(),
   })
@@ -84,6 +86,7 @@ export type OrchestralManifestPattern = z.infer<
  * package's own semver and its `@orchestral/core` peer range already carry
  * that information, and a second version number would only be a second thing
  * to keep in sync.
+ * DESIGN: manifest-no-version-discriminator
  */
 export const OrchestralManifestSchema = z.object({
   patterns: z
@@ -106,6 +109,7 @@ export const OrchestralManifestSchema = z.object({
    * Note this is narrower than the "unknown keys are ignored" rule above: an
    * unrecognized key is a later manifest shape an older core should tolerate,
    * whereas this one is a key whose meaning changed.
+   * DESIGN: package-required-ops-refused
    */
   requiredOps: z
     .undefined({
@@ -166,6 +170,7 @@ export class ManifestError extends Error {
  * sub-agent recursion guard. Checking it only in the manifest would leave
  * `PatternRegistry.register` — the path every first-party and hand-wired
  * Pattern takes — as an unguarded way in.
+ * DESIGN: id-carries-kind
  */
 export function idCarriesKind(id: string, kind: ManifestPatternKind): boolean {
   if (kind === 'meta') return id.startsWith('meta_')

@@ -65,6 +65,7 @@ export interface DeriveIdempotencyKeyInput {
  * no caller sets it, the stringified payload has the same keys in the same
  * order with the same values as before it existed, so every stored key is
  * still derivable. Only callers that opt in move, and they have no rows yet.
+ * DESIGN: idempotency-identity-allowlist
  */
 export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string {
   const canonical = JSON.stringify({

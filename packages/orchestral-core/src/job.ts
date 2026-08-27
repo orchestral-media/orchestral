@@ -101,6 +101,7 @@ export interface Job<TInput = unknown, TOutput = unknown> {
  * serve. `deriveIdempotencyKey` hand-picks the identity fields rather than
  * hashing the whole spec, so a new routing field is excluded by default; a new
  * identity field must be added there explicitly.
+ * DESIGN: jobspec-identity-vs-routing
  */
 export interface JobSpec<TInput = unknown> {
   patternId: PatternId

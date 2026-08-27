@@ -149,6 +149,7 @@ export function buildAlwaysLoadDescriptors(
   const out: AgentToolDescriptor[] = []
   for (const p of patterns) {
     // Exposure first, mode second. Reading exposureMode alone was the bypass.
+    // DESIGN: always-load-honours-exposure
     if (!resolveExposure(p.exposure)[surface]) continue
     if (p.exposureMode !== 'always-load') continue
     if (p.kind === 'atomic') {

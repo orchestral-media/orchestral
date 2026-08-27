@@ -836,6 +836,8 @@ authored as a fixed one.
 **Where.** `packages/orchestral-core/src/plan.ts` (the three regexes);
 `validatePlan` rules 4 and 9.
 
+<!-- DESIGN: plan-doc-no-evaluation -->
+
 ### We don't give a plan its own Alternatives
 **Why.** `Alternative.via.mapInput` / `mapOutput` are closures by design
 (`alternative.ts:87-135`) and cannot survive JSON. Alternatives are also

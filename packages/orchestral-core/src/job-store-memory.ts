@@ -194,6 +194,7 @@ export class InMemoryJobStore implements JobStore {
    * error / stale / cancelled deliberately do NOT match so the caller can
    * retry after an explicit failure. Newest createdAt wins on ties.
    * Returns the stored object — callers copy before handing it out.
+   * DESIGN: failed-rows-never-dedupe
    */
   private findCanonical(key: string): Job | null {
     let best: Job | null = null

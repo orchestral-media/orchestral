@@ -87,6 +87,7 @@ export {
 // tool calls against them. The retrieval that answers a validated
 // `find_pattern` call (BM25 index + `handleFindPattern`) is not a contract and
 // ships separately in `@orchestral/discovery`.
+// DESIGN: find-pattern-schema-stays-in-core
 export {
   FindPatternInputSchema,
   type FindPatternInput,
@@ -149,6 +150,7 @@ export type {
 // is the only boundary helper — call it explicitly when serializing outbound to
 // the LLM / IPC wire format. Raw JsonSchema authoring is intentionally not
 // supported (YAGNI; ensureZod + a dependency can be added later if needed).
+// DESIGN: to-json-schema-boundary-export
 export { toJsonSchema } from './schema'
 
 // ── Bounded output-field vocabulary (sanitizer companion) ────────────────

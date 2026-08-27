@@ -3,6 +3,7 @@
 // Vercel AI SDK model instance → `ModelCapability` envelope, one function per
 // capability. A leaf: depends on `@orchestral/core` and `ai`; nothing in
 // `@orchestral/*` depends on it.
+// DESIGN: adapters-ai-sdk-leaf
 
 export type { AdapterOptions } from './envelope'
 export { fromImageModel, type ImageModelInstance } from './image'

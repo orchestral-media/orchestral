@@ -396,6 +396,7 @@ deps: AgentDispatchDeps,
   // Capture the envelope for `getAgentEnvelope(jobId)` lookup.
   const envelopeStartTs = Date.now()
   let envelopeToolCount = 0
+  // DESIGN: agent-run-impl-not-injected
   if (!deps.agentRunImpl) {
     throw Object.assign(
       new Error(
@@ -999,6 +1000,7 @@ deps: AgentDispatchDeps,
           // matches the default blocklist prefix.
           //
           // Use effectiveToolPatternIds so the async filter is honoured here too.
+          // DESIGN: subagent-tool-allowlist
           const inAllowlist = effectiveToolPatternIds.includes(fullId)
           if (!inAllowlist) {
             // Host-visible before the model-visible return — see the cycle
@@ -1075,6 +1077,7 @@ deps: AgentDispatchDeps,
           // The runtime names no pattern id here. The check keys on the
           // declaration alone, so an interpreted plan, a one-shot plan meta
           // and a shipped meta that opts in later all reach the same code.
+          // DESIGN: planned-dispatches-guard
           if (target.pattern.kind === 'meta' && target.pattern.plannedDispatches) {
             let declared: readonly PatternId[] | undefined
             try {
@@ -1421,6 +1424,7 @@ deps: AgentDispatchDeps,
           // point for the no-assetId invariant), sanitize SECOND (scrubs
           // data: URLs / binary runs that survived inside the projected
           // metadata). Same composition as @orchestral/dsh-plugin's tool.ts.
+          // DESIGN: project-then-sanitize
           const modelFacing = sanitizeToolOutput(
             projectToolOutputForModel(stamped ?? child.output),
           )

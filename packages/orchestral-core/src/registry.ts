@@ -35,6 +35,7 @@ import { FIRST_PARTY_CAPABILITIES } from './capability'
  *
  * `register` / `get` / `has` / `resolveShortName` / `listForCatalog` are the
  * lower-level accessors the above are built on.
+ * DESIGN: pattern-capability-one-to-one
  */
 export class PatternRegistry {
   private readonly byId = new Map<PatternId, Pattern>()
@@ -96,6 +97,7 @@ export class PatternRegistry {
     // hand-wired Patterns take, and the prefix is what DEFAULT_SUBAGENT_BLOCKLIST
     // and inferNamespace route on — an `agent` Pattern registered without the
     // `agent_` prefix is silently exempt from the sub-agent recursion guard.
+    // DESIGN: register-id-kind-check
     if (!idCarriesKind(pattern.id, pattern.kind)) {
       throw new Error(
         `PATTERN_ID_KIND_MISMATCH: ${pattern.id} is kind '${pattern.kind}' — ` +
@@ -178,6 +180,7 @@ export class PatternRegistry {
     // under-specified patterns at registration; the warning names the
     // offending field paths instead. Runs after the agent backfill so the
     // default finish envelope is audited too.
+    // DESIGN: outputs-unbounded-warn-not-throw
     const outputs = (pattern as { outputs?: ZodSchema }).outputs
     if (outputs) {
       const audit = auditOutputsSchema(outputs)
@@ -210,6 +213,7 @@ export class PatternRegistry {
     // shape MCP gives a server's tools. Warned, not refused: a host that
     // loads exactly one such package has nothing to fix, and the line is
     // addressed to the package's author.
+    // DESIGN: capability-not-namespaced-warn
     if (pattern.kind === 'atomic' && !isNamespacedCapability(pattern.id)) {
       this.logger.warn(
         `[patterns] CAPABILITY_NOT_NAMESPACED (${pattern.id}): not a first-party ` +
@@ -468,6 +472,7 @@ export class PatternRegistry {
    * Uses the same internal storage as the sugar bundled with add() — once
    * registered, dispatch sees no distinction between "built-in" and
    * "third-party".
+   * DESIGN: pattern-not-extensible
    */
   attachAlternative<I, O>(
     parentId: PatternId,

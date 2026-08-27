@@ -22,6 +22,7 @@
 //     conversion). `.refine` / `.transform` can't be expressed in JSON Schema,
 //     which matches the reality of LLM tool specs (the LLM reads the schema
 //     description; runtime validation lives in the host/provider).
+// DESIGN: zod-only-authoring
 
 import { z, type ZodType } from 'zod'
 

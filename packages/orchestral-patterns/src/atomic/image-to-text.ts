@@ -126,6 +126,7 @@ export function createImageToTextPattern(
     // on (see image-to-image's `via-caption`), so there is no second reader to
     // fall back to — text-generation would answer from the prompt alone and
     // describe an image it never saw.
+    // DESIGN: image-to-text-no-fallback
     alternatives: init.alternatives,
     // source required, one or more images. Output is text, so no
     // outputs.assets[] (only declares the input need). Adapter contract: read

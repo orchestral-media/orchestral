@@ -10,6 +10,7 @@
 // service, a hand-written router), and it drags in a search dependency core
 // should not carry. The wire contract for the tool call itself
 // (`FindPatternInputSchema`) stays in core next to `DispatchPatternInputSchema`.
+// DESIGN: discovery-out-of-core
 
 // ── BM25 retrieval ───────────────────────────────────────────────────────
 export {

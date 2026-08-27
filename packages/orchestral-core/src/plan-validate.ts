@@ -507,6 +507,7 @@ class PlanWalk {
     // word "$describe.text". The head must name a real step (or `input`), so
     // prose that merely mentions a dollar sign is untouched. Checked before
     // rule 4 because it is the more specific diagnosis of the same string.
+    // DESIGN: plan-no-interpolation
     const fragment = findEmbeddedRef(value, this.knownHeads)
     if (fragment !== null) {
       this.add({

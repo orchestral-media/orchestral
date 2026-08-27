@@ -7,6 +7,7 @@
 // by default (`InlineRuntimeInit.alternatives`), reporting the applicable paths
 // on the failure instead. These types describe the paths; they do not promise
 // one will be taken.
+// DESIGN: declaring-does-not-fire
 
 import type { ModelTag } from './model-tag'
 import type { PatternId } from './foundational'
@@ -99,6 +100,7 @@ export type AlternativeAppliesWhen =
  *   shape transforms, prompt template assembly). Keep them pure
  *   (synchronous, deterministic, no IO).
  * - Declaration order in the parent `alternatives` array is the ranking.
+ * DESIGN: alternative-map-closures
  */
 export interface Alternative<I = unknown, O = unknown> {
   /** Stable id; unique within the parent Pattern's `alternatives` array. */

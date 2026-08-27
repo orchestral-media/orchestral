@@ -397,6 +397,7 @@ export async function runPlan(
     //    schema's defaults, which would land in the child's idempotency input
     //    and key a plan's text-generation step differently from a hand-written
     //    meta's with the same prompt.
+    // DESIGN: plan-layer-2-gate-not-rewrite
     const schema = inputSchemaOf(target)
     if (schema !== undefined) {
       const parsed = passthroughOf(schema).safeParse(input)
@@ -546,6 +547,7 @@ export async function runPlan(
  * A `CANCELLED` error is passed through untouched: a cascade from
  * `cancelJob(planJobId)` is not a step's failure, and the row it writes is
  * `cancelled`, not `error`.
+ * DESIGN: plan-step-failure-stamped
  */
 function stampPlanStep(
   err: unknown,

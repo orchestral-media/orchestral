@@ -54,6 +54,7 @@ export interface Runtime {
    * that can genuinely resume lost work should expose that as its own call
    * rather than hiding resumption behind this one, so a caller can always
    * read the returned rows as dead.
+   * DESIGN: abandonment-with-bookkeeping
    */
   abandonOrphanedJobs(): Promise<readonly Job[]>
   /**

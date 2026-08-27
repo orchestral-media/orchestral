@@ -96,6 +96,7 @@ export interface StepResult<T> {
  * Defaults to plain value return; use `.withMeta()` to get the full
  * `{ value, meta }` shape when stepId / attempts / latency is needed for
  * progress UI or debug.
+ * DESIGN: atomic-never-sees-ctx-step
  */
 export interface CtxStepFn {
   <T = unknown>(ref: PatternRef, options?: StepOptions): Promise<T>
@@ -201,6 +202,7 @@ export interface DispatchContext<P = unknown> {
    *
    * Deliberately NOT persisted on `Job`: that would put a column on every host
    * `JobStore` to serve bookkeeping the host can do in its own tables.
+   * DESIGN: root-job-id-not-persisted
    */
   rootJobId?: string
 
@@ -214,6 +216,7 @@ export interface DispatchContext<P = unknown> {
  * stable prefix**, so it must never embed volatile resolved assets (those
  * flow through the cache-cold seed announcement instead). Authors
  * still read `providerOptions` / `sessionId` / `project` to shape the prompt.
+ * DESIGN: system-prompt-no-assets
  */
 export type SystemPromptContext<P = unknown> = Omit<DispatchContext<P>, 'assets'>
 
@@ -224,6 +227,7 @@ export type SystemPromptContext<P = unknown> = Omit<DispatchContext<P>, 'assets'
  *
  * Generic over host-attached session / project / workflow shapes so a host
  * can inject typed handles without breaking other consumers.
+ * DESIGN: execution-context-meta-only
  */
 export interface ExecutionContext<S = unknown, P = unknown, W = unknown>
   extends DispatchContext<P> {

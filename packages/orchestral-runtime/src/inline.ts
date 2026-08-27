@@ -168,6 +168,7 @@ const DEFAULT_MAX_ALTERNATIVE_DEPTH = 4
 /**
  * Automatic `Pattern.alternatives` redirects are off unless the host asks for
  * them. See `InlineRuntimeInit.alternatives` for the reasoning.
+ * DESIGN: alternatives-default-off
  */
 const DEFAULT_ALTERNATIVES_MODE = 'off' as const
 
@@ -233,6 +234,7 @@ export interface TransientRetryConfig {
    * you cannot classify; a predicate that throws is logged and read as
    * `false`, so a bug in here can never displace the provider error it was
    * asked about.
+   * DESIGN: is-transient-throw-is-false
    */
   isTransient: (error: unknown, info: TransientFailureInfo) => boolean
   /**
@@ -315,6 +317,7 @@ export interface InlineRuntimeInit {
    * identity-preserving edit and silently received a re-render from a caption
    * got a different answer, not a retry. Failing loudly with the paths named
    * keeps that choice with the host.
+   * DESIGN: alternatives-off-is-a-product-decision
    */
   alternatives?: 'auto' | 'off'
   /**
@@ -356,6 +359,7 @@ export interface InlineRuntimeInit {
    * Per runtime instance, like `alternatives`. `isTransient` receives the
    * capability and model, so one instance still covers surfaces that want
    * different answers.
+   * DESIGN: no-built-in-transience-classifier
    */
   transientRetry?: TransientRetryConfig
   /**
@@ -1102,6 +1106,7 @@ export class InlineRuntime implements Runtime {
     const baseCtx = this.resolveCtxProvider?.(spec) ?? {}
 
     // Satisfiability phase: proactive check (consults Router).
+    // DESIGN: atomic-id-as-capability-lookup
     const sat = this.router.checkSatisfiable(
       atomic.id as Capability,
       requiredTags,
@@ -1215,6 +1220,7 @@ export class InlineRuntime implements Runtime {
     // unchanged by this option existing. A model is excluded only once this
     // loop is done with it, so a retried blip never costs a fallback hop and a
     // long fallback chain never buys extra attempts at one provider.
+    // DESIGN: two-budgets-two-loops
     const fallbackBound = baseCtx.fallbackDepth ?? this.fallbackDepth
     const transientRetry = this.transientRetry
     for (let hop = 0; hop <= fallbackBound; hop++) {
@@ -1409,6 +1415,7 @@ export class InlineRuntime implements Runtime {
    * re-run the same schema. A middleware short-circuit is the exception —
    * no finish tool ran there, so a supplied output answers to this gate
    * whatever the Pattern's kind.
+   * DESIGN: output-schema-mismatch-gate
    */
   private assertOutputConforms(pattern: Pattern, output: unknown): void {
     if (this.outputValidation === 'off') return
@@ -1531,6 +1538,7 @@ export class InlineRuntime implements Runtime {
         // Sub-steps settle on the parent's stream: a meta is one Job to the
         // caller, so without this a multi-minute chain is silent between
         // job:started and job:completed.
+        // DESIGN: job-step-not-namespaced
         onStepSettled: ({ rootJobId, stepId, patternId, childJobId, output }) => {
           void this.fanoutJobEvent(rootJobId, (job) => ({
             type: 'job:step',

@@ -297,6 +297,8 @@ with no model for those, a job fails with the router's
 Attaching your own is a first-class move: every atomic factory takes an
 `alternatives` option, which replaces the shipped list outright.
 
+<!-- DESIGN: readme-via-caption-only-alternative -->
+
 ## Swapping the batteries
 
 The example above runs entirely on in-memory dev batteries. Moving to production
@@ -434,6 +436,8 @@ knowing before you rely on it:
   but loading the same package twice still throws from `register` itself.
 - **The manifest is a declaration, not a permission boundary.** Reading it is
   safe; loading the package runs its code, exactly like any other import.
+
+<!-- DESIGN: manifest-declaration-not-permission -->
 
 `@orchestral/patterns` is the first package to follow the convention — its
 `"orchestral"` field covers all 19 shipped patterns, five of which declare

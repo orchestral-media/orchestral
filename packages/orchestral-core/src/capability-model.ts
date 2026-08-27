@@ -155,6 +155,7 @@ export interface ModelCapabilityBlob {
    * - The provider-SDK factory to invoke. That is host-catalog data: the host
    *   picks the entry point when it builds the `call` adapter, so no SDK
    *   vocabulary reaches this record.
+   * DESIGN: no-cost-or-latency-fields
    */
   providerOptions?: JsonSchema
 
@@ -202,6 +203,7 @@ export interface ModelCapabilityRecord extends ModelCapabilityBlob {
  * and maps them to provider-shaped inputs (fs path / bytes). `ctx.signal`
  * carries the parent job's AbortSignal; `ctx.project` / `ctx.providerOptions`
  * carry host-injected ambient context (validated at the host boundary).
+ * DESIGN: model-capability-call-seam
  */
 export interface ModelCapability extends ModelCapabilityRecord {
   /**
@@ -254,6 +256,7 @@ export interface ModelCapability extends ModelCapabilityRecord {
  *   • Backpressure isn't a concern — progress events are coarse
  *     (fal emits a handful per call), and Job event subscribers run
  *     synchronously inside `fanout`.
+ * DESIGN: call-events-not-async-iterable
  */
 export interface CallEvents {
   /** Coarse progress hint. fraction is 0..1 (runtime clamps); message is optional. */
@@ -282,6 +285,7 @@ export interface ResolveContext {
    * transient retry wired (`InlineRuntimeInit.transientRetry` in
    * `@orchestral/runtime`) a model only lands here once its own retries are
    * spent.
+   * DESIGN: exclude-model-after-retries-spent
    */
   excludeModel?: readonly string[]
   /**
@@ -320,6 +324,7 @@ export interface ResolveContext {
    * (`InlineRuntimeInit.transientRetry` in `@orchestral/runtime`). A hop of
    * this walk only happens once the model in hand is out of transient
    * retries, and neither budget can consume the other's.
+   * DESIGN: fallback-depth-per-dispatch
    */
   fallbackDepth?: number
 }

@@ -41,6 +41,7 @@ import { assetIdField, boundedText, urlField } from './output-fields'
 // Identifiers start with a letter: no '/', the namespace separator
 // (meta-execution-context.ts:379-381); no '.', '$' or '[' (the ref grammar);
 // and "$5.99" in a prompt is never mistaken for a reference.
+// DESIGN: plan-ref-grammar
 export const PLAN_STEP_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const PLAN_VALUE_REF_RE =
   /^\$(input|[A-Za-z][A-Za-z0-9_-]{0,63})((\.[A-Za-z_][A-Za-z0-9_]{0,63})|(\[[0-9]{1,3}\]))+$/
