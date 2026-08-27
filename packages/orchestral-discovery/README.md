@@ -13,9 +13,10 @@ a model's free-form query into a ranked, filtered, schema-carrying shortlist.
 npm install @orchestral/discovery @orchestral/core zod
 ```
 
-You usually get this transitively — `@orchestral/runtime` depends on it and
-wires `find_pattern` into the agent loop for you. Install it directly when you
-drive the loop yourself.
+Install it alongside `@orchestral/runtime` whenever an agent loop must
+DISCOVER Patterns: the runtime holds no retrieval of its own and depends on
+nothing to search with, so `find_pattern` reaches a loop only when a host hands
+it one. `createPatternSearch` is that one line — see below.
 
 ## Why this is not in core
 
@@ -33,16 +34,47 @@ The split falls on the tool-call boundary:
 | --- | --- |
 | `FindPatternInputSchema` — the find_pattern wire contract | `@orchestral/core` |
 | `buildCatalogDescriptors` — renders the tool definition from that schema | `@orchestral/core` |
-| `PatternSearchIndex` / `handleFindPattern` — answering a validated call | `@orchestral/discovery` |
+| `PatternSearch` — the contract for whatever answers one | `@orchestral/core` |
+| `PatternSearchIndex` / `handleFindPattern` / `createPatternSearch` — answering a validated call | `@orchestral/discovery` |
 
-So core still knows what a `find_pattern` call looks like and can validate one;
-it just has no opinion on how the catalog gets searched.
+So core still knows what a `find_pattern` call looks like, can validate one and
+can name who answers it; it just has no opinion on how the catalog gets
+searched, and ships nothing that does.
 
 The index reads the registry through its public accessors (`values`, `get`,
 `resolveShortName`, `byNamespace`, `getEntry`) — the dependency runs one way,
 and core has no idea this package exists.
 
-## Usage
+## Usage — the front door
+
+`createPatternSearch` is the whole wiring for a host on `@orchestral/runtime`:
+it returns the `PatternSearch` the runtime's seam takes, and the runtime then
+advertises `find_pattern` to its agent loops and forwards every call — with the
+loop's own corpus scoping — into it.
+
+```ts
+import { InlineRuntime } from '@orchestral/runtime'
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
+
+const runtime = new InlineRuntime({
+  store,
+  registry,
+  router,
+  agentRunImpl,
+  // Pass the router so atomics no model can serve never reach the LLM.
+  patternSearch: createPatternSearch(registry, { router }),
+  // The query mini-language below is this package's, not core's — splice it
+  // into the find_pattern tool description so the model can use it.
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
+})
+```
+
+The factory reads the registry on every call, so Patterns registered after it
+was built are searchable. Drop `patternSearch` and an agent loop simply gets no
+`find_pattern` tool — its always-load inline core and `dispatch_pattern` are
+untouched.
+
+## Usage — driving the handler yourself
 
 ```ts
 import { PatternRegistry, FindPatternInputSchema } from '@orchestral/core'
@@ -87,6 +119,14 @@ index.rebuild(registry)
   post-rank filter loop: modality, per-audience exposure, host-only agents, and
   router satisfiability. Renders each survivor's primary tool description,
   derived input schema, and a compact outputs summary.
+- **`createPatternSearch`** — the ready-made `PatternSearch` for
+  `@orchestral/runtime`'s `InlineRuntimeInit.patternSearch` seam. Closes over a
+  registry plus the host-owned knobs the seam's request does not carry
+  (`router`, `k`, `deriveProviderOptionsZod`).
+- **`QUERY_SYNTAX_HINT`** — the query mini-language this package parses, as one
+  sentence for a host to splice into the `find_pattern` tool description
+  (`BuildCatalogDescriptorsOptions.querySyntaxHint`). It lives here because the
+  parser does; core describes no syntax it cannot parse.
 - **`DEFAULT_SEARCH_K`** — the shared default (5) so index and handler cannot
   drift.
 

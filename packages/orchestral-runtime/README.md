@@ -192,13 +192,44 @@ Two boundaries worth knowing:
   is the actionable one there, so it is rethrown verbatim rather than restated
   as a routing-policy code.
 
+## Retrieval is a seam, so `find_pattern` is conditional
+
+This runtime ships no search and depends on no search library. An agent loop
+gets a `find_pattern` tool only when the host injects something that can answer
+one:
+
+```ts
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
+
+const runtime = new InlineRuntime({
+  store, registry, router, agentRunImpl,
+  patternSearch: createPatternSearch(registry, { router }),
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
+})
+```
+
+`patternSearch` is a `PatternSearch` (the contract lives in
+`@orchestral/core`), so a host on its own embeddings or a hosted search service
+implements it instead — the same shape of decision `agentRunImpl` and
+`ModelCapability.call` already leave to the host.
+
+Leave it out — the default — and the loop's catalog is its always-load inline
+core plus `dispatch_pattern`, with no `find_pattern` descriptor at all, and the
+guards below stop pointing the model at a tool it does not have. An agent whose
+`loop.toolPatternIds` are all `exposureMode: 'always-load'` is unaffected: those
+Patterns are direct tools and were never reached by searching. An agent that was
+meant to discover Patterns will not — advertising a tool whose only possible
+answer is "no retrieval wired" spends prompt-prefix bytes and buys a round-trip
+the model cannot complete.
+
 ## Refused agent tool calls are observable
 
 An agent loop can name any registered pattern id — with two-stage discovery it
-only ever sees `find_pattern` and `dispatch_pattern`, so the catalog cannot
-express "you may not call X". Three guards enforce that at dispatch time, in
-order: the ancestor cycle check, the `loop.toolPatternIds` allowlist, and the
-default sub-agent blocklist.
+sees only the router tools (`dispatch_pattern`, plus `find_pattern` when a
+`patternSearch` seam is wired), so the catalog cannot express "you may not call
+X". Three guards enforce that at dispatch time, in order: the ancestor cycle
+check, the `loop.toolPatternIds` allowlist, and the default sub-agent
+blocklist.
 
 A refusal is **not** a failed job. The guard returns a structured tool-result so
 the loop reads it and picks a different `pattern_id`; the job still settles

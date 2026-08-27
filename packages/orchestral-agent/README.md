@@ -105,6 +105,26 @@ the split is:
 | First-party agent Pattern | **this package** |
 | The runner that fills the seam | **your host** — reference implementation in [`examples/agent-hello-world`](https://github.com/orchestral-media/orchestral/tree/main/examples/agent-hello-world) |
 
+Retrieval is a second seam of the same kind, and this agent needs it. Most of
+the ids in `loop.toolPatternIds` are not `always-load`, so the only way the
+loop reaches them is `find_pattern` — and `@orchestral/runtime` advertises that
+tool only when the host injects a `patternSearch`:
+
+```ts
+import { createPatternSearch, QUERY_SYNTAX_HINT } from '@orchestral/discovery'
+
+new InlineRuntime({
+  store, registry, router, agentRunImpl,
+  patternSearch: createPatternSearch(registry, { router }),
+  catalogOptions: { querySyntaxHint: QUERY_SYNTAX_HINT },
+})
+```
+
+The shipped system prompt tells the model to use `find_pattern`, so a host that
+deliberately runs the orchestrator without retrieval should override
+`prompts.orchestratorSystem` too — otherwise the prompt names a tool the
+catalog does not carry.
+
 ## Why no loop implementation ships here
 
 Same iron rule as `ModelCapability.call`: **Orchestral ships no provider SDK,

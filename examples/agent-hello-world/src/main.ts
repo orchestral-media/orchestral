@@ -24,6 +24,7 @@ import {
   InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { createPatternSearch } from '@orchestral/discovery'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createInProcessAgentRunImpl } from './agent-runner'
@@ -84,6 +85,14 @@ const runtime = new InlineRuntime({
   registry,
   router,
   agentRunImpl,
+  // Retrieval is a seam, like the loop and the model call: the runtime holds
+  // no search. `createPatternSearch` is the first-party BM25 one — pass the
+  // router so Patterns no model can serve never reach the LLM. This agent's
+  // single tool is always-load (a direct tool, no discovery needed), so the
+  // demo would run without this line and simply get no find_pattern tool; it
+  // is wired anyway because it is the line to copy the moment a host has a
+  // Pattern the model must discover.
+  patternSearch: createPatternSearch(registry, { router }),
   onJobCreated: (jobId) =>
     runtime.subscribe(jobId, (ev) => {
       if (ev.type === 'job:artifact') artifacts.push(ev.artifact)

@@ -21,6 +21,7 @@ import {
   InMemoryJobStore,
   PatternRegistry,
 } from '@orchestral/core'
+import { createPatternSearch } from '@orchestral/discovery'
 import { createTextToImagePattern } from '@orchestral/patterns'
 import { InlineRuntime } from '@orchestral/runtime'
 import { createInProcessAgentRunImpl } from '../agent-runner'
@@ -130,6 +131,7 @@ describe('agent hello-world wiring', () => {
       registry,
       router,
       agentRunImpl,
+      patternSearch: createPatternSearch(registry, { router }),
       onJobCreated: (jobId) =>
         runtime.subscribe(jobId, (ev) => {
           if (ev.type === 'job:artifact') artifacts.push(ev.artifact)
@@ -194,6 +196,9 @@ describe('agent hello-world wiring', () => {
     const agentRunImpl = createInProcessAgentRunImpl({
       resolveModel: () => scriptedLlm(),
     })
+    // No `patternSearch` here, deliberately: this agent's one tool is
+    // always-load, so it reaches the loop as a direct tool and the loop runs
+    // to completion with no find_pattern in its catalog at all.
     const runtime = new InlineRuntime({
       store: new InMemoryJobStore(),
       registry,

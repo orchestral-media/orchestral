@@ -41,6 +41,9 @@ importers:
       '@orchestral/core':
         specifier: workspace:*
         version: link:../../packages/orchestral-core
+      '@orchestral/discovery':
+        specifier: workspace:*
+        version: link:../../packages/orchestral-discovery
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../../packages/orchestral-patterns

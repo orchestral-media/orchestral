@@ -25,6 +25,7 @@ import type { JobStore } from '@orchestral/core';
 import type { ModelTag } from '@orchestral/core';
 import type { PatternId } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
+import type { PatternSearch } from '@orchestral/core';
 import type { ResolveContext } from '@orchestral/core';
 import type { ResolveCtxProvider } from '@orchestral/core';
 import { ResolvedAssetRef } from '@orchestral/core';
@@ -186,6 +187,7 @@ export interface InlineRuntimeInit {
     middleware?: readonly DispatchMiddleware[];
     onJobCreated?: (jobId: string, spec: JobSpec) => void;
     outputValidation?: 'strict' | 'off';
+    patternSearch?: PatternSearch;
     // (undocumented)
     registry: PatternRegistry;
     // (undocumented)

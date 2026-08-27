@@ -43,7 +43,9 @@ Three optional packages sit on top: `@orchestral/plan` (a pipeline authored as
 data — the schema, the validation, the interpreter and the preflight; you get it
 transitively with the catalog, and install it directly to build or preflight a
 plan yourself), `@orchestral/discovery` (the BM25 search behind a `find_pattern`
-tool) and `@orchestral/agent` (the orchestrator agent pattern).
+tool — the runtime asks a host for retrieval rather than depending on one, so
+install this to give an agent loop a `find_pattern` tool) and
+`@orchestral/agent` (the orchestrator agent pattern).
 None of them pulls in a provider SDK. A fourth, `@orchestral/adapters-ai-sdk`, is the
 one package that does: it wraps a Vercel AI SDK model instance as a ready-made
 `ModelCapability`, so a host already on the AI SDK skips writing the call
@@ -209,7 +211,7 @@ lines — copy it and swap in whatever loop you already run.
 | [`@orchestral/patterns`](packages/orchestral-patterns) | The first-party pattern catalog: one atomic pattern per capability, plus meta pipelines (storyboarding, script-to-video, best-of-N selection, the short-form deliverables, …) with their prompts inlined. |
 | [`@orchestral/runtime`](packages/orchestral-runtime) | `InlineRuntime`, the in-process reference implementation of core's `Runtime`: submits jobs, dispatches through the router, handles retries, opt-in cross-pattern fallback and idempotency. No durable queue — the host owns each job's lifetime. |
 | [`@orchestral/plan`](packages/orchestral-plan) | A pipeline authored as data: the wire schema a model fills, `validatePlan` (every problem in a DAG before any of it spends), `planToMeta` (the DAG executed as an ordinary meta) and `preflightPlan` (every step routed, nothing run). Depends on core and nothing else. |
-| [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex` and the `find_pattern` tool handler. Core keeps the input contract; this package owns the searching. |
+| [`@orchestral/discovery`](packages/orchestral-discovery) | Optional. The LLM discovery layer: the BM25 `PatternSearchIndex`, the `find_pattern` tool handler, and `createPatternSearch` — the ready-made implementation of core's `PatternSearch` seam that `@orchestral/runtime` takes as `patternSearch`. Core keeps the input contract; this package owns the searching, and nothing depends on it. |
 | [`@orchestral/agent`](packages/orchestral-agent) | Optional. The orchestrator agent pattern. A declaration only — the tool loop that runs it is the `AgentRunImpl` you inject. |
 | [`@orchestral/adapters-ai-sdk`](packages/orchestral-adapters-ai-sdk) | Optional. Ready-made `ModelCapability` envelopes over a Vercel AI SDK model instance — `fromLanguageModel` / `fromVisionModel` / `fromImageModel` / `fromSpeechModel` / `fromTranscriptionModel`, covering `text-generation`, `image-to-text`, `text-to-image`, `text-to-speech` and `automatic-speech-recognition` — for hosts already on the AI SDK. A leaf package: it depends on core and `ai`, and nothing depends on it. |
 | [`@orchestral/dsh-plugin`](packages/orchestral-dsh-plugin) | Experimental. A [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) plugin exposing registered patterns as dsh agent tools. A leaf package on its own version line — dsh is a dev preview, so breakage stops at the bridge. |

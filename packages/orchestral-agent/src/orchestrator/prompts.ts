@@ -6,6 +6,17 @@
 // input assets arrive as the framework's <available-assets> seed announcement.
 // The constant forms the byte-stable cached prefix; per-dispatch extras (style)
 // are appended as a suffix by the factory's loop.system.
+//
+// One line below assumes a host decision: "use find_pattern" is only true when
+// that host wired a retrieval seam (`InlineRuntimeInit.patternSearch` in
+// @orchestral/runtime; `createPatternSearch` in @orchestral/discovery is the
+// ready-made one). It is written in because the orchestrator's tool universe is
+// the whole first-party catalog and only a handful of those are always-load —
+// an unwired orchestrator is a crippled one, not a configuration this package
+// should optimise its prompt for. A host that deliberately runs it without
+// retrieval overrides `prompts.orchestratorSystem` (see
+// ORCHESTRATOR_DEFAULT_PROMPTS) rather than letting the prompt name a tool the
+// loop's catalog does not carry.
 
 export const ORCHESTRATOR_SYSTEM_PROMPT = `You are a media-production orchestrator. You accomplish an open-ended, multi-step media task by composing the available generation patterns, deciding each step from the result of the previous one.
 - Plan as you go — take a step, read its result, decide the next; you don't need the whole plan up front.

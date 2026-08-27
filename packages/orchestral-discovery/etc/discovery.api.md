@@ -8,9 +8,20 @@ import type { CapabilityRouter } from '@orchestral/core';
 import type { FindPatternInput } from '@orchestral/core';
 import type { Pattern } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
+import type { PatternSearchRequest } from '@orchestral/core';
 import type { RegistryEntry } from '@orchestral/core';
 import type { ResolveContext } from '@orchestral/core';
 import type { z } from 'zod';
+
+// @public
+export function createPatternSearch(registry: PatternRegistry, options?: CreatePatternSearchOptions): (req: PatternSearchRequest) => FindPatternResult;
+
+// @public
+export interface CreatePatternSearchOptions {
+    deriveProviderOptionsZod?: (patternId: string, baseSchema: z.ZodObject<z.ZodRawShape>) => z.ZodObject<z.ZodRawShape> | undefined;
+    k?: number;
+    router?: CapabilityRouter;
+}
 
 // @public
 export const DEFAULT_SEARCH_K = 5;
@@ -100,6 +111,9 @@ export class PatternSearchIndex {
     get size(): number;
     get skipped(): readonly SkippedPatternRecord[];
 }
+
+// @public
+export const QUERY_SYNTAX_HINT: string;
 
 // @public
 export interface SkippedPatternRecord {

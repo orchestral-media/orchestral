@@ -226,7 +226,7 @@ topological sort of:
 core             (nothing)
 adapters-ai-sdk  core            (+ `ai` as a peer; nothing depends on it)
 discovery        core
-runtime          core, discovery
+runtime          core
 patterns         core
 agent            core, patterns, runtime
 ```
@@ -296,9 +296,11 @@ node --input-type=module -e "
 ```
 
 Four `function`s (then two more, then one more) means the published entry points, the type
-surface and the cross-package resolution all landed. `@orchestral/runtime`
-pulling `@orchestral/discovery` in on its own is part of what the first block
-proves — it is a dependency, not something the host asks for. Also check the package pages render the
+surface and the cross-package resolution all landed. `@orchestral/runtime` NOT
+pulling `@orchestral/discovery` in is part of what the first block proves:
+retrieval is a seam the host wires (`InlineRuntimeInit.patternSearch`), so a
+runtime install carries no search engine and the second block is a host asking
+for one. Also check the package pages render the
 README and show the Apache-2.0 license.
 
 ## 7. `@orchestral/dsh-plugin`, separately

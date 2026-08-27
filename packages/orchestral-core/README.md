@@ -472,8 +472,10 @@ schemas (`FindPatternInputSchema`, `DispatchPatternInputSchema`), but it does
 registry plus the `handleFindPattern` handler — lives in
 [`@orchestral/discovery`](https://github.com/orchestral-media/orchestral/tree/main/packages/orchestral-discovery),
 because which retrieval algorithm ranks your catalog is a product decision, not
-a contract. `@orchestral/runtime` already depends on it; reach for it directly
-only if you drive the agent loop yourself.
+a contract. Core names WHO answers a call — `PatternSearch` — and implements
+none; `@orchestral/runtime` takes one as `InlineRuntimeInit.patternSearch` and
+depends on no search library, so install `@orchestral/discovery` (or implement
+`PatternSearch` yourself) whenever a catalog must be searchable.
 
 ## Routing knobs in 0.x
 

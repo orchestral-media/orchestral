@@ -522,7 +522,12 @@ core surface … Nothing in @orchestral/core, @orchestral/runtime or
 @orchestral/patterns depends on it."
 **Instead.** Install `@orchestral/discovery` / `@orchestral/agent` when you want
 the first-party ones; replace either by implementing against the core
-contracts. `@orchestral/plan` is the same move carried one step further: a plan
+contracts. `@orchestral/runtime` holds the same line rather than quietly
+breaking it: retrieval reaches an agent loop only through the injected
+`InlineRuntimeInit.patternSearch` seam (`PatternSearch`, a core contract with
+no implementation behind it), a loop with no seam wired is handed no
+`find_pattern` tool at all, and installing the runtime therefore installs no
+search engine. `@orchestral/plan` is the same move carried one step further: a plan
 is one Pattern's wire format, not the library's vocabulary, so its schema left
 core along with the walk, the interpreter and the preflight — the primitive all
 four share ("read a `$ref` off a step's input") had been copied once per package

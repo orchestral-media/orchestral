@@ -521,6 +521,8 @@ export function buildCatalogDescriptors(opts?: BuildCatalogDescriptorsOptions): 
 
 // @public (undocumented)
 export interface BuildCatalogDescriptorsOptions {
+    includeFindPattern?: boolean;
+    querySyntaxHint?: string;
     slotDefaultNote?: string;
 }
 
@@ -1411,6 +1413,19 @@ export interface PatternScope {
         alternatives?: readonly Alternative<I, O>[];
     }): void;
     dispose(): void;
+}
+
+// @public
+export type PatternSearch = (req: PatternSearchRequest) => unknown;
+
+// @public
+export interface PatternSearchRequest {
+    audience: 'chat-turn' | 'agent-loop';
+    directToolIds?: ReadonlySet<string>;
+    excludeIds?: ReadonlySet<string>;
+    includeOnly?: ReadonlySet<string>;
+    input: FindPatternInput;
+    resolveCtx?: ResolveContext;
 }
 
 // @public
