@@ -92,6 +92,14 @@ export {
   FindPatternInputSchema,
   type FindPatternInput,
 } from './find-pattern-schema'
+// Who answers a validated find_pattern call. A contract only: the first-party
+// BM25 implementation ships in @orchestral/discovery (`createPatternSearch`),
+// and a host that replaces retrieval implements this instead. @orchestral/
+// runtime takes one as `InlineRuntimeInit.patternSearch`.
+export type {
+  PatternSearch,
+  PatternSearchRequest,
+} from './pattern-search'
 export {
   resolveDispatchTarget,
   isDispatchError,
