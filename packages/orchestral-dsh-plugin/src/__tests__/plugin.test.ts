@@ -99,6 +99,10 @@ function atomic(
   return defineAtomicPattern({
     id,
     description: `${id} pattern`,
+    // These tests are about `exposure`; opt every fixture into the first-class
+    // tool table so the exposureMode gate below is the only thing a fixture
+    // has to say out loud when it wants to test it.
+    exposureMode: 'always-load' as const,
     ...(exposure === undefined ? {} : { exposure }),
     primary: {
       tool: {
@@ -304,6 +308,42 @@ describe('tool registration', () => {
     // The blocklist is a SUB-AGENT guard, not a global ban: a top-level turn
     // delegating to an agent is exactly what `agent_*` exists for.
     expect(registered.map((t) => t.name)).toEqual(['agent_probe'])
+  })
+
+  it('registers only always-load patterns by default', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          atomic('always', 'tool'),
+          atomic('deferred-atomic', 'tool', { exposureMode: 'deferred' }),
+        ),
+      }),
+    )
+
+    // `exposureMode` is orthogonal to `exposure`: 'deferred' (the default)
+    // means "reachable only through find_pattern → dispatch_pattern". A bridge
+    // that promotes the whole registry to first-class tools forces every
+    // Pattern to always-load — the exact failure the field exists to prevent.
+    expect(registered.map((t) => t.name)).toEqual(['always'])
+  })
+
+  it('registers deferred patterns when the host asks for the flat catalog', () => {
+    const { ctx, registered } = fakeCtx()
+    apply(
+      ctx,
+      config({
+        runtime: fakeRuntime(null),
+        registry: registryOf(
+          atomic('always', 'tool'),
+          atomic('deferred-atomic', 'tool', { exposureMode: 'deferred' }),
+        ),
+        exposeDeferred: true,
+      }),
+    )
+    expect(registered.map((t) => t.name)).toEqual(['always', 'deferred-atomic'])
   })
 })
 

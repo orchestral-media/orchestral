@@ -112,8 +112,9 @@ dsh --profile demo
 |---|---|---|
 | `runtime` | *(required)* | A constructed orchestral `Runtime`, e.g. an `InlineRuntime`. |
 | `registry` | *(required)* | The `PatternRegistry` whose exposed Patterns become tools. |
-| `surface` | `'chatTurn'` | Which orchestral exposure surface this dsh registry represents. `'agentLoop'` additionally admits `'agent-tool'` Patterns and suits a subagent-scoped mount. |
+| `surface` | `'chatTurn'` | Which orchestral exposure surface this dsh registry represents. `'agentLoop'` additionally admits `'agent-tool'` Patterns *and* subtracts every `agent_*` Pattern via `DEFAULT_SUBAGENT_BLOCKLIST`, the same recursion guard orchestral runs on its own sub-agent catalog. Suits a subagent-scoped mount. |
 | `toolNamePrefix` | `''` | Prepended to every tool name. PatternIds are already valid LLM tool names by design; set a prefix only to avoid collisions with other plugins. |
+| `exposeDeferred` | `false` | Register every exposed Pattern as a first-class tool, not just the `exposureMode: 'always-load'` ones. Off by default: `'deferred'` means "reachable through find_pattern", and promoting understanding atomics (`image-to-text` / `text-generation`) is what that field exists to prevent. A promoted Pattern is also exposed with its BASE input schema — the `providerOptions` lift happens in find_pattern, which this path skips. |
 | `timeoutMs` | *(none)* | Per-call deadline, enforced by dsh's timeout policy. |
 | `resolveJobContext` | *(none)* | `(args) => { sessionId?, assetContextId?, assetEvents? }`. Supplies the host-owned asset ledger a call's `input.references` handles resolve against. Patterns with no `assetNeeds` never consult it. |
 

@@ -91,7 +91,12 @@ function toToolName(prefix: string, patternId: string): string {
  */
 export function buildPatternToolDescriptors(
   patterns: Iterable<Pattern>,
-  opts: { surface: ExposureSurface; toolNamePrefix: string },
+  opts: {
+    surface: ExposureSurface
+    toolNamePrefix: string
+    /** See `Config.exposeDeferred`. Default `false` — always-load only. */
+    exposeDeferred?: boolean
+  },
 ): PatternToolDescriptor[] {
   const out: PatternToolDescriptor[] = []
   for (const pattern of patterns) {
@@ -106,6 +111,15 @@ export function buildPatternToolDescriptors(
       opts.surface === 'agentLoop' &&
       matchSubagentBlocklist(pattern.id) !== null
     ) {
+      continue
+    }
+
+    // Gate 3: the load strategy. `exposureMode` answers a different question
+    // from `exposure` — not "who may see this" but "is it worth a slot in the
+    // tool table". Everything here becomes a first-class dsh tool, so the
+    // default mirrors core's own always-load catalog rather than flattening
+    // the register into the prompt.
+    if (opts.exposeDeferred !== true && pattern.exposureMode !== 'always-load') {
       continue
     }
 

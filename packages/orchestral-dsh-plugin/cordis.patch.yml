@@ -20,4 +20,5 @@
         registry: !!js ctx.orchestralHost.registry
         surface: !!js ctx.orchestralHost.surface ?? 'chatTurn'
         toolNamePrefix: !!js ctx.orchestralHost.toolNamePrefix ?? ''
+        exposeDeferred: !!js ctx.orchestralHost.exposeDeferred ?? false
         resolveJobContext: !!js ctx.orchestralHost.resolveJobContext
