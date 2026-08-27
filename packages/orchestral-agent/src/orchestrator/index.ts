@@ -25,10 +25,10 @@
 // first-class tool it can delegate to in one hop.
 
 import { z } from 'zod'
-import type { AgentPattern, AssetNeed } from '@orchestral/core'
+import type { AgentPattern, AssetNeed, PatternId } from '@orchestral/core'
 import { agentInputSchema, extendInputsWithReferences } from '@orchestral/core'
 
-import { IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID } from '@orchestral/patterns'
+import { FIRST_PARTY_PATTERN_IDS, PLAN_PATTERN_ID } from '@orchestral/patterns'
 
 import { ORCHESTRATOR_SYSTEM_PROMPT } from './prompts'
 
@@ -84,6 +84,30 @@ export const OrchestratorInputSchema = agentInputSchema({
 export type OrchestratorInput = z.infer<typeof OrchestratorInputSchema>
 
 export const AGENT_ORCHESTRATOR_PATTERN_ID = 'agent_orchestrator'
+
+// ── tool universe ────────────────────────────────────────────────────────
+
+// The whole shipped first-party catalog, read from @orchestral/patterns
+// instead of re-typed here. The list this replaces was a hand-copy of that
+// package's manifest and had already drifted once (a bare
+// `image-to-image-via-caption` that resolves to nothing in the registry);
+// a copy nobody diffs against its source is a second truth, not a narrower
+// agent.
+//
+// One exclusion, and it is a decision rather than an omission:
+//
+//   • meta_plan — the orchestrator plans as it goes, so committing a static
+//     DAG overlaps with its own scheduling authority. An agent that can both
+//     schedule per step and submit a fixed graph has two planners.
+//
+// Every kind:'agent' Pattern stays out structurally: agents live in THIS
+// package, not in @orchestral/patterns, so the catalog carries none —
+// orchestration composes atomics + metas. (dispatchAgent also auto-filters
+// the self id.)
+const ORCHESTRATOR_TOOL_PATTERN_IDS: readonly PatternId[] = [
+  ...FIRST_PARTY_PATTERN_IDS.atomic,
+  ...FIRST_PARTY_PATTERN_IDS.meta,
+].filter((id) => id !== PLAN_PATTERN_ID)
 
 // ── factory ──────────────────────────────────────────────────────────────
 
@@ -144,35 +168,9 @@ export function createOrchestratorAgent(): AgentPattern<OrchestratorInput> {
       // carrying `style`. No embedded SKILL — the orchestrator does not load
       // skills; aesthetic guidance arrives via the brief / references.
       system: (input: OrchestratorInput) => buildOrchestratorSystem(input),
-      // Broad universe: every user-facing atomic + meta the orchestrator can
-      // compose. Deliberately excludes ALL kind:'agent' patterns (including
-      // itself) — dispatchAgent also auto-filters self, but no other agent is
-      // listed either: orchestration composes atomics + metas, not agents.
-      toolPatternIds: [
-        // atomic generation / understanding capabilities
-        'text-to-image',
-        'image-to-image',
-        'text-to-video',
-        'image-to-video',
-        'video-to-video',
-        'text-to-speech',
-        'text-to-audio',
-        'automatic-speech-recognition',
-        'image-to-text',
-        'text-generation',
-        // Canonical id is `meta_image-to-image-via-caption` (kind:'meta');
-        // the bare name does not resolve in the registry. Import the exported
-        // constant so this can't drift from the pattern's declared id again.
-        IMAGE_TO_IMAGE_VIA_CAPTION_PATTERN_ID,
-        // user-facing metas — the whole shipped meta catalog
-        'meta_script2video',
-        'meta_image-best-of-n',
-        'meta_storyboard',
-        'meta_product-ad-short',
-        'meta_product-photo-pack',
-        'meta_ugc-testimonial',
-        'meta_explainer-short',
-      ],
+      // The tool universe is the shipped catalog minus meta_plan — see
+      // ORCHESTRATOR_TOOL_PATTERN_IDS above for both halves of the reasoning.
+      toolPatternIds: ORCHESTRATOR_TOOL_PATTERN_IDS,
       // Long-running sub-dispatches the agent loop can't block on
       // synchronously — routed through the async fan-out plumbing.
       asyncToolPatternIds: [

@@ -19,6 +19,7 @@ describe('@orchestral/patterns public surface', () => {
         "EXPLAINER_SHORT_PATTERN_ID",
         "ExplainerShortInputSchema",
         "ExplainerShortOutputSchema",
+        "FIRST_PARTY_PATTERN_IDS",
         "IMAGE_BEST_OF_N_DEFAULT_PROMPTS",
         "IMAGE_BEST_OF_N_PATTERN_ID",
         "IMAGE_TO_IMAGE_PATTERN_ID",

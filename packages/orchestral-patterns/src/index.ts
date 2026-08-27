@@ -224,6 +224,13 @@ export {
   type RunPlanOptions,
 } from './meta/plan'
 
+// ── The shipped id catalog ───────────────────────────────────────────────
+// Which ids this package ships, as data, grouped by declared kind. For a
+// consumer that needs the whole catalog (an agent's tool list, a host
+// registering a subset) this is the one place to read it — the alternative is
+// the hand-copied literal list @orchestral/agent used to carry, which drifted.
+export { FIRST_PARTY_PATTERN_IDS } from './pattern-ids'
+
 // ── Meta prompt-override defaults ─────────────────────────────────────────
 // Each meta inlines its system prompts as module constants. These frozen
 // `*_DEFAULT_PROMPTS` objects expose those defaults keyed by the same names a

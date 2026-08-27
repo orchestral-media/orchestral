@@ -66,8 +66,7 @@
   },
   "dependencies": {
     "@orchestral/core": "workspace:*",
-    "@orchestral/patterns": "workspace:*",
-    "@orchestral/runtime": "workspace:*"
+    "@orchestral/patterns": "workspace:*"
   },
   "peerDependencies": {
     "zod": ">=4.3 <5"

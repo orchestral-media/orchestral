@@ -19,6 +19,8 @@ import {
   createScript2VideoMeta,
   createStoryboardMeta,
   createUgcTestimonialMeta,
+  FIRST_PARTY_PATTERN_IDS,
+  PLAN_PATTERN_ID,
 } from '@orchestral/patterns'
 
 import {
@@ -107,33 +109,28 @@ describe('agent_orchestrator', () => {
     expect(sysB).toContain('infer a consistent style')
   })
 
-  it('whitelists a broad atomic + meta universe and excludes every agent kind in loop.toolPatternIds', () => {
+  it('takes its tool universe from the shipped first-party catalog, minus meta_plan', () => {
     const agent = createOrchestratorAgent()
 
-    // Order is part of the contract — it shapes the catalog order the LLM sees.
-    expect(agent.loop.toolPatternIds).toEqual([
-      'text-to-image',
-      'image-to-image',
-      'text-to-video',
-      'image-to-video',
-      'video-to-video',
-      'text-to-speech',
-      'text-to-audio',
-      'automatic-speech-recognition',
-      'image-to-text',
-      'text-generation',
-      'meta_image-to-image-via-caption',
-      'meta_script2video',
-      'meta_image-best-of-n',
-      'meta_storyboard',
-      'meta_product-ad-short',
-      'meta_product-photo-pack',
-      'meta_ugc-testimonial',
-      'meta_explainer-short',
-    ])
+    // The assertion is the DIFFERENCE against @orchestral/patterns' catalog,
+    // not a second copy of the id list. A first-party Pattern added, renamed
+    // or dropped over there now shows up here as an unexplained gap — the old
+    // hand-copied expectation could not see one, which is how the list drifted.
+    const catalog = [
+      ...FIRST_PARTY_PATTERN_IDS.atomic,
+      ...FIRST_PARTY_PATTERN_IDS.meta,
+    ]
+    expect(agent.loop.toolPatternIds).toEqual(
+      catalog.filter((id) => id !== PLAN_PATTERN_ID),
+    )
+
+    // The one deliberate exclusion: the orchestrator plans as it goes, so
+    // submitting a static DAG overlaps with its own scheduling authority.
+    expect(agent.loop.toolPatternIds).not.toContain(PLAN_PATTERN_ID)
 
     // No agent_* in the universe — orchestration composes atomics + metas, not
-    // agents (and never itself).
+    // agents (and never itself). Structural, not a filter: kind:'agent'
+    // patterns live in this package, so the catalog carries none.
     for (const id of agent.loop.toolPatternIds) {
       expect(id.startsWith('agent_')).toBe(false)
     }

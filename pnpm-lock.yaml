@@ -258,9 +258,6 @@ importers:
       '@orchestral/patterns':
         specifier: workspace:*
         version: link:../orchestral-patterns
-      '@orchestral/runtime':
-        specifier: workspace:*
-        version: link:../orchestral-runtime
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

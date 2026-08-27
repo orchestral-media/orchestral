@@ -96,15 +96,51 @@ const CHILD_FAILURE_RETHROWN_CODES: ReadonlySet<string> = new Set([
  * `exposure: 'agent-tool'` Pattern belongs here and a chat-turn-only one does
  * not. Same gate find_pattern applies for `audience: 'agent-loop'`, so the two
  * halves of the subagent's catalog agree on who is visible.
+ *
+ * Throws `AGENT_TOOL_PATTERN_NOT_REGISTERED` when the allowlist names an id
+ * the registry does not have. `ownerPatternId` is the agent whose
+ * `loop.toolPatternIds` this is, so the error can say whose declaration went
+ * unsatisfied.
  */
 export function buildAgentInlineCore(
   whitelist: readonly PatternId[],
   registry: { get(id: PatternId): Pattern | undefined },
+  ownerPatternId: PatternId,
 ): { descriptors: AgentToolDescriptor[]; inlineIds: Set<PatternId> } {
   const patterns: Pattern[] = []
+  const missing: PatternId[] = []
   for (const id of whitelist) {
+    // Blocklist first, and on the id alone. `onToolCall` refuses a blocklisted
+    // id whether or not the author listed it, so rendering one here would
+    // advertise a tool whose every call comes back SUBAGENT_BLOCKED — the
+    // catalog and the call side have to say the same sentence, which is what
+    // computeStaticAgentExcludes already gives the find_pattern half. Listing
+    // one is an authoring no-op, not a failure: the blocklist is the one rule,
+    // and naming an id past it has never widened anything. Judging before the
+    // lookup also keeps the missing-id error below honest — telling a host to
+    // register an `agent_` id would be advice that cannot help, since the call
+    // would be refused with it registered.
+    if (matchSubagentBlocklist(id)) continue
     const p = registry.get(id)
     if (p) patterns.push(p)
+    else missing.push(id)
+  }
+  // Skipping an absent id used to be silent, which made the catalog shrink
+  // under an unchanged system prompt: the agent keeps being told to use tools
+  // it no longer has, and finds out one wasted turn at a time. That is the
+  // quiet adjacent answer, and the allowlist is exactly the place a refusal
+  // is cheap — nothing has been dispatched yet.
+  if (missing.length > 0) {
+    throw Object.assign(
+      new Error(
+        `AGENT_TOOL_PATTERN_NOT_REGISTERED: ${ownerPatternId} declared ` +
+          `loop.toolPatternIds containing ids absent from the registry: ` +
+          `[${missing.join(', ')}]. Register those Patterns, or narrow ` +
+          `loop.toolPatternIds — the agent's system prompt is written against ` +
+          `the full list.`,
+      ),
+      { code: 'AGENT_TOOL_PATTERN_NOT_REGISTERED' },
+    )
   }
   const descriptors = buildAlwaysLoadDescriptors(patterns, { surface: 'agentLoop' })
   const inlineIds = new Set<PatternId>(descriptors.map((d) => d.name as PatternId))
@@ -459,6 +495,7 @@ deps: AgentDispatchDeps,
   const { descriptors: inlineCore, inlineIds } = buildAgentInlineCore(
     effectiveToolPatternIds,
     deps.registry,
+    pattern.id,
   )
   // Finish tool injection. An outputExtractor Pattern produces its output
   // from the final text, so it gets no finish tool; everything else exposes
