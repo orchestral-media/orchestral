@@ -1047,3 +1047,62 @@ describe('plannedDispatches', () => {
     expect((noted[0]!.detail as Error).message).toBe('plannedDispatches is buggy')
   })
 })
+
+// ── The blocklist beats an explicit toolPatternIds listing ─────────────────
+//
+// Three places in this repo used to describe the same mechanism differently:
+// the catalog exclusion let an author's `loop.toolPatternIds` entry keep an
+// `agent_` id discoverable, while `onToolCall` refused that very id at
+// dispatch. The catalog advertised a tool the model could find and never call.
+// One rule now: the default blocklist wins, everywhere.
+describe('an agent_ id listed in loop.toolPatternIds', () => {
+  it('is not discoverable through find_pattern either', async () => {
+    // `select:<id>` is the deterministic selector — no BM25 ranking in the
+    // way, so an empty result means the corpus filter refused it and nothing
+    // else. The second call is the positive control: the same corpus, the
+    // same selector shape, an id that is genuinely dispatchable here.
+    const h = makeHarness({
+      patterns: [
+        agent('agent_caller', ['agent_blocked', 'allowed_atomic']),
+        agent('agent_blocked', []),
+        atomic('allowed_atomic'),
+      ],
+      scripts: {
+        agent_caller: [
+          { name: 'find_pattern', input: { query: 'select:agent_blocked' }, callId: 'tc-1' },
+          { name: 'find_pattern', input: { query: 'select:allowed_atomic' }, callId: 'tc-2' },
+        ],
+      },
+    })
+    const job = await h.runtime.submitJob({
+      patternId: 'agent_caller',
+      input: { prompt: 'start' },
+    })
+    expect(job.status).toBe('done')
+
+    const blockedSearch = h.results.agent_caller?.[0] as {
+      matches?: readonly { patternId: string }[]
+    }
+    expect((blockedSearch.matches ?? []).map((m) => m.patternId)).toEqual([])
+
+    const allowedSearch = h.results.agent_caller?.[1] as {
+      matches?: readonly { patternId: string }[]
+    }
+    expect((allowedSearch.matches ?? []).map((m) => m.patternId)).toEqual([
+      'allowed_atomic',
+    ])
+  })
+
+  it('is still refused at dispatch, with the same SUBAGENT_BLOCKED shape', async () => {
+    // The catalog and the guard now agree; this pins that closing the catalog
+    // hole did not quietly open the dispatch one.
+    const h = makeHarness({
+      patterns: [agent('agent_caller', ['agent_blocked']), agent('agent_blocked', [])],
+      scripts: { agent_caller: [dispatchStep('agent_blocked', 'go', 'tc-1')] },
+    })
+    await h.runtime.submitJob({ patternId: 'agent_caller', input: { prompt: 'start' } })
+    const verdict = h.results.agent_caller?.[0] as GuardVerdict
+    expect(verdict.code).toBe('SUBAGENT_BLOCKED')
+    expect(verdict.reason).toBe('prefix')
+  })
+})

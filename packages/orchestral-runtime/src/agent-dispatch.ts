@@ -409,8 +409,10 @@ deps: AgentDispatchDeps,
   // both ancestor and tool). DEFAULT_SUBAGENT_BLOCKLIST expands `agent_*`
   // prefix into concrete ids so the "a subagent doesn't see
   // grand-subagents" invariant holds structurally, without depending on a
-  // prompt-assembly layer to prune. Pattern authors who legitimately need
-  // to expose a specific agent_ Pattern can opt-in via loop.toolPatternIds.
+  // prompt-assembly layer to prune. It is not overridable per Pattern:
+  // `loop.toolPatternIds` narrows a catalog, it never widens one past the
+  // blocklist, because `onToolCall` refuses a blocklisted id whether or not
+  // the author listed it.
   //
   // Async dispatch tightens the catalog further — it exposes only
   // `toolPatternIds ∩ asyncToolPatternIds`. In sync mode asyncToolPatternIds
@@ -445,11 +447,7 @@ deps: AgentDispatchDeps,
         )
       : pattern.loop.toolPatternIds
 
-  const staticExcludeIds = computeStaticAgentExcludes(
-    deps.registry,
-    pattern.id,
-    effectiveToolPatternIds,
-  )
+  const staticExcludeIds = computeStaticAgentExcludes(deps.registry, pattern.id)
 
   // Host tools are not assembled here. The runtime emits only the catalog
   // routing tools and forwards pattern.id to the AgentRunImpl seam; the host
@@ -1569,23 +1567,22 @@ deps: AgentDispatchDeps,
  *
  * Note: this does NOT include the ancestor chain — that's caught at
  * runtime in onToolCall to keep the catalog cacheable.
+ *
+ * There is no per-Pattern opt-out. An author who lists an `agent_` id in
+ * `loop.toolPatternIds` used to keep it in the catalog while `onToolCall`
+ * refused the very same id, so the catalog advertised a tool the model could
+ * find and never call. The blocklist is the one rule; opening recursion means
+ * changing the blocklist itself, not naming an id past it.
  */
 export function computeStaticAgentExcludes(
-registry: PatternRegistry,
+  registry: PatternRegistry,
   selfId: PatternId,
-  toolPatternIds: readonly PatternId[] | undefined,
 ): PatternId[] {
   const out: PatternId[] = [selfId]
   // Expand idPrefixes into concrete ids; iterate registry.values().
   for (const p of registry.values()) {
     if (p.id === selfId) continue // self already in out
-    if (matchSubagentBlocklist(p.id)) {
-      // Pattern author opt-in via loop.toolPatternIds wins over default
-      // blocklist — keep id out of the static exclude list so the
-      // catalog builder's `includeOnly` filter can include it.
-      if (toolPatternIds?.includes(p.id)) continue
-      out.push(p.id)
-    }
+    if (matchSubagentBlocklist(p.id)) out.push(p.id)
   }
   return out
 }

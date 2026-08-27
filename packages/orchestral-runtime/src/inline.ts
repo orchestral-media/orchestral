@@ -192,9 +192,13 @@ const DEFAULT_OUTPUT_VALIDATION = 'strict' as const
  * excludes `agent_*`-prefixed Patterns from subagent catalogs), this gives
  * defence-in-depth against recursion.
  *
- * A Pattern author who wants to open a recursive path (e.g. director →
- * cinematographer → camera-operator) must (a) explicitly raise maxAgentDepth
- * and (b) list the specific `agent_`-prefixed Pattern in toolPatternIds.
+ * Raising this alone does NOT open a recursive path. `agent_`-prefixed
+ * Patterns are refused by the default blocklist at both the catalog and the
+ * dispatch guard, and listing one in `loop.toolPatternIds` does not lift that
+ * — an allowlist narrows what an agent may reach, it never widens it. Opening
+ * director → cinematographer → camera-operator means supplying a blocklist
+ * that does not carry the `agent_` prefix, which no seam injects today: the
+ * recursive path is closed, deliberately, until someone argues for that seam.
  */
 const DEFAULT_MAX_AGENT_DEPTH = 2
 

@@ -399,9 +399,12 @@ explicitly by the author. Holding this invariant means a newly added third-party
 package can't accidentally inject behavior into a first-party Pattern." A guard
 trip inside the loop is a structured tool-result, not a failed job, so the model
 can recover.
-**Instead.** List the ids. Declare `extensible: true` on a Pattern you mean
-others to attach alternatives to; `registry.attachAlternative` throws
-`PATTERN_NOT_EXTENSIBLE` otherwise.
+**Instead.** List the ids. The list only narrows: an `agent_`-prefixed id named
+in `toolPatternIds` is still refused by `DEFAULT_SUBAGENT_BLOCKLIST`, at the
+catalog and at the dispatch guard alike, so recursion is opened by supplying a
+different blocklist and never by naming an id past this one. Declare
+`extensible: true` on a Pattern you mean others to attach alternatives to;
+`registry.attachAlternative` throws `PATTERN_NOT_EXTENSIBLE` otherwise.
 **Where.** `packages/orchestral-core/src/pattern.ts:155-164, 508-513`;
 `packages/orchestral-core/src/registry.ts:398-417`;
 `packages/orchestral-runtime/src/agent-dispatch.ts:340-342`;

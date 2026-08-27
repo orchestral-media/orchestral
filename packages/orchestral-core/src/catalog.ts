@@ -47,9 +47,12 @@ export type NamespaceId =
  * the two must be changed together, and third-party agent authors MUST keep
  * the prefix.
  *
- * To let a sub-agent see a grand-agent, a Pattern author must opt in
- * explicitly via their own `loop.toolPatternIds`, overriding the default block
- * (see the catalog-builder allowOnly precedence).
+ * A Pattern author cannot opt back in. Listing an `agent_` id in
+ * `loop.toolPatternIds` narrows that agent's allowlist; it does not override
+ * this block, and `dispatchAgent` refuses such a call with SUBAGENT_BLOCKED
+ * whether or not it was listed. Letting a sub-agent see a grand-agent means
+ * judging against a different blocklist — this value is the only thing the
+ * guards read.
  *
  * Same idea as denylisting the agent-dispatch tool itself to stop a sub-agent
  * from spawning further agents.
