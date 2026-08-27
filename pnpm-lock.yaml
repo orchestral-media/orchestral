@@ -407,9 +407,6 @@ importers:
       '@orchestral/discovery':
         specifier: workspace:*
         version: link:../orchestral-discovery
-      '@orchestral/plan':
-        specifier: workspace:*
-        version: link:../orchestral-plan
     devDependencies:
       '@orchestral/patterns':
         specifier: workspace:*
