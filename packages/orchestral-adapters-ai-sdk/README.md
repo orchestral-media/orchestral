@@ -122,10 +122,16 @@ Two sources feed the SDK's `providerOptions`, and they are shaped differently:
 - `input.providerOptions` — the **flat** per-model object the first-party
   patterns carry on the top level of their input (a meta `compose()` sets it; the
   derived LLM-facing schema fills it per model) — is nested under the model's
-  provider key.
+  **SDK provider key**: the first `.`-separated segment of the model instance's
+  own `.provider` (`openai.image` → `openai`), which is the name the SDK's
+  provider matches against. That is deliberately *not* `options.provider`: the
+  routing identity is yours to overwrite with a relay slug, and options nested
+  under a slug no provider answers to are dropped without a word. Override the
+  wire key with `options.sdkProviderKey` when the segment rule is wrong for the
+  provider you registered.
 
 Per-call wins: a key in `input.providerOptions` overrides the same key in
-`ctx.providerOptions[provider]`.
+`ctx.providerOptions[sdkProviderKey]`.
 
 ### Structured output (`responseFormat: 'json'`)
 

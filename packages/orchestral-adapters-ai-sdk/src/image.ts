@@ -84,7 +84,7 @@ export function fromImageModel(
       }
       const n = optionalNumber(fields, 'n')
       const seed = optionalNumber(fields, 'seed')
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const startedAt = Date.now()
       const { images } = await generateImage({

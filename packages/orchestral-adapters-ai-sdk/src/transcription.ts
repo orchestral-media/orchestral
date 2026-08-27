@@ -88,7 +88,7 @@ export function fromTranscriptionModel(
         )
       }
       const audio = await options.loadAudio(source, ctx)
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const startedAt = Date.now()
       const result = await transcribe({

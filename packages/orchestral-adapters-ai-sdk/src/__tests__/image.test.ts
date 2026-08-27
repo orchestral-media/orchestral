@@ -312,4 +312,56 @@ describe('fromImageModel', () => {
       'openai: the AI SDK image model returned no images',
     )
   })
+
+  it('nests per-call providerOptions under the SDK provider key, not the routing identity', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => ({
+      images: [PNG_B64],
+      warnings: [],
+      response: { timestamp: new Date(0), modelId: 'gpt-image-1', headers: {} },
+    }))
+    // A real AI SDK image model reports a sub-namespaced provider string; the
+    // key `providerOptions` has to match is its first segment.
+    const model = new MockImageModelV3({
+      provider: 'openai.image',
+      modelId: 'gpt-image-1',
+      doGenerate,
+    })
+    const envelope = fromImageModel(model, {
+      provider: 'relay',
+      modelId: 'relay:gpt-image-1',
+    })
+
+    // The record keeps the catalog identity — that is what excludeModel /
+    // pinnedModel match on.
+    expect(envelope.provider).toBe('relay')
+    expect(envelope.modelId).toBe('relay:gpt-image-1')
+
+    await envelope.call(
+      { prompt: 'x', providerOptions: { quality: 'high' } },
+      ctx({ providerOptions: { openai: { style: 'vivid' } } }),
+    )
+
+    // Under the relay slug these options would have reached the provider
+    // unread: the SDK takes the key it knows and says nothing about the rest.
+    expect(doGenerate.mock.calls[0]![0].providerOptions).toEqual({
+      openai: { style: 'vivid', quality: 'high' },
+    })
+  })
+
+  it('lets sdkProviderKey state the wire key when the first segment is wrong', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => ({
+      images: [PNG_B64],
+      warnings: [],
+      response: { timestamp: new Date(0), modelId: 'gpt-image-1', headers: {} },
+    }))
+    const envelope = fromImageModel(mockImageModel(doGenerate), {
+      provider: 'relay',
+      sdkProviderKey: 'fal',
+    })
+
+    await envelope.call({ prompt: 'x', providerOptions: { seed: 1 } }, ctx())
+
+    expect(doGenerate.mock.calls[0]![0].providerOptions).toEqual({ fal: { seed: 1 } })
+    expect(envelope.provider).toBe('relay')
+  })
 })

@@ -142,7 +142,7 @@ export function fromVisionModel(
       const prompt = optionalString(fields, 'prompt')
       const maxLength = optionalNumber(fields, 'maxLength')
       const structured = readStructuredOutput(fields, 'image-to-text')
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const systemText =
         system ?? (prompt === undefined ? modeInstruction : undefined)

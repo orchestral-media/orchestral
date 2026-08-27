@@ -34,6 +34,20 @@ export interface AdapterOptions {
    * `pinnedModel` / `rankedModels` match the ids the host actually stores.
    */
   modelId?: string
+  /**
+   * The key `providerOptions` is nested under on the wire. Default: the first
+   * `.`-separated segment of the AI SDK model's own `.provider`
+   * (`openai.image` → `openai`).
+   *
+   * Deliberately not `provider`: that one is the catalog's routing identity,
+   * and the host above is invited to overwrite it with a relay slug or an
+   * alias so `excludeModel` / `pinnedModel` match. Nesting per-call options
+   * under a slug no provider answers to is how they get dropped — the SDK
+   * hands each provider the key that names it and says nothing about the
+   * rest, so a wrong key is silence, not an error. Set this when the
+   * first-segment rule is wrong for the provider you registered.
+   */
+  sdkProviderKey?: string
   /** `ModelTag`s to declare on the envelope (e.g. `['fast']`). Default `[]`. */
   tags?: readonly ModelTag[]
   /** Routing tier, read when a caller passes `ResolveContext.tier`. */
@@ -76,6 +90,12 @@ export interface AiSdkModelLike {
 export interface ModelIdentity {
   readonly provider: string
   readonly modelId: string
+  /**
+   * Kept apart from `provider` because the two answer different questions:
+   * `provider` is the row a host's catalog routes on, this is the name the
+   * AI SDK's provider matches `providerOptions` against.
+   */
+  readonly sdkProviderKey: string
 }
 
 export function resolveIdentity(
@@ -85,6 +105,8 @@ export function resolveIdentity(
   return {
     provider: options.provider ?? model.provider,
     modelId: options.modelId ?? model.modelId,
+    sdkProviderKey:
+      options.sdkProviderKey ?? model.provider.split('.')[0] ?? model.provider,
   }
 }
 
@@ -269,19 +291,21 @@ export type SdkProviderOptions = NonNullable<
  *   SDK's wire shape (`{ openai: { quality: 'high' } }`).
  * - `input.providerOptions` — the flat per-model object a first-party
  *   pattern carries on the top level of its input (a meta `compose()` sets it
- *   directly; the derived LLM-facing schema fills it per model). Nested under
- *   the model's provider key here.
+ *   directly; the derived LLM-facing schema fills it per model). Nested here
+ *   under the model's SDK provider key (`ModelIdentity.sdkProviderKey`) —
+ *   never under the routing `provider`, which the host may have replaced
+ *   with a slug the SDK has never heard of.
  *
  * Per-call wins: an `input.providerOptions` key overrides the same key in
- * `ctx.providerOptions[provider]`. Returns `undefined` when neither is set so
- * the SDK sees no `providerOptions` key at all.
+ * `ctx.providerOptions[sdkProviderKey]`. Returns `undefined` when neither is
+ * set so the SDK sees no `providerOptions` key at all.
  *
  * Both inputs are `Record<string, unknown>` on the orchestral side and
  * host-validated at the dispatch boundary; the SDK's stricter JSON-object
  * type is the wire contract, so the cast happens here, at one trusted seam.
  */
 export function providerOptionsFor(
-  provider: string,
+  sdkProviderKey: string,
   ctx: DispatchContext,
   input: InputRecord,
 ): SdkProviderOptions | undefined {
@@ -294,6 +318,6 @@ export function providerOptionsFor(
   if (!perCall) return base
   return {
     ...base,
-    [provider]: { ...base?.[provider], ...perCall },
+    [sdkProviderKey]: { ...base?.[sdkProviderKey], ...perCall },
   }
 }

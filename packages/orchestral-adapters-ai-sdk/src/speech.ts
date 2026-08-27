@@ -66,7 +66,7 @@ export function fromSpeechModel(
       const instructions = optionalString(fields, 'instructions')
       const language = optionalString(fields, 'language')
       const speed = optionalNumber(fields, 'speed')
-      const providerOptions = providerOptionsFor(identity.provider, ctx, fields)
+      const providerOptions = providerOptionsFor(identity.sdkProviderKey, ctx, fields)
 
       const startedAt = Date.now()
       const { audio } = await generateSpeech({
