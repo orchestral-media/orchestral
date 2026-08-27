@@ -14,10 +14,10 @@ import {
   buildCatalogDescriptors,
   buildFinishDescriptor,
   DEFAULT_AGENT_FINISH_SPEC,
-  DEFAULT_SUBAGENT_BLOCKLIST,
   DispatchPatternInputSchema,
   FindPatternInputSchema,
   isDispatchError,
+  matchSubagentBlocklist,
   projectToolOutputForModel,
   resolveDispatchTarget,
   sanitizeToolOutput,
@@ -994,11 +994,8 @@ deps: AgentDispatchDeps,
           // even for in-allowlist Patterns (Pattern authors opt-in to
           // allowlisted ids; the blocklist catches deeper authoring mistakes
           // like listing `agent_*` ids in loop.toolPatternIds by accident).
-          const blockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
-            (prefix) => fullId.startsWith(prefix),
-          )
-          const blockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(fullId)
-          if (blockedByPrefix || blockedById) {
+          const blocked = matchSubagentBlocklist(fullId)
+          if (blocked) {
             // Host-visible before the model-visible return — see the cycle
             // guard above.
             await deps.fanoutJobEvent(jobId, (job) => ({
@@ -1007,13 +1004,13 @@ deps: AgentDispatchDeps,
               patternId: fullId,
               callerPatternId: pattern.id,
               code: 'SUBAGENT_BLOCKED',
-              matched: blockedByPrefix ? ('prefix' as const) : ('id' as const),
+              matched: blocked,
             }))
             return {
               code: 'SUBAGENT_BLOCKED',
               pattern_id: fullId,
               caller_pattern_id: pattern.id,
-              reason: blockedByPrefix ? ('prefix' as const) : ('id' as const),
+              reason: blocked,
               message:
                 `${fullId} matched DEFAULT_SUBAGENT_BLOCKLIST. ` +
                 `Pattern authors should NOT list blocklist-prefixed ids in loop.toolPatternIds.`,
@@ -1097,11 +1094,8 @@ deps: AgentDispatchDeps,
                   hint: 'Use find_pattern to discover which patterns are dispatchable here.',
                 }
               }
-              const innerBlockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
-                (prefix) => inner.startsWith(prefix),
-              )
-              const innerBlockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(inner)
-              if (innerBlockedByPrefix || innerBlockedById) {
+              const innerBlocked = matchSubagentBlocklist(inner)
+              if (innerBlocked) {
                 await deps.fanoutJobEvent(jobId, (job) => ({
                   type: 'job:tool-rejected',
                   job,
@@ -1109,14 +1103,14 @@ deps: AgentDispatchDeps,
                   callerPatternId: pattern.id,
                   via: inner,
                   code: 'SUBAGENT_BLOCKED',
-                  matched: innerBlockedByPrefix ? ('prefix' as const) : ('id' as const),
+                  matched: innerBlocked,
                 }))
                 return {
                   code: 'SUBAGENT_BLOCKED',
                   pattern_id: fullId,
                   caller_pattern_id: pattern.id,
                   via: inner,
-                  reason: innerBlockedByPrefix ? ('prefix' as const) : ('id' as const),
+                  reason: innerBlocked,
                   message:
                     `${fullId} declares it would dispatch ${inner}, which matched ` +
                     `DEFAULT_SUBAGENT_BLOCKLIST. Pattern authors should NOT list ` +
@@ -1585,11 +1579,7 @@ registry: PatternRegistry,
   // Expand idPrefixes into concrete ids; iterate registry.values().
   for (const p of registry.values()) {
     if (p.id === selfId) continue // self already in out
-    const blockedByPrefix = DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes.some(
-      (prefix) => p.id.startsWith(prefix),
-    )
-    const blockedById = DEFAULT_SUBAGENT_BLOCKLIST.patternIds.includes(p.id)
-    if (blockedByPrefix || blockedById) {
+    if (matchSubagentBlocklist(p.id)) {
       // Pattern author opt-in via loop.toolPatternIds wins over default
       // blocklist — keep id out of the static exclude list so the
       // catalog builder's `includeOnly` filter can include it.

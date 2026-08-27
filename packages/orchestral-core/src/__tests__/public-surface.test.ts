@@ -75,6 +75,7 @@ describe('@orchestral/core public surface', () => {
         "inferNamespace",
         "isAssetUri",
         "isDispatchError",
+        "matchSubagentBlocklist",
         "metaEnvelopeShape",
         "mintHandle",
         "opaqueToken",

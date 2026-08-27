@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import type { PatternId } from '../foundational'
 import {
   DEFAULT_SUBAGENT_BLOCKLIST,
   inferNamespace,
+  matchSubagentBlocklist,
   resolveNamespace,
 } from '../catalog'
 
@@ -49,5 +51,48 @@ describe('resolveNamespace', () => {
 describe('DEFAULT_SUBAGENT_BLOCKLIST', () => {
   it('blocks the agent_ id prefix', () => {
     expect(DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes).toContain('agent_')
+  })
+})
+
+describe('matchSubagentBlocklist', () => {
+  it('names which half of the default blocklist matched, and says null when neither did', () => {
+    // The return value is the `matched` field `job:tool-rejected` already
+    // reports — the guards name the half that fired instead of recomputing it.
+    expect(matchSubagentBlocklist('agent_orchestrator')).toBe('prefix')
+    expect(matchSubagentBlocklist('meta_script2video')).toBeNull()
+    expect(matchSubagentBlocklist('text-to-image')).toBeNull()
+  })
+
+  it('judges against an injected blocklist, so widening the default stays one function', () => {
+    // The three runtime call sites pass no second argument. The parameter is
+    // what keeps a host that needs a different list from writing a fourth
+    // hand-inlined copy of the same two lines.
+    const blocklist = {
+      idPrefixes: ['sys_'],
+      patternIds: ['text-to-image' as PatternId],
+    }
+    expect(matchSubagentBlocklist('sys_probe', blocklist)).toBe('prefix')
+    expect(matchSubagentBlocklist('text-to-image', blocklist)).toBe('id')
+    expect(matchSubagentBlocklist('agent_orchestrator', blocklist)).toBeNull()
+  })
+
+  it('prefers "prefix" when both halves match', () => {
+    // An id can be both; the prefix is the broader statement about why it is
+    // refused, and it is the answer the copied code gave, so the reported
+    // `matched` byte does not change with this refactor.
+    const blocklist = {
+      idPrefixes: ['agent_'],
+      patternIds: ['agent_orchestrator' as PatternId],
+    }
+    expect(matchSubagentBlocklist('agent_orchestrator', blocklist)).toBe('prefix')
+  })
+
+  it('is the executable spelling of what DEFAULT_SUBAGENT_BLOCKLIST documents', () => {
+    for (const prefix of DEFAULT_SUBAGENT_BLOCKLIST.idPrefixes) {
+      expect(matchSubagentBlocklist(`${prefix}anything`)).toBe('prefix')
+    }
+    for (const id of DEFAULT_SUBAGENT_BLOCKLIST.patternIds) {
+      expect(matchSubagentBlocklist(id)).not.toBeNull()
+    }
   })
 })

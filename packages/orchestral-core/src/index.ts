@@ -15,8 +15,13 @@ export type {
 } from './foundational'
 
 // ── Catalog namespace ────────────────────────────────────────────────────
-export type { NamespaceId } from './catalog'
-export { DEFAULT_SUBAGENT_BLOCKLIST, inferNamespace, resolveNamespace } from './catalog'
+export type { NamespaceId, SubagentBlocklist } from './catalog'
+export {
+  DEFAULT_SUBAGENT_BLOCKLIST,
+  inferNamespace,
+  matchSubagentBlocklist,
+  resolveNamespace,
+} from './catalog'
 
 // ── Pattern ──────────────────────────────────────────────────────────────
 // Capability branches are expressed by mounting assets via input.references
