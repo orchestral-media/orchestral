@@ -624,16 +624,18 @@ describe('idempotency isolation', () => {
       runContext(undefined, 'sess_b'),
     )
 
-    expect(runtime.specs.map((s) => s.sessionId)).toEqual(['sess_a', 'sess_b'])
-
     // The verifiable half, stated in the runtime's own terms: two sessions,
     // one Pattern, byte-identical input → two keys. Without this the second
     // session's model is handed the first session's job row and its handles.
-    const keys = runtime.specs.map((s) =>
+    // The bridge hands the runtime the key itself rather than a `sessionId`
+    // for it to hash — same isolation, and no claim about an asset context
+    // (see the meta test below).
+    const keys = runtime.specs.map((s) => s.idempotencyKey)
+    expect(keys[0]).toBe(
       deriveIdempotencyKey({
-        patternId: s.patternId,
-        input: s.input,
-        sessionId: s.sessionId,
+        patternId: 'p',
+        input: { prompt: 'a cat' },
+        sessionId: 'sess_a',
       }),
     )
     expect(keys[0]).not.toBe(keys[1])
@@ -655,14 +657,80 @@ describe('idempotency isolation', () => {
 
     // Isolation is a boundary, not a nonce: re-asking the same question inside
     // one session must still be one billed dispatch.
-    const keys = runtime.specs.map((s) =>
-      deriveIdempotencyKey({
-        patternId: s.patternId,
-        input: s.input,
-        sessionId: s.sessionId,
+    const keys = runtime.specs.map((s) => s.idempotencyKey)
+    expect(keys[0]).toBeDefined()
+    expect(keys[0]).toBe(keys[1])
+  })
+
+  it('folds the resolved assets into the derived key, as the runtime would', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(
+      ctx,
+      config({
+        runtime,
+        registry: registryOf(
+          atomic('edit', 'tool', {
+            assetNeeds: [
+              {
+                slot: 'source',
+                modality: 'image',
+                cardinality: 'single',
+                required: true,
+              },
+            ],
+          }),
+        ),
+        resolveJobContext: () => ({
+          assetEvents: [
+            {
+              kind: 'asset',
+              orderHint: 1,
+              annotation: { assetId: 'ast_1', modality: 'image' },
+            },
+          ],
+        }),
       }),
     )
-    expect(keys[0]).toBe(keys[1])
+
+    const input = { prompt: 'x', references: { source: 'image_1' } }
+    await registered[0]!.execute(input, runContext(undefined, 'sess_a'))
+
+    // Pre-computing the key means the bridge owes the runtime every identity
+    // field the runtime would have hashed itself — `assets` included, or the
+    // same literal input over two different source images would collapse into
+    // one job.
+    expect(runtime.specs[0]?.idempotencyKey).toBe(
+      deriveIdempotencyKey({
+        patternId: 'edit',
+        input,
+        assets: runtime.specs[0]?.assets,
+        sessionId: 'sess_a',
+      }),
+    )
+  })
+
+  it('never hands the derived session to the runtime as an asset context', async () => {
+    const { ctx, registered } = fakeCtx()
+    const runtime = fakeRuntime({ ok: true })
+    apply(ctx, config({ runtime, registry: registryOf(atomic('p', 'tool')) }))
+
+    await registered[0]!.execute(
+      { prompt: 'a cat' },
+      runContext(undefined, 'sess_a'),
+    )
+
+    // The runtime reads `spec.assetContextId ?? spec.sessionId` as the asset
+    // context a dispatched meta's sub-steps resolve their references against,
+    // and a host-installed AgentAssetBridge fails closed on a context it never
+    // recorded. A session id this bridge invented is exactly such a context, so
+    // neither routing field may carry it: with the host silent, the spec stays
+    // silent too, and the meta falls back to its internal `ref.assets` channel
+    // as it did before the dedup boundary was ever derived.
+    expect(runtime.specs[0]?.sessionId).toBeUndefined()
+    expect(runtime.specs[0]?.assetContextId).toBeUndefined()
+    // …and the isolation the derivation exists for is still in force.
+    expect(runtime.specs[0]?.idempotencyKey).toBeDefined()
   })
 
   it('lets resolveJobContext override the derived session', async () => {
@@ -682,7 +750,10 @@ describe('idempotency isolation', () => {
       runContext(undefined, 'sess_a'),
     )
     // A host that shares one dedup space across a tenant's agents says so; the
-    // derived default is what happens when it says nothing.
+    // derived default is what happens when it says nothing. A named session is
+    // the host's word on both meanings of the field, so it goes on the spec and
+    // the runtime derives the key from it — the bridge pre-computes nothing.
     expect(runtime.specs[0]?.sessionId).toBe('tenant_7')
+    expect(runtime.specs[0]?.idempotencyKey).toBeUndefined()
   })
 })
