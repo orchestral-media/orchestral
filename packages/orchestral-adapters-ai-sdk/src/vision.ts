@@ -18,6 +18,7 @@ import {
   optionalNumber,
   optionalString,
   providerOptionsFor,
+  requireSourceAssets,
   resolveIdentity,
 } from './envelope'
 import type { LanguageModelInstance } from './language'
@@ -119,18 +120,14 @@ export function fromVisionModel(
     }),
     async call<I, O>(input: I, ctx: DispatchContext): Promise<DispatchResult<O>> {
       const fields = asRecord(input)
-      const sources = (ctx.assets ?? []).filter((ref) => ref.slot === SOURCE_SLOT)
-      if (sources.length === 0) {
-        // Code attached, not just prefixed: `normaliseError` lifts `.code` onto
-        // `JobError.code`; a prefix alone reaches the host as the generic
-        // DISPATCH_EXECUTE_FAILED.
-        throw Object.assign(
-          new Error(
-            `NO_SOURCE_ASSET: image-to-text call: no resolved asset in slot "${SOURCE_SLOT}" on ctx.assets — the runtime fills it from input.references.${SOURCE_SLOT}`,
-          ),
-          { code: 'NO_SOURCE_ASSET' },
+      const files = (
+        await requireSourceAssets<ImageSource>(
+          ctx,
+          SOURCE_SLOT,
+          { name: 'loadImage', load: options.loadImage },
+          'image-to-text',
         )
-      }
+      ).map(toFilePart)
       const mode = optionalString(fields, 'mode') ?? 'caption'
       const modeInstruction = MODE_INSTRUCTION[mode]
       if (modeInstruction === undefined) {
@@ -154,21 +151,6 @@ export function fromVisionModel(
       ]
         .filter((part): part is string => part !== undefined)
         .join('\n\n')
-
-      const files = await Promise.all(
-        sources.map(async (ref) => {
-          const loaded = await options.loadImage(ref, ctx)
-          if (loaded == null) {
-            throw Object.assign(
-              new Error(
-                `SOURCE_ASSET_NOT_LOADED: image-to-text call: loadImage returned nothing for asset "${ref.assetId}" in slot "${SOURCE_SLOT}"`,
-              ),
-              { code: 'SOURCE_ASSET_NOT_LOADED' },
-            )
-          }
-          return toFilePart(loaded)
-        }),
-      )
 
       const startedAt = Date.now()
       const result = await generateText({

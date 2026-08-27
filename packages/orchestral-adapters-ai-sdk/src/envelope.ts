@@ -14,6 +14,7 @@ import type {
   Modality,
   ModelCapability,
   ModelTag,
+  ResolvedAssetRef,
 } from '@orchestral/core'
 import { assetIdField, MODEL_SPEC_VERSION } from '@orchestral/core'
 
@@ -250,6 +251,94 @@ export function refuseUnmappedAssetSlots(
       `ASSET_SLOT_NOT_SUPPORTED: ${capability} call: this adapter does not send the resolved asset slot(s) ${slots} to the provider — write an adapter that does, wrap this one and add them, or drop the reference from the input to call this model without them`,
     ),
     { code: 'ASSET_SLOT_NOT_SUPPORTED' },
+  )
+}
+
+// ── Source assets ─────────────────────────────────────────────────────────
+
+/**
+ * The host hook that turns one resolved asset into bytes, plus the
+ * `AdapterOptions` field it arrived on. The name is carried so the failure
+ * message says `loadImage` / `loadAudio` — the thing the host actually wrote
+ * — rather than a generic "the loader".
+ */
+export interface SourceLoader<T> {
+  readonly name: string
+  readonly load: (ref: ResolvedAssetRef, ctx: DispatchContext) => Promise<T> | T
+}
+
+// One failure, one shape, one place. Left to each adapter, the same missing
+// source came out two ways: vision's carried a `.code` a host can branch on,
+// transcription's was a bare Error that reached the host as the generic
+// DISPATCH_EXECUTE_FAILED. Code attached rather than only prefixed because
+// `normaliseError` lifts `.code` onto `JobError.code`; the prefix is for the
+// human reading the message.
+function sourceRefs(
+  ctx: DispatchContext,
+  slot: string,
+  capability: Capability,
+): readonly ResolvedAssetRef[] {
+  const refs = (ctx.assets ?? []).filter((ref) => ref.slot === slot)
+  if (refs.length === 0) {
+    throw Object.assign(
+      new Error(
+        `NO_SOURCE_ASSET: ${capability} call: no resolved asset in slot "${slot}" on ctx.assets — the runtime fills it from input.references.${slot}`,
+      ),
+      { code: 'NO_SOURCE_ASSET' },
+    )
+  }
+  return refs
+}
+
+async function loadSource<T>(
+  ref: ResolvedAssetRef,
+  ctx: DispatchContext,
+  slot: string,
+  loader: SourceLoader<T>,
+  capability: Capability,
+): Promise<T> {
+  const loaded = await loader.load(ref, ctx)
+  if (loaded == null) {
+    throw Object.assign(
+      new Error(
+        `SOURCE_ASSET_NOT_LOADED: ${capability} call: ${loader.name} returned nothing for asset "${ref.assetId}" in slot "${slot}"`,
+      ),
+      { code: 'SOURCE_ASSET_NOT_LOADED' },
+    )
+  }
+  return loaded
+}
+
+/**
+ * The single-cardinality read: the first resolved ref in `slot`, through the
+ * host's loader. Fails with `NO_SOURCE_ASSET` when the slot resolved to
+ * nothing, and with `SOURCE_ASSET_NOT_LOADED` when the loader answered
+ * nothing — both before the provider is called.
+ */
+export async function requireSourceAsset<T>(
+  ctx: DispatchContext,
+  slot: string,
+  loader: SourceLoader<T>,
+  capability: Capability,
+): Promise<T> {
+  const [ref] = sourceRefs(ctx, slot, capability)
+  return loadSource(ref as ResolvedAssetRef, ctx, slot, loader, capability)
+}
+
+/**
+ * The array-cardinality read: every resolved ref in `slot`, in `ctx.assets`
+ * order (multi-image comparison is a first-class case), same two failures.
+ */
+export async function requireSourceAssets<T>(
+  ctx: DispatchContext,
+  slot: string,
+  loader: SourceLoader<T>,
+  capability: Capability,
+): Promise<readonly T[]> {
+  return Promise.all(
+    sourceRefs(ctx, slot, capability).map((ref) =>
+      loadSource(ref, ctx, slot, loader, capability),
+    ),
   )
 }
 
