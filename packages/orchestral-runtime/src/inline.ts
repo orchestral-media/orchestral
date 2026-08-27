@@ -1788,7 +1788,6 @@ export class InlineRuntime implements Runtime {
   private agentDispatchDeps(): AgentDispatchDeps {
     return {
       registry: this.registry,
-      router: this.router,
       maxAgentDepth: this.maxAgentDepth,
       agentRunImpl: this.agentRunImpl,
       transcriptStore: this.transcriptStore,

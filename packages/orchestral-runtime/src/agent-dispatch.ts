@@ -28,7 +28,6 @@ import type {
   AgentPattern,
   AgentToolDescriptor,
   BuildCatalogDescriptorsOptions,
-  CapabilityRouter,
   DiagnosticsLogger,
   DispatchContext,
   TranscriptMessage,
@@ -337,7 +336,12 @@ function transcriptMessageToChat(
  */
 export interface AgentDispatchDeps {
   registry: PatternRegistry
-  router: CapabilityRouter
+  /**
+   * No `router`. Routing an atomic is `_submitJobInternal`'s job, and the one
+   * thing here that ever needed one was the retrieval that now lives behind
+   * `patternSearch` — a host whose implementation wants satisfiability
+   * filtering closes over its own router (see `createPatternSearch`).
+   */
   maxAgentDepth: number
   agentRunImpl?: AgentRunImpl
   transcriptStore?: TranscriptStore
