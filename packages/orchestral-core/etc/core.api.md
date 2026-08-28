@@ -323,6 +323,9 @@ export function assertSupportedModelSpecVersion(model: {
 }): void;
 
 // @public
+export const ASSET_KINDS: readonly ["image", "audio", "video", "document", "data", "archive", "other"];
+
+// @public
 export const ASSET_MARKER: unique symbol;
 
 // @public
@@ -355,6 +358,17 @@ export interface AssetIndex {
 
 // @public
 export type AssetKind = 'image' | 'audio' | 'video' | 'document' | 'data' | 'archive' | 'other';
+
+// @public
+export function assetKindField(): z.ZodEnum<{
+    image: "image";
+    audio: "audio";
+    video: "video";
+    document: "document";
+    data: "data";
+    archive: "archive";
+    other: "other";
+}>;
 
 // @public
 export interface AssetLedgerEntry {
@@ -1227,6 +1241,7 @@ export interface ParallelFn {
     allSettled<T extends readonly unknown[] | []>(promises: T): Promise<{
         -readonly [K in keyof T]: PromiseSettledResult<Awaited<T[K]>>;
     }>;
+    limit<T>(tasks: readonly (() => Promise<T>)[], concurrency: number): Promise<T[]>;
 }
 
 // @public
@@ -1625,6 +1640,7 @@ export interface StepMeta {
 
 // @public (undocumented)
 export interface StepOptions {
+    idempotencyKey?: string;
     identity?: 'index' | 'id';
     metadata?: Record<string, unknown>;
     retry?: RetryPolicy;

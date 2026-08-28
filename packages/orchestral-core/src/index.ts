@@ -162,7 +162,9 @@ export { toJsonSchema } from './schema'
 // (OUTPUTS_UNBOUNDED_FIELDS). Host-injected tool schemas are outside the
 // registry, so a host that wants the same guarantee calls the checker itself.
 export {
+  ASSET_KINDS,
   assetIdField,
+  assetKindField,
   auditOutputsSchema,
   boundedText,
   opaqueToken,

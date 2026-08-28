@@ -147,3 +147,44 @@ describe('the three productions', () => {
     expect(PLAN_ASSET_REF_RE.test('$render.assets[label=has space]')).toBe(false)
   })
 })
+
+describe('PlanOutputSchema.assets[].modality is core\'s AssetKind', () => {
+  const asset = (modality: string) => ({
+    assets: [{ assetId: 'a1', modality, label: 'out' }],
+    values: {},
+    steps: [],
+    cost: null,
+    latencyMs: 0,
+  })
+
+  // The four kinds the old image/audio/video enum rejected. A plan ending in a
+  // document or a data file is an ordinary plan; it used to parse only at the
+  // dispatch exit, where it failed.
+  it.each(['document', 'data', 'archive', 'other'])('accepts %s', (kind) => {
+    expect(PlanOutputSchema.safeParse(asset(kind)).success).toBe(true)
+  })
+
+  it.each(['image', 'audio', 'video'])('still accepts %s', (kind) => {
+    expect(PlanOutputSchema.safeParse(asset(kind)).success).toBe(true)
+  })
+
+  it('rejects a modality that is not an AssetKind', () => {
+    expect(PlanOutputSchema.safeParse(asset('text')).success).toBe(false)
+    expect(PlanOutputSchema.safeParse(asset('embedding')).success).toBe(false)
+  })
+
+  it('renders the full kind list to the model', () => {
+    const rendered = toJsonSchema(PlanOutputSchema) as unknown as {
+      properties: { assets: { items: { properties: { modality: { enum: string[] } } } } }
+    }
+    expect(rendered.properties.assets.items.properties.modality.enum.sort()).toEqual([
+      'archive',
+      'audio',
+      'data',
+      'document',
+      'image',
+      'other',
+      'video',
+    ])
+  })
+})

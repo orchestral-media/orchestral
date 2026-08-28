@@ -20,6 +20,7 @@ describe('@orchestral/core public surface', () => {
       [
         "AGENT_BASE_INPUT_SCHEMA",
         "AGENT_FINISH_TOOL_NAME",
+        "ASSET_KINDS",
         "ASSET_MARKER",
         "AskUserChoiceAnswerSchema",
         "AskUserChoicePayloadSchema",
@@ -46,6 +47,7 @@ describe('@orchestral/core public surface', () => {
         "applicableAlternatives",
         "assertSupportedModelSpecVersion",
         "assetIdField",
+        "assetKindField",
         "auditOutputsSchema",
         "boundedText",
         "buildAlwaysLoadDescriptors",

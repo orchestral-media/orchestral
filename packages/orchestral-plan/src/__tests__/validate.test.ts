@@ -1344,3 +1344,155 @@ describe('planRefine through the real dispatch path', () => {
     ).toEqual(['PLAN_REF_PATH_UNKNOWN', 'PLAN_SLOT_REQUIRED_UNBOUND'])
   })
 })
+
+// ── The `$input` asset channel ──────────────────────────────────────────────
+//
+// A plan is a MetaPattern, and every other MetaPattern can declare asset slots.
+// `PlanValidateOptions.assetNeeds` is what those slots are to the walk: the
+// counterpart of `inputs`, which is what `$input.<field>` is checked against.
+// Absent, every `$input.assets[…]` is refused exactly as `$input.<field>` is
+// refused on a plan that takes no parameters.
+
+const PLAN_ASSET_NEEDS = [
+  { slot: 'hero', modality: 'image', cardinality: 'single', required: true },
+  { slot: 'extras', modality: 'image', cardinality: 'array', required: false },
+  { slot: 'maybeHero', modality: 'image', cardinality: 'single', required: false },
+  { slot: 'clip', modality: 'video', cardinality: 'single', required: true },
+] as const satisfies readonly AssetNeed[]
+
+/** One `image-to-image` step fed from a caller slot, returning its product. */
+function fedFromInput(slotRef = '$input.assets[slot=hero]'): PlanDag {
+  return {
+    steps: [
+      {
+        id: 'edit',
+        pattern: 'image-to-image',
+        input: { prompt: 'make it dusk' },
+        assets: { source: slotRef },
+      },
+    ],
+    output: { assets: [{ from: '$edit.assets[0]', label: 'edited' }] },
+  } as unknown as PlanDag
+}
+
+const withNeeds: PlanValidateOptions = { assetNeeds: PLAN_ASSET_NEEDS }
+
+describe('$input.assets[slot=…] against the plan\'s own assetNeeds', () => {
+  it('a declared slot bound into a matching child slot is clean', () => {
+    expect(validatePlan(fedFromInput(), lookup, withNeeds)).toEqual([])
+  })
+
+  it('satisfies rule 20 — the child\'s required slot counts as bound', () => {
+    // `source` is required on image-to-image. Bound from the caller, it must
+    // not also report PLAN_SLOT_REQUIRED_UNBOUND.
+    expect(codesOf(validatePlan(fedFromInput(), lookup, withNeeds))).not.toContain(
+      'PLAN_SLOT_REQUIRED_UNBOUND',
+    )
+  })
+
+  it('a plan that declares no asset slots refuses the whole channel', () => {
+    const problems = validatePlan(fedFromInput(), lookup, {})
+    expect(codesOf(problems)).toContain('PLAN_INPUT_ASSET_NOT_ALLOWED')
+    // Not reported as a missing STEP: `input` is not a step id, and the old
+    // PLAN_REF_UNKNOWN_STEP sent the reader looking for one.
+    expect(codesOf(problems)).not.toContain('PLAN_REF_UNKNOWN_STEP')
+  })
+
+  it('an undeclared slot name is named, with the declared list', () => {
+    const problems = validatePlan(
+      fedFromInput('$input.assets[slot=heroo]'),
+      lookup,
+      withNeeds,
+    )
+    const problem = problems.find((p) => p.code === 'PLAN_INPUT_SLOT_UNKNOWN')
+    expect(problem).toBeDefined()
+    expect(problem?.details?.available).toEqual(['hero', 'extras', 'maybeHero', 'clip'])
+  })
+
+  it('a caller slot of the wrong modality for the child slot is refused', () => {
+    // `clip` is video; image-to-image's `source` wants an image.
+    const problems = validatePlan(
+      fedFromInput('$input.assets[slot=clip]'),
+      lookup,
+      withNeeds,
+    )
+    const problem = problems.find((p) => p.code === 'PLAN_SLOT_MODALITY')
+    expect(problem).toBeDefined()
+    expect(problem?.details).toMatchObject({ expected: 'image', got: 'video' })
+  })
+
+  it('an array caller slot cannot feed a single child slot', () => {
+    const problems = validatePlan(
+      fedFromInput('$input.assets[slot=extras]'),
+      lookup,
+      withNeeds,
+    )
+    expect(codesOf(problems)).toContain('PLAN_SLOT_CARDINALITY')
+  })
+
+  it('an array caller slot may feed an array child slot', () => {
+    const dag = fedFromInput()
+    const step = dag.steps[0] as unknown as { assets: Record<string, unknown> }
+    step.assets.reference = '$input.assets[slot=extras]'
+    expect(validatePlan(dag, lookup, withNeeds)).toEqual([])
+  })
+
+  // The rule with the worst failure mode in the set, reached one step further
+  // out: an OPTIONAL caller slot left unfilled resolves to nothing, so the
+  // child's REQUIRED slot goes unbound at run time and the resolver's
+  // "most recent of this modality" default feeds it an unrelated asset.
+  it('an optional caller slot cannot feed a required child slot', () => {
+    const problems = validatePlan(
+      fedFromInput('$input.assets[slot=maybeHero]'),
+      lookup,
+      withNeeds,
+    )
+    const problem = problems.find((p) => p.code === 'PLAN_SLOT_REQUIRED_UNBOUND')
+    expect(problem).toBeDefined()
+    expect(problem?.details).toMatchObject({ slot: 'source', fromPlanSlot: 'maybeHero' })
+  })
+
+  it('an optional caller slot may feed an optional child slot', () => {
+    const dag = fedFromInput()
+    const step = dag.steps[0] as unknown as { assets: Record<string, unknown> }
+    step.assets.reference = '$input.assets[slot=maybeHero]'
+    expect(validatePlan(dag, lookup, withNeeds)).toEqual([])
+  })
+
+  // `output.assets` takes the producer form only, and that is the schema's
+  // refusal rather than a walk rule: an output entry is one asset under one
+  // label, while a caller slot may be an array (several) or optional (none).
+  it('the caller\'s media is not returnable under output.assets', () => {
+    const dag = fedFromInput()
+    ;(dag.output.assets as unknown[]).push({
+      from: '$input.assets[slot=hero]',
+      label: 'original',
+    })
+    expect(codesOf(validatePlan(dag, lookup, withNeeds))).toContain('PLAN_SCHEMA')
+  })
+
+  // The grammar refuses these outright, so rule 1 owns them — the walk does not
+  // pile a second diagnosis on a string the schema already rejected. The remedy
+  // rides on AssetRef's describe, which renders beside both patterns.
+  it.each(['$input.assets[0]', '$input.assets[label=hero]'])(
+    'the producer selectors are a schema error at the $input root: %s',
+    (ref) => {
+      expect(codesOf(validatePlan(fedFromInput(ref), lookup, withNeeds))).toContain(
+        'PLAN_SCHEMA',
+      )
+    },
+  )
+
+  it('a step called `input` is still what reserves the head', () => {
+    // The carve-out in PLAN_ASSET_REF_RE only restates PLAN_STEP_ID_RESERVED.
+    const dag = fedFromInput()
+    ;(dag.steps as unknown[]).unshift({
+      id: 'input',
+      pattern: 'text-generation',
+      input: { prompt: 'x' },
+    })
+    expect(codesOf(validatePlan(dag, lookup, withNeeds))).toContain(
+      'PLAN_STEP_ID_RESERVED',
+    )
+  })
+})

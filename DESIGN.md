@@ -344,11 +344,27 @@ step into an edited plan re-runs one dispatch, not everything after it. It is
 opt-in per step, requires an explicit `stepId`, and positional stays the
 default — the conditional spread in `deriveIdempotencyKey` keeps every
 pre-`stepKey` payload byte-identical.
+A third bypass goes further and hands the question over entirely:
+`StepOptions.idempotencyKey` keys the row on a string the CALLER derives,
+skipping `deriveIdempotencyKey` the way `JobSpec.idempotencyKey` always has for
+a host submitting directly. This is not the refusal above being reversed — the
+library still derives no content hash of its own, and still will not decide that
+two identical dispatches are one unit of work. It is the seam for a caller whose
+notion of "the same work" the derivation cannot express, the concrete case being
+reuse that outlives a session: `sessionId` is hashed on purpose ("dedup never
+crosses a session boundary"), so no choice of `identity` mode escapes it. The
+burden moves with the key and is stated where it is declared — a key that omits
+something the step reads returns the earlier output for later work, which is a
+stale result rather than an error. `runPlan` exposes the same seam as
+`idempotencyKeyFor`, because the interpreter owns the `ctx.step` call and a
+plan's steps would otherwise be the only steps that cannot reach the option.
 **Where.** `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional),
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id);
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: caller-supplied-step-identity);
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-fan-out-note),
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-explicit-step-id);
-`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds");
+`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds"),
+`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("dedupes across sessions, which the derived key cannot");
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-id.test.ts`.
 
 ### We don't impose concurrency caps, timeouts, or TTLs

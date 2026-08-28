@@ -1,0 +1,22 @@
+---
+"@orchestral/core": minor
+"@orchestral/plan": minor
+"@orchestral/runtime": minor
+---
+
+A plan can now take media from its caller, key its own steps, and bound how wide a level runs; a step's failure no longer cancels branches that do not depend on it.
+
+**A plan is a media pattern like any other.** `PlanToMetaOptions.assetNeeds` declares the asset slots a plan takes. The pattern then carries `assetNeeds`, so a host's resolution pass runs for it exactly as for an atomic, and `tool.inputs` gains the derived `references` field, so a caller fills slots by handle in the schema it already knows instead of threading an asset id through as an untyped string. Inside the DAG the slots are addressable through a new production, `$input.assets[slot=<name>]` — the media counterpart of `$input.<field>`. An array slot fans in through a single ref. Two new `PlanProblemCode`s name the two ways it can be wrong: `PLAN_INPUT_ASSET_NOT_ALLOWED` (the plan declares no slots) and `PLAN_INPUT_SLOT_UNKNOWN` (the name is not one of them); modality, cardinality and required-ness are checked against the child slot with the existing codes.
+
+**`StepOptions.idempotencyKey`** lets a step inside a meta key its durable row on a string the caller derives, which `JobSpec.idempotencyKey` has always allowed a host submitting directly. The engine's own derivation hashes `sessionId` on purpose, so reuse that outlives a session could not be expressed by choosing an `identity` mode. `RunPlanOptions.idempotencyKeyFor` is the same seam for a plan's steps, which the interpreter dispatches on the author's behalf. It is a pure derivation — it cannot skip a step, supply an output, or stop the walk — and a hit comes back through the normal path, already held to the target's outputs schema.
+
+**`parallel.limit(tasks, concurrency)`** bounds a fan-out. It takes thunks rather than promises, because a promise is already running by the time it is a value; `parallel` itself is unchanged. `RunPlanOptions.concurrency` (also on `PlanToMetaOptions` and `createPlanMeta`) applies it to a plan's levels. Default unlimited. Turning it on has a cost worth reading before you do: `ctx.step` advances a tree-shared counter at call time, and that counter keys the internals of a nested meta run as one plan step — uncapped, a level's steps are all called synchronously and those inner rows land on the same indices every run; capped, a step starts when an earlier one settles, so that stability is given up. A plan's own steps are unaffected either way.
+
+**`PlanOutputSchema.assets[].modality` now accepts core's whole `AssetKind`** — `document`, `data`, `archive` and `other` in addition to image/audio/video. A plan ending in a document was always writable and failed only at the dispatch exit, as an `OUTPUT_SCHEMA_MISMATCH` naming the plan rather than the step that produced the value. `ASSET_KINDS` and `assetKindField()` are exported from core as the single source both sides now read.
+
+Two behaviour changes, both deliberate:
+
+- **A failing step now invalidates exactly its transitive dependents.** Previously the first rejection rejected its whole dependency level and no later level started, so a failure in one branch cancelled unrelated ones. The plan still fails, with the same error — but steps that do not read anything that failed now run and are banked in the JobStore, which is what makes the documented "the steps that succeeded are not re-run when you resubmit" pay off. Two costs: a failing plan now takes as long as its slowest independent branch rather than failing fast, and when several steps fail the error raised is the first in step-list order rather than whichever provider gave up first (previously non-deterministic).
+- **`PLAN_ASSET_REF_RE` no longer matches `$input.…`**, so the two asset productions are disjoint. Nothing that used to run stops running: a step may not be called `input` (`PLAN_STEP_ID_RESERVED`), so those strings always resolved to nothing — they were merely refused by the walk instead of by the grammar. Step ids that only begin with `input` (`$inputs.assets[0]`, `$input-frames.assets[0]`) are unaffected. If you match the exported regex yourself, `$input.assets[0]` now fails it.
+
+Everything else is additive and every default is unchanged: a plan that declares no `assetNeeds`, passes no `concurrency` and supplies no `idempotencyKeyFor` behaves exactly as before, and the child spec `ctx.step` builds is byte-identical when the new option is absent, so no stored idempotency key moves.

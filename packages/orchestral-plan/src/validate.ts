@@ -72,6 +72,8 @@ export type PlanProblemCode =
   | 'PLAN_REF_INTO_ASSETS'
   | 'PLAN_REF_INPUT_NOT_ALLOWED'
   | 'PLAN_PARAM_UNKNOWN'
+  | 'PLAN_INPUT_ASSET_NOT_ALLOWED'
+  | 'PLAN_INPUT_SLOT_UNKNOWN'
   | 'PLAN_REF_IN_LITERAL'
   | 'PLAN_PATTERN_NOT_FOUND'
   | 'PLAN_PATTERN_KIND_AGENT'
@@ -134,6 +136,21 @@ export interface PlanValidateOptions {
   selfId?: PatternId
   /** The reusable plan's own parameter schema; binds `$input.<field>`. */
   inputs?: z.ZodObject
+  /**
+   * The plan's own declared asset slots; binds `$input.assets[slot=<name>]`.
+   *
+   * The exact counterpart of `inputs` one field up. A plan is a MetaPattern,
+   * and a MetaPattern declares the media it takes as `assetNeeds`; this is that
+   * list, handed to the walk so it can tell a slot the plan really offers from
+   * a typo. Absent — like an absent `inputs` — switches the channel off
+   * entirely rather than accepting any slot name.
+   *
+   * Must be the SAME list the pattern declares. `planToMeta` guarantees that by
+   * forwarding its own; a caller driving `runPlan` by hand and passing a
+   * different list would have layer 1 check a contract other than the one the
+   * runtime resolved `ctx.assets` against.
+   */
+  assetNeeds?: readonly AssetNeed[]
 }
 
 /** Thrown by {@link assertPlanValid}; `normaliseError` lands it on a job row as `PLAN_INVALID`. */
@@ -807,6 +824,14 @@ class PlanWalk {
   ): void {
     const parsed = parseAssetRef(site.ref)
     if (parsed === null) return // rule 1 reported the syntax
+    // The caller's own media, not a step's product: no producer to find, no
+    // position to be after. Checked against the plan's OWN slots instead, and
+    // returned before `referenced` is touched — `input` is not a step, and rule
+    // 22 would read it as one.
+    if (parsed.slot !== undefined) {
+      this.checkInputAssetRef(site, parsed.slot, need)
+      return
+    }
     this.referenced.add(parsed.head)
     const targetIndex = this.indexById.get(parsed.head)
     if (targetIndex === undefined) {
@@ -890,6 +915,113 @@ class PlanWalk {
           },
         })
       }
+    }
+  }
+
+  /**
+   * Rules 25 to 27 over `$input.assets[slot=…]` — the caller's media, bound
+   * into a step's slot (`need` given) or returned under `output.assets`
+   * (`need` absent).
+   *
+   * 25 — the plan declares no asset slots at all, so there is nothing for the
+   *      ref to name. The twin of rule 8's PLAN_REF_INPUT_NOT_ALLOWED, which
+   *      says the same thing about `$input.<field>` on a plan with no
+   *      parameters.
+   * 26 — a slot name the plan does not declare. The twin of PLAN_PARAM_UNKNOWN,
+   *      and it lists what IS declared for the same reason: the author cannot
+   *      otherwise see the vocabulary from the refusal.
+   * 27 — the caller slot against the CHILD slot it is being wired into. Three
+   *      ways they can disagree, and all three are knowable now because both
+   *      sides are declared. The third is the interesting one: an optional
+   *      caller slot feeding a required child slot type-checks and then fails
+   *      open at run time, because an unfilled optional slot resolves to
+   *      nothing and the resolver's "most recent of this modality" default
+   *      hands the step an unrelated asset from the ledger. That is rule 20's
+   *      failure mode reached one step further out, so it reports rule 20's
+   *      code.
+   */
+  private checkInputAssetRef(
+    site: RefSite,
+    slot: string,
+    need: AssetNeed | undefined,
+  ): void {
+    const declared = this.opts.assetNeeds
+    if (declared === undefined || declared.length === 0) {
+      this.add({
+        code: 'PLAN_INPUT_ASSET_NOT_ALLOWED',
+        path: site.path,
+        stepId: site.stepId,
+        message:
+          `"${site.ref}" takes media from the plan's caller, but this plan declares ` +
+          'no asset slots — bind the slot from an earlier step instead, or declare ' +
+          'the slot on the plan.',
+        details: { stepId: site.stepId, ref: site.ref, available: [] },
+      })
+      return
+    }
+    const planNeed = declared.find((n) => n.slot === slot)
+    if (planNeed === undefined) {
+      this.add({
+        code: 'PLAN_INPUT_SLOT_UNKNOWN',
+        path: site.path,
+        stepId: site.stepId,
+        message: `"${site.ref}" names no asset slot of this plan. Declared: ${declared.map((n) => n.slot).join(', ') || '(none)'}.`,
+        details: {
+          stepId: site.stepId,
+          ref: site.ref,
+          slot,
+          available: declared.map((n) => n.slot),
+        },
+      })
+      return
+    }
+    // `output.assets[].from` — the plan returning media it was given. Legal:
+    // there is no failure mode, only a second handle for an asset the caller
+    // already holds. Nothing below applies, because there is no child slot.
+    if (need === undefined) return
+    if (planNeed.modality !== need.modality) {
+      this.add({
+        code: 'PLAN_SLOT_MODALITY',
+        path: site.path,
+        stepId: site.stepId,
+        message: `Slot "${need.slot}" needs ${need.modality}; this plan's "${slot}" slot supplies ${planNeed.modality}.`,
+        details: {
+          stepId: site.stepId,
+          slot: need.slot,
+          fromPlanSlot: slot,
+          expected: need.modality,
+          got: planNeed.modality,
+        },
+      })
+    }
+    if (planNeed.cardinality === 'array' && need.cardinality === 'single') {
+      this.add({
+        code: 'PLAN_SLOT_CARDINALITY',
+        path: site.path,
+        stepId: site.stepId,
+        message:
+          `Slot "${need.slot}" takes a single reference, but this plan's "${slot}" slot ` +
+          'accepts a list — it can resolve to more than one asset.',
+        details: {
+          stepId: site.stepId,
+          slot: need.slot,
+          fromPlanSlot: slot,
+          cardinality: 'single',
+        },
+      })
+    }
+    if (!planNeed.required && need.required) {
+      this.add({
+        code: 'PLAN_SLOT_REQUIRED_UNBOUND',
+        path: site.path,
+        stepId: site.stepId,
+        message:
+          `${site.stepId === undefined ? 'This step' : `Step "${site.stepId}"`} requires the ` +
+          `"${need.slot}" slot, but it is bound from this plan's OPTIONAL "${slot}" slot: ` +
+          'a caller that omits it leaves the step unbound. Declare "' +
+          `${slot}" as required, or bind "${need.slot}" from an earlier step.`,
+        details: { stepId: site.stepId, slot: need.slot, fromPlanSlot: slot },
+      })
     }
   }
 

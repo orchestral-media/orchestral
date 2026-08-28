@@ -23,6 +23,7 @@ import {
   type ModelCapability,
   type Pattern,
   type PatternId,
+  type ResolvedAssetRef,
 } from '@orchestral/core'
 import { InMemoryJobStore } from '@orchestral/core/memory'
 import { createDefaultCapabilityRouter } from '@orchestral/core/routing'
@@ -284,11 +285,19 @@ export interface PlanHost {
   models: MockModels
   /** Each mock's `call`, spied — "the model was not called" as a count. */
   calls: Record<MockName, MockInstance<ModelCapability['call']>>
-  /** Submit one pattern and collect what the runtime reported about it. */
+  /**
+   * Submit one pattern and collect what the runtime reported about it.
+   *
+   * `assets` is what a host's resolution pass would have landed on the spec —
+   * the runtime threads `spec.assets` into a meta's `ctx.assets`, which is
+   * where a plan reads `$input.assets[slot=…]` from. Omit for a plan that takes
+   * no media.
+   */
   run<O = unknown>(
     patternId: PatternId,
     input: unknown,
     sessionId: string,
+    assets?: readonly ResolvedAssetRef[],
   ): Promise<RunTrace<O>>
 }
 
@@ -358,7 +367,12 @@ export function makePlanHost(init: PlanHostInit = {}): PlanHost {
     store,
     models,
     calls,
-    async run<O>(patternId: PatternId, input: unknown, sessionId: string) {
+    async run<O>(
+      patternId: PatternId,
+      input: unknown,
+      sessionId: string,
+      assets?: readonly ResolvedAssetRef[],
+    ) {
       const current = { steps: [] as StepRecord[], inserted: [] as string[] }
       pending = current
       try {
@@ -366,6 +380,7 @@ export function makePlanHost(init: PlanHostInit = {}): PlanHost {
           patternId,
           input,
           sessionId,
+          ...(assets !== undefined ? { assets } : {}),
         })
         return { job, steps: current.steps, inserted: current.inserted }
       } finally {

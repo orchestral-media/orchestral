@@ -20,7 +20,13 @@
 //      `planLevels` has no level for it and moves on; `validatePlan`'s rules 5
 //      and 6 refuse it long before either of them runs.
 
-import { PLAN_ASSET_REF_RE, PLAN_VALUE_REF_RE, type PlanDag, type PlanStep } from './plan'
+import {
+  PLAN_ASSET_REF_RE,
+  PLAN_INPUT_ASSET_REF_RE,
+  PLAN_VALUE_REF_RE,
+  type PlanDag,
+  type PlanStep,
+} from './plan'
 
 /**
  * How deep a walk descends into a step's `input` before it stops.
@@ -43,10 +49,16 @@ export interface ParsedValueRef {
 
 /** A whole-string asset reference, parsed. */
 export interface ParsedAssetRef {
+  /** The producing step, or `input` for media the caller supplied. */
   head: string
-  /** Positional selector; absent when the ref selects by label. */
+  /** Positional selector; absent when the ref selects by label or slot. */
   index?: number
   label?: string
+  /**
+   * This plan's own asset slot. Present exactly when `head` is `input` — the
+   * two productions are disjoint, so `slot !== undefined` is the discriminator.
+   */
+  slot?: string
 }
 
 const REF_HEAD_RE = /^\$([A-Za-z][A-Za-z0-9_-]{0,63})/
@@ -72,8 +84,13 @@ export function parseValueRef(value: string): ParsedValueRef | null {
   return { head, isInput: head === 'input', segments }
 }
 
-/** Parse a whole-string asset reference, positional or by label. */
+/**
+ * Parse a whole-string asset reference: positional or by label off a producing
+ * step, or by slot off the caller's own input.
+ */
 export function parseAssetRef(value: string): ParsedAssetRef | null {
+  const fromInput = PLAN_INPUT_ASSET_REF_RE.exec(value)
+  if (fromInput !== null) return { head: 'input', slot: fromInput[1] ?? '' }
   const m = PLAN_ASSET_REF_RE.exec(value)
   if (m === null) return null
   const selector = m[2] ?? ''

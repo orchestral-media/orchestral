@@ -16,6 +16,7 @@ describe('@orchestral/plan public surface', () => {
     expect(Object.keys(api).sort()).toMatchInlineSnapshot(`
       [
         "PLAN_ASSET_REF_RE",
+        "PLAN_INPUT_ASSET_REF_RE",
         "PLAN_PATTERN_ID",
         "PLAN_STEP_ID_RE",
         "PLAN_TOOL_DESCRIPTION",

@@ -31,7 +31,13 @@
 
 import { z } from 'zod'
 
-import { assetIdField, boundedText, metaEnvelopeShape, urlField } from '@orchestral/core'
+import {
+  assetIdField,
+  assetKindField,
+  boundedText,
+  metaEnvelopeShape,
+  urlField,
+} from '@orchestral/core'
 
 // ── The three productions ───────────────────────────────────────────────
 
@@ -43,17 +49,66 @@ export const PLAN_STEP_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const PLAN_VALUE_REF_RE =
   /^\$(input|[A-Za-z][A-Za-z0-9_-]{0,63})((\.[A-Za-z_][A-Za-z0-9_]{0,63})|(\[[0-9]{1,3}\]))+$/
 export const PLAN_ASSET_REF_RE =
-  /^\$([A-Za-z][A-Za-z0-9_-]{0,63})\.assets\[([0-9]{1,3}|label=[A-Za-z0-9_-]{1,64})\]$/
+  /^\$(?!input\.)([A-Za-z][A-Za-z0-9_-]{0,63})\.assets\[([0-9]{1,3}|label=[A-Za-z0-9_-]{1,64})\]$/
+/**
+ * Media the CALLER supplied, picked out by the plan's own asset slot.
+ *
+ * A separate production rather than another selector on the one above, because
+ * it reads a different namespace: `[0]` and `[label=…]` index a producing
+ * step's `assets[]`, while `[slot=…]` names a key of THIS plan's `assetNeeds`
+ * — the same word `references.<slot>` and `step.assets`' keys already use. One
+ * selector spelling for two namespaces would have made `label` mean the role a
+ * meta stamped on its output in one position and the caller's slot name in
+ * another.
+ *
+ * `PLAN_ASSET_REF_RE` carves `input.` out of its head so exactly one of the two
+ * matches any string. Without that the producer branch swallows
+ * `$input.assets[0]` — a step may not be called `input`
+ * (PLAN_STEP_ID_RESERVED), so it resolves to nothing — and the rendered
+ * grammar would be advertising a form the walk always refuses. The carve-out is
+ * narrow: `$inputs.…` and `$input-frames.…` are ordinary producer refs.
+ */
+export const PLAN_INPUT_ASSET_REF_RE =
+  /^\$input\.assets\[slot=([A-Za-z][A-Za-z0-9_]{0,63})\]$/
 
 const StepId = z
   .string()
   .regex(PLAN_STEP_ID_RE)
   .describe('Unique within the plan. Other steps refer to this step as $<id>.')
-const AssetRef = z
+/**
+ * Media a step PRODUCED. Its own name because `output.assets[].from` accepts
+ * only this half: an output entry is exactly one asset under exactly one label
+ * (rule 23), and the caller-slot form below carries no such guarantee — an
+ * array slot resolves to several and an optional one to none, neither of which
+ * an output entry can be. Keeping the narrow type at that site makes both
+ * refusals the schema's, rather than two more walk rules.
+ */
+const ProducedAssetRef = z
   .string()
   .regex(PLAN_ASSET_REF_RE)
   .describe(
-    '"$<stepId>.assets[0]" by position, or "$<stepId>.assets[label=winner]" by label (label form only for meta_* steps).',
+    'Media produced by an earlier step: "$<stepId>.assets[0]" by position, or ' +
+      '"$<stepId>.assets[label=winner]" by label (label form only for meta_* ' +
+      'steps). Media the CALLER supplied is not returnable here — it is already ' +
+      "the caller's; return only what this plan produced.",
+  )
+
+// A union, not one widened regex: `toJsonSchema` renders it as two `pattern`
+// alternatives, so the model reads both forms where it reads the shape. The
+// describe carries what a pattern cannot — that the second form is legal only
+// on a plan that declares asset slots, which the one-shot never does.
+const AssetRef = z
+  .union([
+    z.string().regex(PLAN_ASSET_REF_RE),
+    z.string().regex(PLAN_INPUT_ASSET_REF_RE),
+  ])
+  .describe(
+    'Media produced by an earlier step: "$<stepId>.assets[0]" by position, or ' +
+      '"$<stepId>.assets[label=winner]" by label (label form only for meta_* ' +
+      'steps). Or media the CALLER supplied: "$input.assets[slot=<name>]", ' +
+      "where <name> is one of this plan's own declared asset slots — usable " +
+      'only on a plan that declares them, and never written with [0] or ' +
+      '[label=…], which read a step\'s output rather than the caller\'s input.',
   )
 const ValueRef = z.string().regex(PLAN_VALUE_REF_RE)
 
@@ -131,7 +186,7 @@ export const PlanDagSchema = z.strictObject({
       assets: z
         .array(
           z.strictObject({
-            from: AssetRef,
+            from: ProducedAssetRef,
             label: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
           }),
         )
@@ -178,7 +233,15 @@ export const PlanOutputSchema = z.strictObject({
     .array(
       z.strictObject({
         assetId: assetIdField(),
-        modality: z.enum(['image', 'audio', 'video']),
+        // Core's own AssetKind, not the image/audio/video subset this field
+        // used to list. A plan steps into any registered pattern, so what its
+        // `assets[]` can carry is whatever a pattern can produce — and core
+        // classifies a produced file with seven kinds, four of which this
+        // enum used to reject. The narrower list did not prevent a plan
+        // ending in a document from being WRITTEN; it only moved the refusal
+        // to the dispatch exit, as an OUTPUT_SCHEMA_MISMATCH naming the plan
+        // rather than the step, after every step had been paid for.
+        modality: assetKindField(),
         url: urlField().optional(),
         label: boundedText(64),
       }),

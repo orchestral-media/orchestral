@@ -72,6 +72,33 @@ export interface StepOptions {
    * hashes byte-identically to how it did before this option existed.
    */
   identity?: 'index' | 'id'
+
+  /**
+   * Key this step's durable row on a string the CALLER derives, bypassing
+   * `deriveIdempotencyKey` entirely — the same override `JobSpec.idempotencyKey`
+   * has always given a host submitting directly, reachable from inside a
+   * `compose` where the framework, not the author, builds the child spec.
+   *
+   * Why the two `identity` modes are not enough. Both are projections of one
+   * derivation, and that derivation hashes `sessionId` — "dedup never crosses
+   * a session boundary" is a deliberate property of it, not an oversight. So a
+   * caller whose notion of "the same work" is broader than one session cannot
+   * express it by choosing a mode: name-keying survives an edit to the step
+   * list, and still re-pays in a new session. Content-addressed reuse that
+   * outlives the conversation the request arrived in is a key question, and
+   * this is where a caller answers it.
+   *
+   * When present, `identity` stops mattering for the durable key: position and
+   * name are both inputs to a derivation that no longer runs. Everything else
+   * `identity` governs (which id the step reports, how nested namespaces
+   * compose) is untouched, so a step may sensibly pass both.
+   *
+   * The whole burden moves with the key. The engine stops asking whether the
+   * input changed, so a key that omits something the step actually reads hands
+   * back the earlier output for later work — the failure mode is a stale
+   * result, not an error. Derive it from everything the step depends on.
+   */
+  idempotencyKey?: string
 }
 
 export interface StepMeta {
