@@ -508,7 +508,7 @@ describe('validatePlan — rules 2 and 3, step ids', () => {
 })
 
 describe('validatePlan — rule 4, PLAN_REF_SYNTAX', () => {
-  it('flags a whole string that starts like a ref and is neither production', () => {
+  it('flags a whole string that starts like a ref and matches neither form', () => {
     const problem = flip('PLAN_REF_SYNTAX', (dag) => {
       dag.steps[1].input.prompt = '$describe'
     })

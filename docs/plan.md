@@ -247,8 +247,10 @@ Core, pure, synchronous, returns and never throws. `lookup` is
 `Pick<PatternRegistry, 'get' | 'getEntry'>`; `opts` is `{ audience?:
 DispatchAudience; allow?: readonly PatternId[]; selfId?: PatternId; inputs?:
 ZodObject; assetNeeds?: readonly AssetNeed[] }`. Every rule runs; problems
-accumulate. Twenty-six codes, one per remedy: a model reading a refusal should
-be able to tell what to edit from the code alone.
+accumulate. Twenty-seven rules below, thirty codes: one code per remedy, so a
+rule that can go wrong two distinct ways (5, 8, 15) reports two codes rather
+than blur them into one — a model reading a refusal should be able to tell
+what to edit from the code alone.
 
 ```ts
 export interface PlanProblem {
@@ -267,7 +269,7 @@ export class PlanInvalidError extends Error {
 1. `PLAN_SCHEMA` — one problem per `PlanDagSchema.safeParse` issue; details `{ issue }`.
 2. `PLAN_STEP_ID_DUPLICATE` — details `{ stepId }`. The engine would throw `DUPLICATE_STEP_ID` mid-run (`meta-execution-context.ts:383-394`); we throw before.
 3. `PLAN_STEP_ID_RESERVED` — `input` as a step id; `{ stepId }`.
-4. `PLAN_REF_SYNTAX` — a whole-string value that begins with `$` followed by a letter and matches neither production; `{ stepId, path, value }`. `$5.99` does not trigger it (digit after `$`), so prices stay literal without an escape rule.
+4. `PLAN_REF_SYNTAX` — a whole-string value that begins with `$` followed by a letter and matches neither form; `{ stepId, path, value }`. `$5.99` does not trigger it (digit after `$`), so prices stay literal without an escape rule.
 5. `PLAN_REF_UNKNOWN_STEP` / `PLAN_REF_FORWARD` — a ref must name a step at a *lower* array index; `{ stepId, ref, target }`. Array order is the topological order and cycles are unrepresentable; this is the cycle check.
 6. `PLAN_REF_PATH_UNKNOWN` — a value path walked against the producer's `outputs` zod shape (`ZodObject` / `ZodArray` / `ZodOptional` / `ZodNullable`; anything else accepts), the same introspection `find_pattern` does on `outputs.shape` (`find-pattern.ts:553-579`); `{ stepId, ref, target, available: string[] }`. `available` is the producer's top-level output keys, because `find_pattern` never renders outputs (`:626`) and the model otherwise has no way to learn that the field is `text`.
 7. `PLAN_REF_INTO_ASSETS` — a value ref whose path enters `assets`; `{ stepId, ref }`. This is the single most likely model mistake (`"references": { "startFrame": "$render.assets[0]" }`, steered by the derived references copy at `derive-references-schema.ts:30-43`), and it must be free.
@@ -946,7 +948,7 @@ has, and it needs the sandbox DESIGN.md:35-50 refuses.
 **Instead.** A transform is a `text-generation` step; a decision is a shipped
 meta called as one step (`$hero.assets[label=winner]`); a dynamic width is
 authored as a fixed one.
-**Where.** `packages/orchestral-plan/src/plan.ts` (the three regexes);
+**Where.** `packages/orchestral-plan/src/plan.ts` (the four regexes);
 `validatePlan` rules 4 and 9.
 
 <!-- DESIGN: plan-doc-no-evaluation -->
