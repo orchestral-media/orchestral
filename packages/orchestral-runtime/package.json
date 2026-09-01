@@ -1,6 +1,6 @@
 {
   "name": "@orchestral/runtime",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "In-process Runtime implementation for @orchestral/core. Submits jobs, dispatches Patterns through a CapabilityRouter, walks the model fallback chain when a call fails, and dedupes by idempotency key. Same-model transient retry and cross-Pattern Alternatives are opt-in. No durable queue — the host owns the lifecycle. Node-only (uses node:crypto); core itself is runtime-agnostic.",
   "license": "Apache-2.0",
   "engines": {
