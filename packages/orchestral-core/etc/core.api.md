@@ -323,9 +323,6 @@ export function assertSupportedModelSpecVersion(model: {
 }): void;
 
 // @public
-export const ASSET_KINDS: readonly ["image", "audio", "video", "document", "data", "archive", "other"];
-
-// @public
 export const ASSET_MARKER: unique symbol;
 
 // @public

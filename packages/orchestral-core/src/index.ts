@@ -161,8 +161,14 @@ export { toJsonSchema } from './schema'
 // runs it as a non-fatal warn on every registered pattern's outputs schema
 // (OUTPUTS_UNBOUNDED_FIELDS). Host-injected tool schemas are outside the
 // registry, so a host that wants the same guarantee calls the checker itself.
+//
+// `ASSET_KINDS` is deliberately NOT here. `AssetKind` is the declaration and
+// `assetKindField()` is how a schema states it; the tuple is the runtime twin
+// the enum is built from, and a consumer that wants the members reads
+// `assetKindField().options` — one export, no second list to keep in step.
+// Same call as `FIRST_PARTY_CAPABILITIES` in capability.ts, which stays off the
+// barrel for the same reason.
 export {
-  ASSET_KINDS,
   assetIdField,
   assetKindField,
   auditOutputsSchema,

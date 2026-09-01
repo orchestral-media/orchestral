@@ -159,4 +159,13 @@ describe('parallel.limit', () => {
       /PARALLEL_LIMIT_INVALID/,
     )
   })
+
+  it('refuses a hole in the task list rather than resolving one', async () => {
+    // `new Array(n)` and `list.filter(…)` on a sparse source both produce this.
+    // Skipping the hole resolves an array with a hole in it, and a caller
+    // reading `results[1]` gets `undefined` for work that was never even
+    // attempted — a missing dispatch that looks like a successful one.
+    const tasks = [async () => 1, undefined, async () => 3] as unknown as (() => Promise<number>)[]
+    await expect(parallel.limit(tasks, 2)).rejects.toThrow(/PARALLEL_TASK_MISSING/)
+  })
 })

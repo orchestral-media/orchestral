@@ -98,7 +98,26 @@ const limitImpl = <T>(
       const index = next++
       if (index >= tasks.length) return
       const task = tasks[index]
-      if (task === undefined) continue
+      // A hole, not a task. `new Array(n)` never filled, or a `.filter()` over
+      // a sparse source, both land here — and skipping it resolves an array
+      // with a hole where a result should be. The caller then reads
+      // `undefined` for work that was never attempted, which is indistinguisha-
+      // ble from work that returned nothing: a dispatch silently not made,
+      // reported as a batch that succeeded. Same family as
+      // PARALLEL_LIMIT_INVALID above, and refused for the same reason — the
+      // shape of the call is wrong before any task has run.
+      if (task === undefined) {
+        // Set like a rejection, because it is one: no sibling worker should
+        // start further work for a batch that is already going to reject.
+        failed = true
+        throw Object.assign(
+          new Error(
+            `PARALLEL_TASK_MISSING: tasks[${index}] is not a function; a hole in ` +
+              'the task list would resolve as a hole in the results.',
+          ),
+          { code: 'PARALLEL_TASK_MISSING' },
+        )
+      }
       try {
         results[index] = await task()
       } catch (err) {

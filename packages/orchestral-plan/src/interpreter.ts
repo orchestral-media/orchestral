@@ -32,7 +32,7 @@
 // validation walk, `$ref` parsing, and preflight pricing.
 
 import {
-  ASSET_KINDS,
+  assetKindField,
   extendInputsWithReferences,
   parallel,
   sumCosts,
@@ -367,6 +367,16 @@ function lookupFromGetPattern(ops: {
 }
 
 // ── The interpreter ─────────────────────────────────────────────────────
+
+/**
+ * Every {@link AssetKind}, read off the enum rather than off a second exported
+ * list. `assetKindField()` is what `PlanOutputSchema.assets[].modality` IS, so
+ * taking its `.options` makes "the kinds this interpreter accepts" and "the
+ * kinds the output schema will parse" the same array by construction, not by
+ * two imports that happen to agree. Hoisted to module scope because the enum is
+ * rebuilt on every call.
+ */
+const KINDS = assetKindField().options
 
 /** What the interpreter reads off a step's output. Everything else flows through. */
 interface StepValue {
@@ -992,13 +1002,13 @@ function finiteCost(cost: number | null | undefined): number | null {
  * laundering that into a valid-looking kind would hide it.
  */
 function asAssetKind(value: unknown, ref: string, site: RefSite): AssetKind {
-  if (typeof value === 'string' && (ASSET_KINDS as readonly string[]).includes(value)) {
+  if (typeof value === 'string' && (KINDS as readonly string[]).includes(value)) {
     return value as AssetKind
   }
   throw planError(
     'PLAN_ASSET_MODALITY_UNKNOWN',
     `"${ref}" resolved to an asset whose modality is ${JSON.stringify(value)}, ` +
-      `which is not one of ${ASSET_KINDS.join(', ')}. The producing pattern ` +
+      `which is not one of ${KINDS.join(', ')}. The producing pattern ` +
       'returned a modality its own outputs schema does not pin down.',
     {
       ...(site.planStepId !== undefined ? { planStepId: site.planStepId } : {}),
