@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [cc7d6d6]
+  - @orchestral/core@0.4.0
+  - @orchestral/plan@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes
