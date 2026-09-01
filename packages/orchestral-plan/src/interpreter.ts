@@ -696,14 +696,28 @@ export async function runPlan(
   //    the nested metas the grammar tells an author to reach for.
   //
   //    "The same indices run after run" holds while every earlier step's
-  //    compose actually RUNS. A plan step that dedupes to a cached row skips
-  //    its compose — and its subtree's counter consumption — so resubmitting a
-  //    partly-failed plan that contains two or more nested positional metas
-  //    can shift, and thereby re-pay, the completed inner rows of the later
-  //    one. That is the engine's documented cost of positional identity
-  //    (DESIGN.md, "We don't content-hash step ids"), inherited here, not
-  //    introduced: the plan's OWN steps are immune (`identity: 'id'`), and a
-  //    plan adds no new identity for other metas' internals.
+  //    compose actually RUNS. Two things stop one from running, and both shift
+  //    the shared counter for everything after it:
+  //
+  //      • a step that dedupes to a cached row skips its compose, and its
+  //        subtree's counter consumption with it. Resubmitting a partly-failed
+  //        plan containing two or more nested positional metas can therefore
+  //        shift, and re-pay, the completed inner rows of the later one;
+  //      • a step INVALIDATED by an upstream failure is never attempted at all,
+  //        so on the resubmit — where the failure has been fixed and it does
+  //        run — it consumes counter positions it did not consume before, and a
+  //        surviving branch's nested positional rows can miss where they hit on
+  //        the first run. This one arrives with the keep-going walk below: under
+  //        the old fail-the-level behaviour a resubmit re-ran everything after
+  //        the failure anyway, so there was nothing banked to miss.
+  //
+  //    Both are the engine's documented cost of positional identity (DESIGN.md,
+  //    "We don't content-hash step ids"), reached here rather than introduced:
+  //    the plan's OWN steps are immune (`identity: 'id'`), and a plan adds no
+  //    new identity for other metas' internals. What the second says is that
+  //    banking more work buys strictly more than it costs — the surviving
+  //    branch's OWN row is still a hit; what can miss is an inner row of a
+  //    nested meta that keys positionally.
   //
   //    A step's failure invalidates exactly its transitive dependents, which is
   //    what the DAG the author wrote already says. The walk used to be narrower
@@ -769,9 +783,12 @@ export async function runPlan(
   //    exists to prevent.
   const assets: PlanOutput['assets'] = (dag.output.assets ?? []).map((entry) => {
     const site: RefSite = { path: ['output', 'assets', entry.label] }
-    // The schema admits only the producer form here, which names exactly one
-    // element — so the list this returns has exactly one entry, and an empty
-    // one is already an `unresolved` throw inside.
+    // The schema admits only the producer form here (`ProducedAssetRef` in
+    // plan.ts; validate.ts's rule-25 arm says the same), which names exactly
+    // one element — so the list this returns has exactly one entry, and an
+    // empty one is already an `unresolved` throw inside. A plan does not return
+    // the caller's own media: an array slot resolves to several and an optional
+    // one to none, and an output entry is exactly one asset under one label.
     const element = readAssets(entry.from, site)[0]
     if (element === undefined) return unresolved(entry.from, site)
     return {

@@ -540,7 +540,7 @@ class PlanWalk {
       })
       return
     }
-    // Rule 4 — meant to be a reference, spelled as neither production. Note
+    // Rule 4 — meant to be a reference, spelled as no production at all. Note
     // what does NOT trigger it: "$5.99" has a digit after the `$`, so prices,
     // currency tables and shell-looking prose stay literal with no escape rule
     // to learn.
@@ -920,8 +920,15 @@ class PlanWalk {
 
   /**
    * Rules 25 to 27 over `$input.assets[slot=…]` — the caller's media, bound
-   * into a step's slot (`need` given) or returned under `output.assets`
-   * (`need` absent).
+   * into a step's slot.
+   *
+   * `need` is the child slot being wired into, and in practice it is always
+   * given: `output.assets[].from` is typed `ProducedAssetRef` (plan.ts), which
+   * admits the producer form alone, so a slot ref cannot legally reach this
+   * function without a `need`. The `need === undefined` arm below is what the
+   * walk does when it sees one anyway — the walk reads raw data and promises
+   * never to throw, so a host handing in a DAG that never met the schema still
+   * gets an answer.
    *
    * 25 — the plan declares no asset slots at all, so there is nothing for the
    *      ref to name. The twin of rule 8's PLAN_REF_INPUT_NOT_ALLOWED, which
@@ -975,9 +982,13 @@ class PlanWalk {
       })
       return
     }
-    // `output.assets[].from` — the plan returning media it was given. Legal:
-    // there is no failure mode, only a second handle for an asset the caller
-    // already holds. Nothing below applies, because there is no child slot.
+    // No child slot, which for a schema-valid plan cannot happen: the only
+    // site that calls in without one is `output.assets[].from`, and its type
+    // (`ProducedAssetRef`) admits the producer form alone — a plan returning
+    // the caller's own media is refused by the schema, not here. So this is
+    // reachable only alongside a `PLAN_SCHEMA` problem for the same string,
+    // and rule 1 owns that. Return rather than add a second, vaguer problem:
+    // one code per remedy, and the remedy is already stated.
     if (need === undefined) return
     if (planNeed.modality !== need.modality) {
       this.add({

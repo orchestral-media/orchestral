@@ -15,7 +15,11 @@
 //   2. A head is read only off a WHOLE-string reference — `"Costs $5.99 for
 //      $render.assets[0]"` depends on nothing, exactly as `substitute` in
 //      interpreter.ts replaces nothing in it.
-//   3. `$input` is the plan's own parameters and never a dependency.
+//   3. `$input` is the plan's own CALLER and never a dependency — both of the
+//      productions that read it, `$input.<field>` off the parameter schema and
+//      `$input.assets[slot=…]` off the declared asset slots. Neither names a
+//      step, so neither contributes a level or a `referenced` mark; a plan
+//      whose only reads are from its caller is one level deep.
 //   4. No declared-id filter: a head that names no step is returned as read.
 //      `planLevels` has no level for it and moves on; `validatePlan`'s rules 5
 //      and 6 refuse it long before either of them runs.
@@ -99,7 +103,12 @@ export function parseAssetRef(value: string): ParsedAssetRef | null {
     : { head: m[1] ?? '', index: Number(selector) }
 }
 
-/** The producing step id of a whole-string reference of either production. */
+/**
+ * The head of a whole-string reference of any production: the producing step
+ * for the three that read one, and `input` for the two that read the plan's own
+ * caller — `$input.<field>` and `$input.assets[slot=…]`. Callers that must not
+ * treat the caller's input as a step filter it out; see rule 3 above.
+ */
 export function refHead(value: string): string | undefined {
   return parseValueRef(value)?.head ?? parseAssetRef(value)?.head
 }

@@ -3,7 +3,7 @@
 // A plan is a meta whose `compose` has been replaced by a list of steps, each
 // one a `ctx.step` call written down as `{ id, pattern, input, assets }` with
 // `$`-references between them. This module is the *contract* half of that: the
-// three ref regexes, the DAG the model writes, and the fixed output envelope
+// four ref regexes, the DAG the model writes, and the fixed output envelope
 // every plan returns. It lives beside the interpreter that walks it
 // (interpreter.ts) and the walk that refuses it (validate.ts): one feature, one
 // package, one definition of "what is a reference".
@@ -39,7 +39,7 @@ import {
   urlField,
 } from '@orchestral/core'
 
-// ── The three productions ───────────────────────────────────────────────
+// ── The four productions ────────────────────────────────────────────────
 
 // Identifiers start with a letter: no '/', the namespace separator
 // (meta-execution-context.ts:379-381); no '.', '$' or '[' (the ref grammar);

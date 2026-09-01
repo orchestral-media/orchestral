@@ -13,7 +13,7 @@ import type {
   PatternId,
   ResolvedAssetRef,
 } from '@orchestral/core'
-import { planToMeta, type PlanOutput } from '@orchestral/plan'
+import { createPlanMeta, planToMeta, type PlanOutput } from '@orchestral/plan'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -328,6 +328,56 @@ describe('a failing step invalidates exactly its dependents', () => {
     expect(h.calls.imageToVideo).not.toHaveBeenCalled()
     // …while the independent branch still ran.
     expect(h.calls.textToImage).toHaveBeenCalledTimes(2)
+  })
+
+  it('with two failures, raises the first in LIST order, not the first to settle', async () => {
+    // The determinism claim in the changeset, made falsifiable: the two steps
+    // are arranged so settle order is the exact reverse of list order. Under
+    // "whichever provider gave up first" this test would name `late`, and the
+    // same plan would blame a different step on a different day.
+    const h = makePlanHost()
+    h.registry.register(
+      planToMeta(
+        {
+          steps: [
+            { id: 'early', pattern: 'text-to-image', input: { prompt: 'first listed' } },
+            { id: 'late', pattern: 'text-to-image', input: { prompt: 'second listed' } },
+          ],
+          output: {
+            assets: [
+              { from: '$early.assets[0]', label: 'e' },
+              { from: '$late.assets[0]', label: 'l' },
+            ],
+          },
+        } as never,
+        { id: 'meta_two-failures' as PatternId, lookup: h.registry, exposure: 'tool' },
+      ),
+    )
+
+    const settled: string[] = []
+    let nth = 0
+    h.calls.textToImage.mockImplementation(async () => {
+      // A level's steps are called synchronously in list order, so call 0 is
+      // `early` and call 1 is `late`.
+      const first = nth++ === 0
+      if (first) await new Promise((resolve) => setTimeout(resolve, 20))
+      settled.push(first ? 'early' : 'late')
+      throw Object.assign(new Error(first ? 'early blew up' : 'late blew up'), {
+        code: first ? 'MOCK_EARLY' : 'MOCK_LATE',
+      })
+    })
+
+    const run = await h.run<PlanOutput>(
+      'meta_two-failures' as PatternId,
+      {},
+      'session-two-failures',
+    )
+
+    // The arrangement actually held: `late` gave up first.
+    expect(settled).toEqual(['late', 'early'])
+    expect(run.job.status).toBe('error')
+    expect(run.job.error?.code).toBe('MOCK_EARLY')
+    expect(run.job.error?.details).toMatchObject({ planStepId: 'early' })
   })
 })
 
@@ -720,5 +770,29 @@ describe('RunPlanOptions.concurrency', () => {
     const h = wideHost(50)
     await h.run<PlanOutput>('meta_wide' as PatternId, {}, 'session-loose')
     expect(h.models.peak['text-to-image']).toBe(6)
+  })
+
+  it('the one-shot forwards the cap its host set at construction', async () => {
+    // `createPlanMeta`'s second argument is the only place a host can bound a
+    // model-authored DAG: the model writes the steps, so the width is not
+    // something the plan's author chose. Untested, the option could have been
+    // read and dropped — the fan-out looks identical either way from outside.
+    const h = makePlanHost({ latencyMs: 5 })
+    h.registry.register(
+      createPlanMeta(
+        { getPattern: (id) => h.registry.get(id) },
+        { concurrency: 2 },
+      ) as never,
+    )
+
+    const run = await h.run<PlanOutput>(
+      'meta_plan' as PatternId,
+      SIX_WIDE,
+      'session-oneshot-cap',
+    )
+
+    expect(run.job.status).toBe('done')
+    expect(h.models.peak['text-to-image']).toBe(2)
+    expect(h.calls.textToImage).toHaveBeenCalledTimes(6)
   })
 })

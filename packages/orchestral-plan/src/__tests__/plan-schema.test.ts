@@ -178,7 +178,7 @@ describe('PlanOutputSchema', () => {
   })
 })
 
-describe('the three productions', () => {
+describe('the four productions', () => {
   it('accepts the forms the worked examples use', () => {
     expect(PLAN_STEP_ID_RE.test('take-0')).toBe(true)
     expect(PLAN_VALUE_REF_RE.test('$describe.text')).toBe(true)
@@ -186,6 +186,7 @@ describe('the three productions', () => {
     expect(PLAN_VALUE_REF_RE.test('$input.motion')).toBe(true)
     expect(PLAN_ASSET_REF_RE.test('$render.assets[0]')).toBe(true)
     expect(PLAN_ASSET_REF_RE.test('$bestof.assets[label=winner]')).toBe(true)
+    expect(PLAN_INPUT_ASSET_REF_RE.test('$input.assets[slot=still]')).toBe(true)
   })
 
   it('refuses the forms the grammar deliberately lacks', () => {
@@ -195,6 +196,17 @@ describe('the three productions', () => {
     expect(PLAN_VALUE_REF_RE.test('$describe')).toBe(false)
     expect(PLAN_VALUE_REF_RE.test('{{ describe.text }}')).toBe(false)
     expect(PLAN_ASSET_REF_RE.test('$render.assets[label=has space]')).toBe(false)
+    expect(PLAN_INPUT_ASSET_REF_RE.test('$input.assets[0]')).toBe(false)
+  })
+
+  it('the two asset productions are disjoint', () => {
+    // The carve-out is what makes "which production is this" a question with
+    // one answer, so the parse can discriminate on `slot !== undefined`.
+    expect(PLAN_ASSET_REF_RE.test('$input.assets[slot=still]')).toBe(false)
+    expect(PLAN_ASSET_REF_RE.test('$input.assets[0]')).toBe(false)
+    // Narrow, though: a step id that merely begins with `input` is a producer.
+    expect(PLAN_ASSET_REF_RE.test('$inputs.assets[0]')).toBe(true)
+    expect(PLAN_ASSET_REF_RE.test('$input-frames.assets[0]')).toBe(true)
   })
 })
 
