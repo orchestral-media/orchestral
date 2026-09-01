@@ -517,6 +517,20 @@ export function buildMetaExecutionContext(
               ...(byId
                 ? { stepKey: effectiveStepId }
                 : { stepIndex: idx }),
+              // The caller's own answer to "what is the same work", which
+              // `_submitJobInternal` prefers over the derivation
+              // DESIGN: caller-supplied-step-identity
+              // (`spec.idempotencyKey ?? deriveIdempotencyKey(…)`). Spread
+              // conditionally: absent, the child spec is byte-identical to one
+              // built before this option existed, so no stored key moves.
+              //
+              // The identity fields above are still sent. They are dead for
+              // keying once this is present — but they are not only keying
+              // fields, and stripping them here would make the two options
+              // interact when they are meant to be independent.
+              ...(options?.idempotencyKey !== undefined
+                ? { idempotencyKey: options.idempotencyKey }
+                : {}),
             },
             [...visited],
             sharedState,

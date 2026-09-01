@@ -46,6 +46,7 @@ describe('@orchestral/core public surface', () => {
         "applicableAlternatives",
         "assertSupportedModelSpecVersion",
         "assetIdField",
+        "assetKindField",
         "auditOutputsSchema",
         "boundedText",
         "buildAlwaysLoadDescriptors",

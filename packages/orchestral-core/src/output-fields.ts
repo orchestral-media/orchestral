@@ -13,6 +13,7 @@
 
 import { z, type ZodType } from 'zod'
 
+import type { AssetKind } from './asset-index.types'
 import { toJsonSchema } from './schema'
 
 /** Prose / label fields. Pick the smallest honest max. */
@@ -37,6 +38,57 @@ export function assetIdField() {
 /** Canonical / thumbnail URLs (any scheme). */
 export function urlField(max = 2_048) {
   return z.string().max(max)
+}
+
+/**
+ * Every {@link AssetKind}, as a value — the runtime twin of a type that
+ * otherwise exists only at compile time.
+ *
+ * It is here rather than beside the type because `asset-index.types.ts` is
+ * declared "pure types, zero runtime, zero SDK" and a zod enum is both. The
+ * two are held together by the assertion below instead of by proximity.
+ */
+export const ASSET_KINDS = [
+  'image',
+  'audio',
+  'video',
+  'document',
+  'data',
+  'archive',
+  'other',
+] as const
+
+/**
+ * Both directions of "these are the same set", as a compile error rather than a
+ * comment asking someone to remember. A kind added to {@link AssetKind} and not
+ * to `ASSET_KINDS` fails the first line; a string in `ASSET_KINDS` that is not
+ * an `AssetKind` fails the second.
+ *
+ * The reason to spend two type aliases on this: the enum below is what an
+ * outputs schema states about a produced asset, and the type is what every
+ * resolution path carries. When they disagreed, a Pattern could declare an
+ * output the library's own type vocabulary accepted and its own schema
+ * rejected, and the disagreement only surfaced at the dispatch exit — after
+ * the work was paid for.
+ */
+type _EveryKindListed = Exclude<AssetKind, (typeof ASSET_KINDS)[number]> extends never
+  ? true
+  : never
+type _NoExtraKindsListed = Exclude<(typeof ASSET_KINDS)[number], AssetKind> extends never
+  ? true
+  : never
+const _assetKindsExhaustive: [_EveryKindListed, _NoExtraKindsListed] = [true, true]
+void _assetKindsExhaustive
+
+/**
+ * The `modality` of a produced or referenced asset, as a schema.
+ *
+ * Note this is {@link AssetKind} — which classifies a file — and not the
+ * model-facing `Modality`, which describes a model's I/O. They overlap on
+ * image/audio/video and answer different questions; see asset-index.types.ts.
+ */
+export function assetKindField() {
+  return z.enum(ASSET_KINDS)
 }
 
 export interface OutputsSchemaAudit {

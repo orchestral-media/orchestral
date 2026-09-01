@@ -57,7 +57,13 @@ export interface DeriveIdempotencyKeyInput {
  *     make an identical sub-step in two subtrees fail to dedupe
  *   • `resumeFromRunId`, `jobKind` — execution-mode markers, not work identity
  *   • `idempotencyKey` — the caller-supplied override; when present the caller
- *     bypasses this function entirely
+ *     bypasses this function entirely. One consequence of the allowlist above
+ *     survives that bypass and is enforced at the dedup hit instead: because
+ *     `patternId` is hashed HERE, no key this function returns can land on
+ *     another pattern's row, and `_submitJobInternal` refuses one that does
+ *     (`IDEMPOTENCY_KEY_CROSS_PATTERN`). Everything else the override gives
+ *     up — whether the input changed, whether the session is the same — is the
+ *     caller's to answer
  *
  * Adding a field here changes dedup behaviour for every existing job row:
  * previously-deduping dispatches start executing twice. A field spread in

@@ -344,11 +344,39 @@ step into an edited plan re-runs one dispatch, not everything after it. It is
 opt-in per step, requires an explicit `stepId`, and positional stays the
 default — the conditional spread in `deriveIdempotencyKey` keeps every
 pre-`stepKey` payload byte-identical.
+A third bypass goes further and hands the question over entirely:
+`StepOptions.idempotencyKey` keys the row on a string the CALLER derives,
+skipping `deriveIdempotencyKey` the way `JobSpec.idempotencyKey` always has for
+a host submitting directly. This is not the refusal above being reversed — the
+library still derives no content hash of its own, and still will not decide that
+two identical dispatches are one unit of work. It is the seam for a caller whose
+notion of "the same work" the derivation cannot express, the concrete case being
+reuse that outlives a session: `sessionId` is hashed on purpose ("dedup never
+crosses a session boundary"), so no choice of `identity` mode escapes it. The
+burden moves with the key and is stated where it is declared — within one
+pattern, a key that omits something the step reads returns the earlier output
+for later work, which is a stale but schema-valid result rather than an error.
+One collision does not move with it: a key already held by a row for a
+DIFFERENT pattern is refused, `IDEMPOTENCY_KEY_CROSS_PATTERN`. That row's output
+was gated against the other pattern's `outputs` schema and never against this
+one's, so returning it is not a stale answer to the caller's question but an
+answer to a different one — and only a caller-supplied key can produce it, since
+the derivation always hashes `patternId`. `runPlan` exposes the same seam as
+`idempotencyKeyFor`, because the interpreter owns the `ctx.step` call and a
+plan's steps would otherwise be the only steps that cannot reach the option; a
+plan is also where the two ways to write the key badly show up, since one key
+function serves many steps (a key ignoring the pattern hits the refusal above,
+one ignoring the step id collapses a fan-out onto a row that has not finished —
+`PLAN_STEP_IN_FLIGHT`).
 **Where.** `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional),
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id);
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: caller-supplied-step-identity),
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: idempotency-key-cross-pattern);
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-fan-out-note),
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-explicit-step-id);
-`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds");
+`packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds"),
+`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("dedupes across sessions, which the derived key cannot"),
+`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("refuses a key that collides across two patterns");
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-id.test.ts`.
 
 ### We don't impose concurrency caps, timeouts, or TTLs
@@ -363,10 +391,26 @@ calls per `rootJobId` in `beforeDispatch` for a spend cap — `rootJobId` exists
 for exactly that and is deliberately not persisted on `Job`, "that would put a
 column on every host `JobStore` to serve bookkeeping the host can do in its own
 tables."
+That semaphore has one blind spot, and it is where this refusal has to hand the
+host a seam rather than only a sentence: a plan's levels fan out INSIDE a single
+`submitJob`. From outside, the plan is one job — the host has one call
+outstanding while the interpreter has twenty in flight — so a decision this
+entry assigns to the host is one the host had no way to exercise.
+`parallel.limit` is the mechanism and `RunPlanOptions.concurrency` (also on
+`PlanToMetaOptions` and `createPlanMeta`) is where a host names a number.
+Default unlimited, and the library still picks none: this is the difference
+between refusing to impose a policy and refusing to provide the mechanism, and
+only the first was ever the argument. The cost of turning it on — a capped step
+starts when an earlier one settles, so the tree-shared counter stops handing a
+nested meta's positional rows the same indices run after run — is stated where
+the option is declared.
 **Where.** `packages/orchestral-core/CHANGELOG.md` (DESIGN: changelog-no-timeout-no-ttl);
 `packages/orchestral-runtime/CHANGELOG.md` (DESIGN: changelog-no-throttling-no-deadlines);
 `packages/orchestral-core/src/execution-context.ts` (DESIGN: root-job-id-not-persisted);
-`packages/orchestral-runtime/src/__tests__/abort-cascade.test.ts`.
+`packages/orchestral-core/src/parallel.ts` (DESIGN: fan-out-cap-is-a-mechanism-not-a-policy);
+`packages/orchestral-plan/src/interpreter.ts` (DESIGN: plan-concurrency-is-the-hosts-knob);
+`packages/orchestral-runtime/src/__tests__/abort-cascade.test.ts`;
+`packages/orchestral-patterns/src/__tests__/meta-plan-seams.test.ts` ("holds a capped level to the cap, and still finishes every step").
 
 ### We don't make `asset://` a fetch protocol
 **Why.** The URI is only "the URI writing form of an AssetLedger reference":
@@ -568,10 +612,17 @@ still decides whether one does.
 `packages/orchestral-core/src/alternative.ts` (DESIGN: alternative-map-closures).
 
 ### We don't add a partial-success state for plans
-**Why.** A plan is a meta: `parallel()` is `Promise.all` and the job is one
-row. The rows that succeeded are already in the JobStore and hit on the next
-submit; a status for "some steps done" would be a second source of truth for
-what the store records, and a column on every host store to serve it.
+**Why.** A plan is a meta, so the job is one row whatever the interpreter does
+inside it. The steps that succeeded are already rows of their own in the
+JobStore and hit on the next submit; a status for "some steps done" would be a
+second source of truth for what the store already records, and a column on every
+host store to serve it. Note the argument does not rest on how the levels are
+scheduled — it used to be stated as "`parallel()` is `Promise.all`", which the
+interpreter no longer does. The keep-going walk (`parallel.limit`, failures
+collected, dependents invalidated) makes MORE of a failed plan land in the store
+rather than less, so it strengthens this refusal: the more a resubmit finds
+already banked, the less a partial-success status would be telling anyone that
+the store cannot.
 **Instead.** `job.error.details.planStepId` names the failed step; `job:step`
 events name the ones that landed; resubmit — the finished steps come back from
 the store.

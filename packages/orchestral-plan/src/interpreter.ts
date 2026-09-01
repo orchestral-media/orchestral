@@ -32,8 +32,12 @@
 // validation walk, `$ref` parsing, and preflight pricing.
 
 import {
+  assetKindField,
+  extendInputsWithReferences,
   parallel,
   sumCosts,
+  type AssetKind,
+  type AssetNeed,
   type DispatchAudience,
   type ExecutionContext,
   type MetaPattern,
@@ -46,13 +50,13 @@ import {
 import { z } from 'zod'
 
 import {
-  PlanDagSchema,
   PlanOutputSchema,
+  planDagSchema,
   type PlanDag,
   type PlanOutput,
   type PlanStep,
 } from './plan'
-import { parseAssetRef, parseValueRef, planLevels } from './refs'
+import { dependenciesOf, parseAssetRef, parseValueRef, planLevels } from './refs'
 import {
   PlanInvalidError,
   planRefine,
@@ -133,6 +137,29 @@ export interface PlanToMetaOptions {
    * loop's tool by accident. A shipped plan package passes `'tool'`.
    */
   exposure?: PatternExposure
+  /**
+   * The media this plan takes from its caller, declared exactly as any other
+   * MetaPattern declares it.
+   *
+   * Two things follow from one list. The pattern carries `assetNeeds`, so a
+   * host's resolution pass runs for it like any other media pattern; and
+   * `tool.inputs` gains the derived `references` field, so a caller fills slots
+   * by handle in the schema it already knows rather than passing an asset id as
+   * an untyped string. Inside the DAG the slots are addressable as
+   * `$input.assets[slot=<name>]` — the media counterpart of `$input.<field>`,
+   * which `inputs` binds.
+   *
+   * Absent, the plan takes no media and every `$input.assets[…]` is refused.
+   */
+  assetNeeds?: readonly AssetNeed[]
+  /**
+   * Upper bound on how many steps of one dependency level run at once. Default
+   * unlimited, which is the whole level — see {@link RunPlanOptions.concurrency}
+   * for what a bound costs.
+   */
+  concurrency?: number
+  /** Per-step durable identity; see {@link RunPlanOptions.idempotencyKeyFor}. */
+  idempotencyKeyFor?: PlanStepIdentity
 }
 
 /**
@@ -192,13 +219,30 @@ export function planToMeta<I extends Record<string, unknown> = Record<string, un
     exposure: opts.exposure ?? 'no-tool',
     description,
     ...(opts.searchHint !== undefined ? { searchHint: opts.searchHint } : {}),
+    // Declared like any other media pattern's, which is the point: a plan that
+    // takes media is not a special case the host has to know about. Its
+    // presence is what makes a host's resolution pass run for this pattern at
+    // all, so a plan whose steps read `$input.assets[…]` and whose pattern did
+    // not declare them would be handed an empty `ctx.assets` and fail late.
+    ...(opts.assetNeeds !== undefined ? { assetNeeds: opts.assetNeeds } : {}),
     tool: {
       description,
       // The plan's parameters, not the DAG: the step list is fixed here, so a
       // caller fills `$input`, nothing else. A parameterless plan gets a plain
       // (non-strict) `z.object({})`, matching how the dispatch path parses an
       // input — top-level extras pass through rather than being refused.
-      inputs: (inputs ?? z.object({})) as unknown as z.ZodType<I>,
+      //
+      // `extendInputsWithReferences` rather than the raw derivation: it is the
+      // path every other MetaPattern factory takes, and it carries the rules a
+      // hand-rolled `.extend()` here would get wrong — derived-wins over a
+      // hand-written `references`, key position preserved, object-level meta
+      // re-attached minus the registry id. With no `assetNeeds` it returns the
+      // schema unchanged, by reference.
+      inputs: extendInputsWithReferences(
+        opts.id,
+        (inputs ?? z.object({})) as unknown as z.ZodType<I>,
+        opts.assetNeeds,
+      ),
     },
     outputs: PlanOutputSchema as unknown as z.ZodType<PlanOutput>,
     // Static: the step list cannot change between calls, so an agent loop can
@@ -209,7 +253,18 @@ export function planToMeta<I extends Record<string, unknown> = Record<string, un
       runPlan(
         dag,
         opts.lookup,
-        { selfId: opts.id, ...(inputs !== undefined ? { inputs } : {}) },
+        {
+          selfId: opts.id,
+          ...(inputs !== undefined ? { inputs } : {}),
+          // Forwarded, not re-derived: layer 1 has to check the same slot list
+          // the pattern declared, or it would validate a contract other than
+          // the one the host resolved `ctx.assets` against.
+          ...(opts.assetNeeds !== undefined ? { assetNeeds: opts.assetNeeds } : {}),
+          ...(opts.concurrency !== undefined ? { concurrency: opts.concurrency } : {}),
+          ...(opts.idempotencyKeyFor !== undefined
+            ? { idempotencyKeyFor: opts.idempotencyKeyFor }
+            : {}),
+        },
         (input ?? {}) as Record<string, unknown>,
         ctx,
       ),
@@ -234,7 +289,7 @@ export function planToMeta<I extends Record<string, unknown> = Record<string, un
  */
 export function createPlanMeta(
   ops: { getPattern: (id: PatternId) => Pattern | undefined },
-  init: { audience?: DispatchAudience } = {},
+  init: { audience?: DispatchAudience; concurrency?: number } = {},
 ): MetaPattern<PlanDag, PlanOutput> {
   const lookup = lookupFromGetPattern(ops)
   const audience = init.audience ?? 'agent-loop'
@@ -254,12 +309,21 @@ export function createPlanMeta(
       'pipeline; multi-step; chain several patterns; fan out then judge; workflow as data',
     tool: {
       description: PLAN_TOOL_DESCRIPTION,
-      // The whole of layer 1 as a refine, so every problem reaches the model
-      // through the INPUT_VALIDATION_FAILED tool result the dispatch path
-      // already produces. Invisible to `toJsonSchema` — which is why the rules
-      // it enforces are also spelled out in the schema's `.describe()` copy and
-      // in the tool description above.
-      inputs: PlanDagSchema.superRefine(
+      // The producer-only grammar, not the whole one. A one-shot has no
+      // `assetNeeds` and no way to acquire any — this factory takes none — so
+      // `$input.assets[slot=…]` is not merely unused here but unsatisfiable,
+      // and rule 25 refuses every instance of it. Rendering the form anyway
+      // spends a few hundred bytes of a deferred tool's prefix advertising a
+      // guaranteed rejection, and costs the model a turn to discover. A plan
+      // that DOES declare slots renders the full grammar, byte for byte as
+      // before, through `PlanDagSchema`.
+      //
+      // The whole of layer 1 rides on top as a refine, so every problem reaches
+      // the model through the INPUT_VALIDATION_FAILED tool result the dispatch
+      // path already produces. Invisible to `toJsonSchema` — which is why the
+      // rules it enforces are also spelled out in the schema's `.describe()`
+      // copy and in the tool description above.
+      inputs: planDagSchema({ inputAssets: false }).superRefine(
         planRefine(lookup, { selfId: PLAN_PATTERN_ID, audience }),
       ) as unknown as z.ZodType<PlanDag>,
     },
@@ -271,7 +335,21 @@ export function createPlanMeta(
         .map((s) => (s as { pattern?: unknown }).pattern)
         .filter((p): p is PatternId => typeof p === 'string'),
     compose: ({ input }, ctx) =>
-      runPlan(input, lookup, { selfId: PLAN_PATTERN_ID }, {}, ctx),
+      runPlan(
+        input,
+        lookup,
+        {
+          selfId: PLAN_PATTERN_ID,
+          // A cap is offered here; the identity seam is not. A one-shot's step
+          // ids are invented by the model on the turn it submits, so there is
+          // nothing stable for a host to key a durable row on — whereas the
+          // provider load a twenty-way fan-out puts on a host is the same
+          // whoever wrote the DAG.
+          ...(init.concurrency !== undefined ? { concurrency: init.concurrency } : {}),
+        },
+        {},
+        ctx,
+      ),
   }
 }
 
@@ -290,6 +368,16 @@ function lookupFromGetPattern(ops: {
 
 // ── The interpreter ─────────────────────────────────────────────────────
 
+/**
+ * Every {@link AssetKind}, read off the enum rather than off a second exported
+ * list. `assetKindField()` is what `PlanOutputSchema.assets[].modality` IS, so
+ * taking its `.options` makes "the kinds this interpreter accepts" and "the
+ * kinds the output schema will parse" the same array by construction, not by
+ * two imports that happen to agree. Hoisted to module scope because the enum is
+ * rebuilt on every call.
+ */
+const KINDS = assetKindField().options
+
 /** What the interpreter reads off a step's output. Everything else flows through. */
 interface StepValue {
   cost?: number | null
@@ -302,12 +390,100 @@ interface StepValue {
   [field: string]: unknown
 }
 
+/**
+ * @alpha
+ * How a step's durable row is keyed, decided by the caller.
+ *
+ * Receives what the step will actually dispatch — the input AFTER substitution
+ * and the assets after resolution — because those, not the `$ref`s that stood
+ * in for them, are what the step depends on. Returning `undefined` leaves the
+ * engine's own derivation in place for that step.
+ *
+ * See `StepOptions.idempotencyKey` for what the returned string then governs,
+ * and for the burden that moves with it.
+ */
+export type PlanStepIdentity = (
+  step: PlanStep,
+  substitutedInput: Record<string, unknown>,
+  resolvedAssets: readonly ResolvedAssetRef[],
+) => string | undefined
+
 /** @alpha What `runPlan` needs beyond the DAG and the registry. */
 export interface RunPlanOptions {
   /** The plan pattern's own id: refuses a self-step, and stamps failures. */
   selfId: PatternId
   /** The plan's parameter schema; binds `$input.<field>`. */
   inputs?: z.ZodObject
+  /**
+   * The plan's declared asset slots; binds `$input.assets[slot=<name>]` to the
+   * matching entries of `ctx.assets`.
+   *
+   * Must be the same list the pattern declares — `planToMeta` forwards its own.
+   * A hand-built plan that passes a different one has layer 1 validating a
+   * contract other than the one the runtime resolved `ctx.assets` against.
+   */
+  assetNeeds?: readonly AssetNeed[]
+  /**
+   * Upper bound on how many steps of one dependency level run at once.
+   *
+   * Default unlimited: a level's steps are independent by construction, so
+   * running them together is the point of writing a fan-out. A bound is for the
+   * other side of that — twenty independent steps are twenty provider calls at
+   * once, and a provider's rate limit does not care that the DAG says they may
+   * overlap.
+   *
+   * Why the library offers the knob at all, having refused to impose a cap. A
+   * host's semaphore goes around `submitJob`, and a plan's whole fan-out
+   * happens INSIDE one such call: from the host's side the plan is one job, so
+   * the seam it already has cannot see the twenty. This is where that decision
+   * becomes exercisable rather than merely assigned — the default is still
+   * unlimited, and the library still picks no number.
+   * DESIGN: plan-concurrency-is-the-hosts-knob
+   *
+   * It is not free. `ctx.step` advances a tree-shared counter at CALL time, and
+   * that counter keys every POSITIONAL child — the internals of a nested meta
+   * run as one plan step. Uncapped, a level's steps are all called
+   * synchronously, so those inner rows land on the same indices run after run.
+   * Capped, a step starts when an earlier one settles, so which nested subtree
+   * claims which index becomes a question of provider latency, and the dedup
+   * such a meta relies on stops holding across runs. The plan's OWN steps are
+   * unaffected either way (`identity: 'id'`).
+   */
+  concurrency?: number
+  /**
+   * Key each step's durable row on a string this caller derives, instead of on
+   * the engine's derivation.
+   *
+   * Exists because `runPlan` owns the `ctx.step` call. An author writing a meta
+   * by hand can pass `StepOptions.idempotencyKey`; a plan author writes data
+   * and the interpreter dispatches for them, so without this the steps of a
+   * plan are the only steps in the library that cannot reach that option. The
+   * engine's derivation hashes `sessionId`, so a caller whose notion of "the
+   * same work" outlives one session has no way to say so through it.
+   *
+   * A pure derivation, and deliberately nothing more: it cannot skip a step,
+   * substitute an output, or stop the walk. What it changes is which row the
+   * dispatch lands on — after which the engine's own dedup does the rest.
+   *
+   * Two collisions a key written for a plan can produce, because a plan has
+   * many steps where a hand-written meta has one call site:
+   *
+   *   • Across PATTERNS — a key derived from the step's input alone is the same
+   *     string for `render` and for `animate`, and the second would land on the
+   *     first's row: a video slot answered with a still, by a value this step's
+   *     schema never saw. The engine refuses it,
+   *     `IDEMPOTENCY_KEY_CROSS_PATTERN`. Include `step.pattern`.
+   *   • Within one LEVEL — two independent steps of the SAME pattern under one
+   *     key is a fan-out collapsing to one row, and the engine cannot call that
+   *     wrong: the row is the right pattern, it is simply still queued when the
+   *     sibling arrives. It surfaces as `PLAN_STEP_IN_FLIGHT` naming the second
+   *     step. Include `step.id`, or anything else that tells the two apart.
+   *
+   * Within one pattern and one step, a key that omits something the step reads
+   * is a stale-but-valid result rather than an error — the caller's own risk,
+   * as it is for `StepOptions.idempotencyKey`.
+   */
+  idempotencyKeyFor?: PlanStepIdentity
 }
 
 /**
@@ -332,6 +508,7 @@ export async function runPlan(
   const problems = validatePlan(dag, lookup, {
     selfId: opts.selfId,
     ...(opts.inputs !== undefined ? { inputs: opts.inputs } : {}),
+    ...(opts.assetNeeds !== undefined ? { assetNeeds: opts.assetNeeds } : {}),
   })
   if (problems.length > 0) throw new PlanInvalidError(problems)
 
@@ -349,15 +526,60 @@ export async function runPlan(
     return value === undefined ? unresolved(ref, site) : value
   }
 
-  // 3b. `step.assets` → `PatternRef.assets`. This is the only channel that can
-  //     carry a sub-step's product: `ctx.step` mints no handle for what a step
-  //     produced, so an inner asset has an assetId and nothing else.
-  const readAsset = (
-    ref: string,
-    site: RefSite,
-  ): { assetId: string; modality: string; url?: string } => {
+  /** One resolved asset, from either side of the grammar. */
+  interface ResolvedElement {
+    assetId: string
+    modality: string
+    url?: string
+    handle?: string
+  }
+
+  // 3b. An asset ref → the media it names. A producer ref names exactly one
+  //     element; a caller-slot ref names every asset the caller supplied for
+  //     that slot, which is none, one, or — on an array slot — several. Hence a
+  //     list: fan-in from a caller's array slot is a single `$ref`, not a
+  //     spelling the author has to enumerate.
+  //
+  //     `step.assets` is the only channel that can carry a sub-step's product:
+  //     `ctx.step` mints no handle for what a step produced, so an inner asset
+  //     has an assetId and nothing else. Media from the CALLER did arrive
+  //     through a handle, and that handle is forwarded — the child's context
+  //     can then translate it, which a meta's self-produced ids never allow.
+  const readAssets = (ref: string, site: RefSite): ResolvedElement[] => {
     const parsed = parseAssetRef(ref)
     if (parsed === null) return unresolved(ref, site)
+
+    if (parsed.slot !== undefined) {
+      const slot = parsed.slot
+      const supplied = (ctx.assets ?? []).filter((a) => a.slot === slot)
+      if (supplied.length > 0) {
+        return supplied.map((a) => ({
+          assetId: a.assetId,
+          modality: a.modality,
+          ...(a.handle !== undefined ? { handle: a.handle } : {}),
+        }))
+      }
+      // Nothing under this slot. For an OPTIONAL slot that is the caller
+      // exercising the option — contribute no refs and let the step run
+      // without it, which is what `required: false` means. For a REQUIRED one
+      // it means the resolution pass did not run or did not cover this
+      // pattern, and continuing would dispatch a step the plan says cannot
+      // work without media.
+      const declared = opts.assetNeeds?.find((n) => n.slot === slot)
+      if (declared?.required !== true) return []
+      throw planError(
+        'PLAN_INPUT_ASSET_MISSING',
+        `"${ref}" found no media under the required slot "${slot}". The caller ` +
+          'supplied none and the resolution pass landed nothing in ctx.assets for it.',
+        {
+          ...(site.planStepId !== undefined ? { planStepId: site.planStepId } : {}),
+          ref,
+          slot,
+          path: site.path,
+        },
+      )
+    }
+
     const produced = outputs.get(parsed.head)?.assets
     if (produced === undefined) return unresolved(ref, site)
     const element =
@@ -367,7 +589,7 @@ export async function runPlan(
     if (element === undefined || typeof element.assetId !== 'string') {
       return unresolved(ref, site)
     }
-    return element
+    return [element]
   }
 
   const runStep = async (step: PlanStep): Promise<StepValue> => {
@@ -389,15 +611,18 @@ export async function runPlan(
     const assets: ResolvedAssetRef[] = []
     for (const [slot, bound] of Object.entries(step.assets ?? {})) {
       for (const ref of Array.isArray(bound) ? bound : [bound]) {
-        const element = readAsset(ref, {
+        const site: RefSite = {
           planStepId: step.id,
           path: ['steps', step.id, 'assets', slot],
-        })
-        assets.push({
-          slot,
-          assetId: element.assetId,
-          modality: element.modality as ResolvedAssetRef['modality'],
-        })
+        }
+        for (const element of readAssets(ref, site)) {
+          assets.push({
+            slot,
+            assetId: element.assetId,
+            modality: asAssetKind(element.modality, ref, site),
+            ...(element.handle !== undefined ? { handle: element.handle } : {}),
+          })
+        }
       }
     }
 
@@ -439,9 +664,13 @@ export async function runPlan(
       input,
       ...(assets.length > 0 ? { assets } : {}),
     }
+    // The caller's answer to "what is the same work", asked with what the step
+    // will actually dispatch rather than with the `$ref`s that stood in for it.
+    const idempotencyKey = opts.idempotencyKeyFor?.(step, input, assets)
     const { value } = await ctx.step.withMeta<StepValue>(ref, {
       stepId: step.id,
       identity: 'id',
+      ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
       ...(step.retry !== undefined ? { retry: step.retry } : {}),
     })
 
@@ -475,30 +704,84 @@ export async function runPlan(
   //    the nested metas the grammar tells an author to reach for.
   //
   //    "The same indices run after run" holds while every earlier step's
-  //    compose actually RUNS. A plan step that dedupes to a cached row skips
-  //    its compose — and its subtree's counter consumption — so resubmitting a
-  //    partly-failed plan that contains two or more nested positional metas
-  //    can shift, and thereby re-pay, the completed inner rows of the later
-  //    one. That is the engine's documented cost of positional identity
-  //    (DESIGN.md, "We don't content-hash step ids"), inherited here, not
-  //    introduced: the plan's OWN steps are immune (`identity: 'id'`), and a
-  //    plan adds no new identity for other metas' internals.
+  //    compose actually RUNS. Two things stop one from running, and both shift
+  //    the shared counter for everything after it:
   //
-  //    `parallel` is `Promise.all`: the first rejection rejects the level, no
-  //    further level starts, and siblings already in flight complete and
-  //    persist — which is what "completed steps stay in the JobStore" means.
+  //      • a step that dedupes to a cached row skips its compose, and its
+  //        subtree's counter consumption with it. Resubmitting a partly-failed
+  //        plan containing two or more nested positional metas can therefore
+  //        shift, and re-pay, the completed inner rows of the later one;
+  //      • a step INVALIDATED by an upstream failure is never attempted at all,
+  //        so on the resubmit — where the failure has been fixed and it does
+  //        run — it consumes counter positions it did not consume before, and a
+  //        surviving branch's nested positional rows can miss where they hit on
+  //        the first run. This one arrives with the keep-going walk below: under
+  //        the old fail-the-level behaviour a resubmit re-ran everything after
+  //        the failure anyway, so there was nothing banked to miss.
+  //
+  //    Both are the engine's documented cost of positional identity (DESIGN.md,
+  //    "We don't content-hash step ids"), reached here rather than introduced:
+  //    the plan's OWN steps are immune (`identity: 'id'`), and a plan adds no
+  //    new identity for other metas' internals. What the second says is that
+  //    banking more work buys strictly more than it costs — the surviving
+  //    branch's OWN row is still a hit; what can miss is an inner row of a
+  //    nested meta that keys positionally.
+  //
+  //    A step's failure invalidates exactly its transitive dependents, which is
+  //    what the DAG the author wrote already says. The walk used to be narrower
+  //    than its own graph: `Promise.all` per level meant the first rejection
+  //    rejected the level and no further level started, so a failure in one
+  //    branch cancelled an unrelated one — work the plan had already committed
+  //    to and could have banked. Now every step whose dependencies all produced
+  //    output runs, and the failure is raised after the reachable frontier is
+  //    done. The plan still fails, with the same error; what changes is how
+  //    much of it survives in the JobStore for the resubmit the tool
+  //    description promises. The cost is that a failing plan now takes as long
+  //    as its slowest independent branch rather than failing fast.
+  const failures = new Map<string, unknown>()
+  /** Steps not attempted because something they read never produced. */
+  const unreachable = new Set<string>()
+
   for (const level of planLevels(dag).levels) {
-    const promises = level.map((step) =>
-      runStep(step).catch((err: unknown) => {
-        throw stampPlanStep(err, step.id, opts.selfId)
-      }),
-    )
-    const settled = await parallel(promises)
-    // 7. Collect. Keyed by id, which is also what `$<id>.<path>` reads.
-    settled.forEach((value, i) => {
-      const step = level[i]
-      if (step !== undefined) outputs.set(step.id, value)
+    const runnable = level.filter((step) => {
+      for (const dep of dependenciesOf(step)) {
+        if (failures.has(dep) || unreachable.has(dep)) {
+          unreachable.add(step.id)
+          return false
+        }
+      }
+      return true
     })
+    if (runnable.length === 0) continue
+    await parallel.limit(
+      // `runStep(step)` is called inside the thunk's SYNCHRONOUS prologue, and
+      // `parallel.limit` starts every thunk synchronously when uncapped — so
+      // the counter argument above still holds byte for byte at the default.
+      runnable.map((step) => async () => {
+        try {
+          outputs.set(step.id, await runStep(step))
+        } catch (err) {
+          const stamped = stampPlanStep(err, step.id, opts.selfId)
+          // A cancel cascade is not a step's failure and there is no frontier
+          // left to finish: `cancelJob` already tore the tree down, so
+          // collecting it and carrying on would start work into an aborted
+          // signal. Rethrowing rejects the level and unwinds immediately, as
+          // every rejection used to.
+          if ((stamped as { code?: string })?.code === 'CANCELLED') throw stamped
+          failures.set(step.id, stamped)
+        }
+      }),
+      opts.concurrency ?? Number.POSITIVE_INFINITY,
+    )
+  }
+
+  // 7b. In LIST order, not settle order. Two branches failing in one run would
+  //     otherwise report whichever provider happened to give up first, and the
+  //     same plan would blame a different step on a different day.
+  if (failures.size > 0) {
+    for (const step of dag.steps) {
+      if (failures.has(step.id)) throw failures.get(step.id)
+    }
   }
 
   // 8. Assemble. `output` is the whole model-facing surface: media the plan
@@ -507,12 +790,20 @@ export async function runPlan(
   //    the model raw asset ids, which the projection's assets-only rewrite
   //    exists to prevent.
   const assets: PlanOutput['assets'] = (dag.output.assets ?? []).map((entry) => {
-    const element = readAsset(entry.from, {
-      path: ['output', 'assets', entry.label],
-    })
+    const site: RefSite = { path: ['output', 'assets', entry.label] }
+    // The schema admits only the producer form here (`ProducedAssetRef` in
+    // plan.ts; validate.ts's rule-25 arm says the same), which names exactly
+    // one element — so the list this returns has exactly one entry, and an
+    // empty one is already an `unresolved` throw inside. A plan does not return
+    // the caller's own media: an array slot resolves to several and an optional
+    // one to none, and an output entry is exactly one asset under one label.
+    const element = readAssets(entry.from, site)[0]
+    if (element === undefined) return unresolved(entry.from, site)
     return {
       assetId: element.assetId,
-      modality: element.modality as PlanOutput['assets'][number]['modality'],
+      modality: asAssetKind(element.modality, entry.from, {
+        path: ['output', 'assets', entry.label],
+      }),
       ...(element.url !== undefined ? { url: element.url } : {}),
       label: entry.label,
     }
@@ -629,6 +920,10 @@ function assertConstructionTimeValid(dag: PlanDag, opts: PlanToMetaOptions): voi
   const problems = validatePlan(dag, EMPTY_LOOKUP, {
     selfId: opts.id,
     ...(opts.inputs !== undefined ? { inputs: opts.inputs } : {}),
+    // Registry-free like `inputs`: whether a `$input.assets[slot=…]` names a
+    // slot this plan declares is a property of the data alone, so a typo is a
+    // throw from the factory rather than a job that fails on submit.
+    ...(opts.assetNeeds !== undefined ? { assetNeeds: opts.assetNeeds } : {}),
   }).filter((p) => !REGISTRY_DEPENDENT.has(p.code))
   if (problems.length > 0) throw new PlanInvalidError(problems as PlanProblem[])
 }
@@ -700,6 +995,53 @@ function passthroughOf(schema: unknown): z.ZodType<unknown> {
 /** `steps[].cost` is `number | null`; an absent or non-finite value is null. */
 function finiteCost(cost: number | null | undefined): number | null {
   return typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null
+}
+
+/**
+ * Narrow a producing step's `modality` string to an {@link AssetKind}, rather
+ * than asserting it is one.
+ *
+ * A step's output has already been held to its own schema at the dispatch exit,
+ * so this only fires for a producer whose schema does not pin the field — one
+ * declaring `modality: z.string()`. Left as a cast, such a value flowed into
+ * `PlanOutput.assets[]` and failed the PLAN's output parse instead: same job
+ * failed, but the error named the plan and the reader had no way to tell where
+ * the offending value entered. Refusing here names the site and the ref.
+ *
+ * Which step `details.planStepId` names. The two call sites differ, and the
+ * field means the same thing at both — where the plan was USING the asset, not
+ * where it came from:
+ *
+ *   • the binding site (`step.assets`) carries the CONSUMING step's id, the
+ *     step that was about to be dispatched with this asset in a slot;
+ *   • the assembly site (`output.assets[].from`) carries none, because
+ *     assembly happens after the level loop and belongs to no step. It carries
+ *     `path` instead — `['output', 'assets', <label>]`.
+ *
+ * The producer is on `details.ref` at both, which is the only place it could
+ * be: `ref` is the string the author wrote, and its head IS the producing step.
+ *
+ * Not fail-open to `'other'`. That fallback exists for a host classifying a
+ * real file it still holds the mediaType for; here there is no file and no
+ * mediaType, only a pattern contradicting its own declared outputs, and
+ * laundering that into a valid-looking kind would hide it.
+ */
+function asAssetKind(value: unknown, ref: string, site: RefSite): AssetKind {
+  if (typeof value === 'string' && (KINDS as readonly string[]).includes(value)) {
+    return value as AssetKind
+  }
+  throw planError(
+    'PLAN_ASSET_MODALITY_UNKNOWN',
+    `"${ref}" resolved to an asset whose modality is ${JSON.stringify(value)}, ` +
+      `which is not one of ${KINDS.join(', ')}. The producing pattern ` +
+      'returned a modality its own outputs schema does not pin down.',
+    {
+      ...(site.planStepId !== undefined ? { planStepId: site.planStepId } : {}),
+      ref,
+      path: site.path,
+      modality: value,
+    },
+  )
 }
 
 function describeType(value: unknown): string {

@@ -4,6 +4,7 @@
 
 ```ts
 
+import { AssetNeed } from '@orchestral/core';
 import { AvailableAlternative } from '@orchestral/core';
 import type { CapabilityRouter } from '@orchestral/core';
 import { DispatchAudience } from '@orchestral/core';
@@ -14,6 +15,7 @@ import { PatternExposure } from '@orchestral/core';
 import { PatternId } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
 import type { ResolveCtxProvider } from '@orchestral/core';
+import { ResolvedAssetRef } from '@orchestral/core';
 import type { RoutingExplanation } from '@orchestral/core';
 import type { UnavailabilityReason } from '@orchestral/core';
 import { z } from 'zod';
@@ -26,6 +28,7 @@ export function createPlanMeta(ops: {
     getPattern: (id: PatternId) => Pattern | undefined;
 }, init?: {
     audience?: DispatchAudience;
+    concurrency?: number;
 }): MetaPattern<PlanDag, PlanOutput>;
 
 // @public
@@ -33,6 +36,9 @@ export function formatPlanPreflight(report: PlanPreflightReport): string;
 
 // @public (undocumented)
 export const PLAN_ASSET_REF_RE: RegExp;
+
+// @public
+export const PLAN_INPUT_ASSET_REF_RE: RegExp;
 
 // @alpha
 export const PLAN_PATTERN_ID: "meta_plan";
@@ -49,14 +55,46 @@ export const PLAN_VALUE_REF_RE: RegExp;
 // @public (undocumented)
 export type PlanDag = z.infer<typeof PlanDagSchema>;
 
-// @public (undocumented)
+// @public
 export const PlanDagSchema: z.ZodObject<{
     description: z.ZodOptional<z.ZodString>;
     steps: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
         pattern: z.ZodString;
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
+        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>, z.ZodArray<z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>>]>>>;
+        retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            kind: z.ZodLiteral<"none">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"exponential">;
+            maxAttempts: z.ZodNumber;
+            baseMs: z.ZodNumber;
+            maxMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"fixed">;
+            maxAttempts: z.ZodNumber;
+            delayMs: z.ZodNumber;
+        }, z.core.$strict>], "kind">>;
+    }, z.core.$strict>>;
+    output: z.ZodObject<{
+        assets: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            label: z.ZodString;
+        }, z.core.$strict>>>;
+        values: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }, z.core.$strict>;
+}, z.core.$strict>;
+
+// @public
+export function planDagSchema(options: {
+    inputAssets: boolean;
+}): z.ZodObject<{
+    description: z.ZodOptional<z.ZodString>;
+    steps: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        pattern: z.ZodString;
+        input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>, z.ZodArray<z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>>]>>>;
         retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
             kind: z.ZodLiteral<"none">;
         }, z.core.$strict>, z.ZodObject<{
@@ -106,6 +144,10 @@ export const PlanOutputSchema: z.ZodObject<{
             image: "image";
             audio: "audio";
             video: "video";
+            document: "document";
+            data: "data";
+            archive: "archive";
+            other: "other";
         }>;
         url: z.ZodOptional<z.ZodString>;
         label: z.ZodString;
@@ -176,7 +218,7 @@ export interface PlanProblem {
 }
 
 // @public
-export type PlanProblemCode = 'PLAN_SCHEMA' | 'PLAN_STEP_ID_DUPLICATE' | 'PLAN_STEP_ID_RESERVED' | 'PLAN_REF_SYNTAX' | 'PLAN_REF_UNKNOWN_STEP' | 'PLAN_REF_FORWARD' | 'PLAN_REF_PATH_UNKNOWN' | 'PLAN_REF_INTO_ASSETS' | 'PLAN_REF_INPUT_NOT_ALLOWED' | 'PLAN_PARAM_UNKNOWN' | 'PLAN_REF_IN_LITERAL' | 'PLAN_PATTERN_NOT_FOUND' | 'PLAN_PATTERN_KIND_AGENT' | 'PLAN_PATTERN_SELF' | 'PLAN_PATTERN_ONE_SHOT' | 'PLAN_PATTERN_NOT_EXPOSED' | 'PLAN_PATTERN_NOT_ALLOWED' | 'PLAN_ASSET_PRODUCER_NONE' | 'PLAN_ASSET_LABEL_UNSUPPORTED' | 'PLAN_SLOT_UNKNOWN' | 'PLAN_SLOT_MODALITY' | 'PLAN_SLOT_CARDINALITY' | 'PLAN_SLOT_DUAL_SOURCE' | 'PLAN_SLOT_REQUIRED_UNBOUND' | 'PLAN_STEP_INPUT_INVALID' | 'PLAN_STEP_UNUSED' | 'PLAN_OUTPUT_LABEL_DUPLICATE' | 'PLAN_INPUT_NOT_SERIALISABLE';
+export type PlanProblemCode = 'PLAN_SCHEMA' | 'PLAN_STEP_ID_DUPLICATE' | 'PLAN_STEP_ID_RESERVED' | 'PLAN_REF_SYNTAX' | 'PLAN_REF_UNKNOWN_STEP' | 'PLAN_REF_FORWARD' | 'PLAN_REF_PATH_UNKNOWN' | 'PLAN_REF_INTO_ASSETS' | 'PLAN_REF_INPUT_NOT_ALLOWED' | 'PLAN_PARAM_UNKNOWN' | 'PLAN_INPUT_ASSET_NOT_ALLOWED' | 'PLAN_INPUT_SLOT_UNKNOWN' | 'PLAN_REF_IN_LITERAL' | 'PLAN_PATTERN_NOT_FOUND' | 'PLAN_PATTERN_KIND_AGENT' | 'PLAN_PATTERN_SELF' | 'PLAN_PATTERN_ONE_SHOT' | 'PLAN_PATTERN_NOT_EXPOSED' | 'PLAN_PATTERN_NOT_ALLOWED' | 'PLAN_ASSET_PRODUCER_NONE' | 'PLAN_ASSET_LABEL_UNSUPPORTED' | 'PLAN_SLOT_UNKNOWN' | 'PLAN_SLOT_MODALITY' | 'PLAN_SLOT_CARDINALITY' | 'PLAN_SLOT_DUAL_SOURCE' | 'PLAN_SLOT_REQUIRED_UNBOUND' | 'PLAN_STEP_INPUT_INVALID' | 'PLAN_STEP_UNUSED' | 'PLAN_OUTPUT_LABEL_DUPLICATE' | 'PLAN_INPUT_NOT_SERIALISABLE';
 
 // @public
 export function planRefine(lookup: PlanPatternLookup, opts?: PlanValidateOptions): (dag: PlanDag, ctx: z.core.$RefinementCtx<PlanDag>) => void;
@@ -201,6 +243,9 @@ export const PlanRetrySchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
 // @public (undocumented)
 export type PlanStep = z.infer<typeof PlanStepSchema>;
 
+// @alpha
+export type PlanStepIdentity = (step: PlanStep, substitutedInput: Record<string, unknown>, resolvedAssets: readonly ResolvedAssetRef[]) => string | undefined;
+
 // @public
 export type PlanStepRouting = {
     kind: 'selected';
@@ -218,12 +263,12 @@ export type PlanStepRouting = {
     nested?: PlanPreflightReport;
 };
 
-// @public (undocumented)
+// @public
 export const PlanStepSchema: z.ZodObject<{
     id: z.ZodString;
     pattern: z.ZodString;
     input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
+    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>, z.ZodArray<z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>>]>>>;
     retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
         kind: z.ZodLiteral<"none">;
     }, z.core.$strict>, z.ZodObject<{
@@ -243,9 +288,12 @@ export function planToMeta<I extends Record<string, unknown> = Record<string, un
 
 // @alpha
 export interface PlanToMetaOptions {
+    assetNeeds?: readonly AssetNeed[];
+    concurrency?: number;
     description?: string;
     exposure?: PatternExposure;
     id: PatternId;
+    idempotencyKeyFor?: PlanStepIdentity;
     inputs?: z.ZodObject;
     lookup: PlanPatternLookup;
     searchHint?: string;
@@ -254,6 +302,7 @@ export interface PlanToMetaOptions {
 // @public
 export interface PlanValidateOptions {
     allow?: readonly PatternId[];
+    assetNeeds?: readonly AssetNeed[];
     audience?: DispatchAudience;
     inputs?: z.ZodObject;
     selfId?: PatternId;
@@ -272,6 +321,9 @@ export function runPlan(dag: PlanDag, lookup: PlanPatternLookup, opts: RunPlanOp
 
 // @alpha
 export interface RunPlanOptions {
+    assetNeeds?: readonly AssetNeed[];
+    concurrency?: number;
+    idempotencyKeyFor?: PlanStepIdentity;
     inputs?: z.ZodObject;
     selfId: PatternId;
 }

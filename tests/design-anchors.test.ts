@@ -47,6 +47,12 @@ const ANCHOR = /DESIGN:[ ]([a-z][a-z0-9-]*)/g
  * would report every proposal as an unreferenced anchor. `__tests__` and
  * `tests` are excluded because anchors mark arguments in source; a test is
  * cited by name instead.
+ *
+ * `.claude` is this repository's own defect, not the library's: agent worktrees
+ * are checked out under `.claude/worktrees/<branch>/`, so a sweep from the root
+ * of a checkout that has one walks a whole second copy of the tree and reports
+ * every anchor in it as living in a file DESIGN.md does not cite. The citations
+ * are about THIS working tree; another branch's copy of it is not evidence.
  */
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -56,6 +62,7 @@ const SKIP_DIRS = new Set([
   'coverage',
   '.git',
   '.changeset',
+  '.claude',
   '__tests__',
   'tests',
 ])

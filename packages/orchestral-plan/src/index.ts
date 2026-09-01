@@ -8,9 +8,11 @@
 // ── The wire schema the model fills ──────────────────────────────────────
 export {
   PLAN_ASSET_REF_RE,
+  PLAN_INPUT_ASSET_REF_RE,
   PLAN_STEP_ID_RE,
   PLAN_VALUE_REF_RE,
   PlanDagSchema,
+  planDagSchema,
   PlanOutputSchema,
   PlanRetrySchema,
   PlanStepSchema,
@@ -40,6 +42,7 @@ export {
   planToMeta,
   runPlan,
   type PlanMetaPattern,
+  type PlanStepIdentity,
   type PlanToMetaOptions,
   type RunPlanOptions,
 } from './interpreter'

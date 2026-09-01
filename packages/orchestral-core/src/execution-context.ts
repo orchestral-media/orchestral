@@ -72,6 +72,43 @@ export interface StepOptions {
    * hashes byte-identically to how it did before this option existed.
    */
   identity?: 'index' | 'id'
+
+  /**
+   * Key this step's durable row on a string the CALLER derives, bypassing
+   * `deriveIdempotencyKey` entirely — the same override `JobSpec.idempotencyKey`
+   * has always given a host submitting directly, reachable from inside a
+   * `compose` where the framework, not the author, builds the child spec.
+   *
+   * Why the two `identity` modes are not enough. Both are projections of one
+   * derivation, and that derivation hashes `sessionId` — "dedup never crosses
+   * a session boundary" is a deliberate property of it, not an oversight. So a
+   * caller whose notion of "the same work" is broader than one session cannot
+   * express it by choosing a mode: name-keying survives an edit to the step
+   * list, and still re-pays in a new session. Content-addressed reuse that
+   * outlives the conversation the request arrived in is a key question, and
+   * this is where a caller answers it.
+   *
+   * When present, `identity` stops mattering for the durable key: position and
+   * name are both inputs to a derivation that no longer runs. Everything else
+   * `identity` governs (which id the step reports, how nested namespaces
+   * compose) is untouched, so a step may sensibly pass both.
+   *
+   * Almost the whole burden moves with the key. The engine stops asking
+   * whether the input changed, so a key that omits something the step actually
+   * reads hands back the earlier output for later work — within one pattern
+   * that is a stale-but-valid result, not an error, and the caller is the only
+   * one who can tell it is wrong.
+   *
+   * The one collision the runtime still refuses is a key already held by a row
+   * for a DIFFERENT pattern: `IDEMPOTENCY_KEY_CROSS_PATTERN`. That row's output
+   * was gated against the other pattern's `outputs` schema and never against
+   * this one's, so handing it back is not a stale answer to this question but
+   * an answer to a different one. Only a caller-supplied key can produce it —
+   * the derivation hashes `patternId`.
+   *
+   * So: derive it from everything the step depends on, and include the pattern.
+   */
+  idempotencyKey?: string
 }
 
 export interface StepMeta {

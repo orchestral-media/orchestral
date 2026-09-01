@@ -3,7 +3,7 @@
 // A plan is a meta whose `compose` has been replaced by a list of steps, each
 // one a `ctx.step` call written down as `{ id, pattern, input, assets }` with
 // `$`-references between them. This module is the *contract* half of that: the
-// three ref regexes, the DAG the model writes, and the fixed output envelope
+// four ref regexes, the DAG the model writes, and the fixed output envelope
 // every plan returns. It lives beside the interpreter that walks it
 // (interpreter.ts) and the walk that refuses it (validate.ts): one feature, one
 // package, one definition of "what is a reference".
@@ -31,9 +31,15 @@
 
 import { z } from 'zod'
 
-import { assetIdField, boundedText, metaEnvelopeShape, urlField } from '@orchestral/core'
+import {
+  assetIdField,
+  assetKindField,
+  boundedText,
+  metaEnvelopeShape,
+  urlField,
+} from '@orchestral/core'
 
-// ── The three productions ───────────────────────────────────────────────
+// ── The four productions ────────────────────────────────────────────────
 
 // Identifiers start with a letter: no '/', the namespace separator
 // (meta-execution-context.ts:379-381); no '.', '$' or '[' (the ref grammar);
@@ -43,18 +49,97 @@ export const PLAN_STEP_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const PLAN_VALUE_REF_RE =
   /^\$(input|[A-Za-z][A-Za-z0-9_-]{0,63})((\.[A-Za-z_][A-Za-z0-9_]{0,63})|(\[[0-9]{1,3}\]))+$/
 export const PLAN_ASSET_REF_RE =
-  /^\$([A-Za-z][A-Za-z0-9_-]{0,63})\.assets\[([0-9]{1,3}|label=[A-Za-z0-9_-]{1,64})\]$/
+  /^\$(?!input\.)([A-Za-z][A-Za-z0-9_-]{0,63})\.assets\[([0-9]{1,3}|label=[A-Za-z0-9_-]{1,64})\]$/
+/**
+ * Media the CALLER supplied, picked out by the plan's own asset slot.
+ *
+ * A separate production rather than another selector on the one above, because
+ * it reads a different namespace: `[0]` and `[label=…]` index a producing
+ * step's `assets[]`, while `[slot=…]` names a key of THIS plan's `assetNeeds`
+ * — the same word `references.<slot>` and `step.assets`' keys already use. One
+ * selector spelling for two namespaces would have made `label` mean the role a
+ * meta stamped on its output in one position and the caller's slot name in
+ * another.
+ *
+ * `PLAN_ASSET_REF_RE` carves `input.` out of its head so exactly one of the two
+ * matches any string. Without that the producer branch swallows
+ * `$input.assets[0]` — a step may not be called `input`
+ * (PLAN_STEP_ID_RESERVED), so it resolves to nothing — and the rendered
+ * grammar would be advertising a form the walk always refuses. The carve-out is
+ * narrow: `$inputs.…` and `$input-frames.…` are ordinary producer refs.
+ */
+export const PLAN_INPUT_ASSET_REF_RE =
+  /^\$input\.assets\[slot=([A-Za-z][A-Za-z0-9_]{0,63})\]$/
 
 const StepId = z
   .string()
   .regex(PLAN_STEP_ID_RE)
   .describe('Unique within the plan. Other steps refer to this step as $<id>.')
-const AssetRef = z
+/**
+ * What a producer ref looks like, in prose, written once.
+ *
+ * Three sites render it — a step's `assets` on a plan that declares slots, the
+ * same field on a plan that does not, and `output.assets[].from` — and they
+ * differ only in what they add after it. Splitting the shared sentence out is
+ * what keeps "how you address an earlier step's media" from acquiring three
+ * slightly different spellings, one per site, the way the ref grammar itself
+ * once acquired three walks.
+ */
+const PRODUCER_REF_COPY =
+  'Media produced by an earlier step: "$<stepId>.assets[0]" by position, or ' +
+  '"$<stepId>.assets[label=winner]" by label (label form only for meta_* ' +
+  'steps).'
+
+/**
+ * Media a step PRODUCED. Its own name because `output.assets[].from` accepts
+ * only this half: an output entry is exactly one asset under exactly one label
+ * (rule 23), and the caller-slot form below carries no such guarantee — an
+ * array slot resolves to several and an optional one to none, neither of which
+ * an output entry can be. Keeping the narrow type at that site makes both
+ * refusals the schema's, rather than two more walk rules.
+ */
+const ProducedAssetRef = z
   .string()
   .regex(PLAN_ASSET_REF_RE)
   .describe(
-    '"$<stepId>.assets[0]" by position, or "$<stepId>.assets[label=winner]" by label (label form only for meta_* steps).',
+    `${PRODUCER_REF_COPY} Media the CALLER supplied is not returnable here — ` +
+      "it is already the caller's; return only what this plan produced.",
   )
+
+/**
+ * A step's asset ref, in the reach the plan actually has.
+ *
+ * With slots: a union, not one widened regex, so `toJsonSchema` renders two
+ * `pattern` alternatives and the model reads both forms where it reads the
+ * shape. The describe carries what a pattern cannot — that the second form is
+ * legal only on a plan that declares asset slots.
+ *
+ * Without: the producer regex alone. A plan that declares no `assetNeeds`
+ * refuses `$input.assets[slot=…]` at every layer, so rendering the form to the
+ * model writing such a plan advertises a guaranteed rejection. The one-shot
+ * `meta_plan` is permanently that plan — `createPlanMeta` takes no slots and
+ * has nowhere to be given any — which is the case this parameter exists for.
+ *
+ * A parameter rather than a second schema: the two differ in this one field and
+ * nothing else, and a copy would drift in the other twenty.
+ */
+function assetRefFor(inputAssets: boolean): z.ZodType<string> {
+  if (!inputAssets) {
+    return z.string().regex(PLAN_ASSET_REF_RE).describe(PRODUCER_REF_COPY)
+  }
+  return z
+    .union([
+      z.string().regex(PLAN_ASSET_REF_RE),
+      z.string().regex(PLAN_INPUT_ASSET_REF_RE),
+    ])
+    .describe(
+      `${PRODUCER_REF_COPY} Or media the CALLER supplied: ` +
+        '"$input.assets[slot=<name>]", ' +
+        "where <name> is one of this plan's own declared asset slots — usable " +
+        'only on a plan that declares them, and never written with [0] or ' +
+        '[label=…], which read a step\'s output rather than the caller\'s input.',
+    )
+}
 const ValueRef = z.string().regex(PLAN_VALUE_REF_RE)
 
 // ── The DAG ─────────────────────────────────────────────────────────────
@@ -77,31 +162,41 @@ export const PlanRetrySchema = z.discriminatedUnion('kind', [
 ])
 export type PlanRetry = z.infer<typeof PlanRetrySchema>
 
-export const PlanStepSchema = z.strictObject({
-  id: StepId,
-  pattern: z
-    .string()
-    .min(1)
-    .max(128)
-    .describe(
-      "A registered pattern_id; fetch its inputSchema through your catalog's discovery tool before writing the step. Never an agent_* id and never meta_plan.",
-    ),
-  input: z
-    .record(z.string(), z.unknown())
-    .describe(
-      'The pattern\'s input, exactly as find_pattern\'s primary.inputSchema describes it. A string value that is EXACTLY "$<stepId>.<path>" (e.g. "$describe.text") or "$input.<field>" is replaced by that value before dispatch; any other string is literal — there is no interpolation inside a string. Media produced by earlier steps goes in `assets`, not here.',
-    ),
-  assets: z
-    .record(
-      z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
-      z.union([AssetRef, z.array(AssetRef).min(1).max(32)]),
-    )
-    .optional()
-    .describe(
-      "Media from earlier steps, keyed by this pattern's reference slot (the keys of inputSchema.references). A single slot takes one ref; an array slot takes a list, in order. A slot bound here must not also appear in input.references.",
-    ),
-  retry: PlanRetrySchema.optional(),
-})
+function planStepSchema(inputAssets: boolean) {
+  const AssetRef = assetRefFor(inputAssets)
+  return z.strictObject({
+    id: StepId,
+    pattern: z
+      .string()
+      .min(1)
+      .max(128)
+      .describe(
+        "A registered pattern_id; fetch its inputSchema through your catalog's discovery tool before writing the step. Never an agent_* id and never meta_plan.",
+      ),
+    input: z
+      .record(z.string(), z.unknown())
+      .describe(
+        'The pattern\'s input, exactly as find_pattern\'s primary.inputSchema describes it. A string value that is EXACTLY "$<stepId>.<path>" (e.g. "$describe.text") or "$input.<field>" is replaced by that value before dispatch; any other string is literal — there is no interpolation inside a string. Media produced by earlier steps goes in `assets`, not here.',
+      ),
+    assets: z
+      .record(
+        z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+        z.union([AssetRef, z.array(AssetRef).min(1).max(32)]),
+      )
+      .optional()
+      .describe(
+        "Media from earlier steps, keyed by this pattern's reference slot (the keys of inputSchema.references). A single slot takes one ref; an array slot takes a list, in order. A slot bound here must not also appear in input.references.",
+      ),
+    retry: PlanRetrySchema.optional(),
+  })
+}
+
+/**
+ * One step, with the whole grammar. Exported as it always was; the narrow
+ * variant is reached through {@link planDagSchema}, which is where the choice
+ * belongs — a step schema on its own has no plan to ask about `assetNeeds`.
+ */
+export const PlanStepSchema = planStepSchema(true)
 export type PlanStep = z.infer<typeof PlanStepSchema>
 
 /**
@@ -117,43 +212,80 @@ export type PlanStep = z.infer<typeof PlanStepSchema>
  */
 const MAX_OUTPUT_VALUES = 64
 
-export const PlanDagSchema = z.strictObject({
-  description: z.string().min(1).max(512).optional(),
-  steps: z
-    .array(PlanStepSchema)
-    .min(1)
-    .max(64)
-    .describe(
-      'In execution order: a reference may only point at a step listed EARLIER. Steps that do not reference each other run concurrently.',
-    ),
-  output: z
-    .strictObject({
-      assets: z
-        .array(
-          z.strictObject({
-            from: AssetRef,
-            label: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
-          }),
-        )
-        .max(64)
-        .optional()
-        .describe(
-          'Which produced media the plan returns, each with a role label. Media not listed here is not returned.',
-        ),
-      values: z
-        .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/), ValueRef)
-        .refine((v) => Object.keys(v).length <= MAX_OUTPUT_VALUES, {
-          message: `at most ${MAX_OUTPUT_VALUES} named values`,
-        })
-        .optional()
-        .describe(
-          'Named text fields, each a value ref to a string on an earlier step.',
-        ),
-    })
-    .describe(
-      'What the plan returns. Required: a plan that returns nothing is money for nothing.',
-    ),
-})
+/**
+ * The DAG schema, in the reach a given plan has.
+ *
+ * `inputAssets: true` is the whole grammar and is what {@link PlanDagSchema}
+ * is. `false` drops the `$input.assets[slot=…]` production from the step
+ * `assets` field — both the `pattern` alternative and the describe copy — for a
+ * plan that declares no `assetNeeds` and would therefore refuse every such ref
+ * anyway. `output.assets[].from` is unaffected either way: it has only ever
+ * accepted the producer form.
+ *
+ * Why the choice is worth a parameter. This schema is not only a validator; it
+ * is the bytes `find_pattern` renders to a model, and a rendered form the walk
+ * always refuses costs a turn to learn. The one-shot `meta_plan` is the plan
+ * that can never declare slots — `createPlanMeta` has nowhere to be given any —
+ * so for it the caller-slot form is not merely unused but unsatisfiable.
+ *
+ * `PlanDag` is inferred from the full variant, and both variants infer the same
+ * type (a ref is a `string` either way), so a narrow schema still parses into
+ * the type every caller already holds.
+ */
+export function planDagSchema(options: { inputAssets: boolean }) {
+  return z.strictObject({
+    description: z.string().min(1).max(512).optional(),
+    steps: z
+      .array(planStepSchema(options.inputAssets))
+      .min(1)
+      .max(64)
+      .describe(
+        'In execution order: a reference may only point at a step listed EARLIER. Steps that do not reference each other run concurrently.',
+      ),
+    output: z
+      .strictObject({
+        assets: z
+          .array(
+            z.strictObject({
+              from: ProducedAssetRef,
+              label: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+            }),
+          )
+          .max(64)
+          .optional()
+          .describe(
+            'Which produced media the plan returns, each with a role label. Media not listed here is not returned.',
+          ),
+        values: z
+          .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/), ValueRef)
+          .refine((v) => Object.keys(v).length <= MAX_OUTPUT_VALUES, {
+            message: `at most ${MAX_OUTPUT_VALUES} named values`,
+          })
+          .optional()
+          .describe(
+            'Named text fields, each a value ref to a string on an earlier step.',
+          ),
+      })
+      .describe(
+        'What the plan returns. Required: a plan that returns nothing is money for nothing.',
+      ),
+  })
+}
+
+/**
+ * The DAG schema with the WHOLE grammar, caller-slot refs included — the
+ * variant a plan that declares `assetNeeds` has, and the one `validatePlan`
+ * parses against for every plan.
+ *
+ * Deliberately not narrowed per plan on the validation path: a plan with no
+ * slots that writes `$input.assets[slot=hero]` is already refused by rule 25
+ * with `PLAN_INPUT_ASSET_NOT_ALLOWED`, whose message carries the remedy
+ * ("declare the slot, or bind it from an earlier step"). Parsing it against the
+ * narrow schema as well would add a second problem saying only that the string
+ * failed a regex, which is the less useful half of the same finding — and
+ * validate.ts's rule is one code per remedy.
+ */
+export const PlanDagSchema = planDagSchema({ inputAssets: true })
 export type PlanDag = z.infer<typeof PlanDagSchema>
 
 // ── The fixed output envelope ───────────────────────────────────────────
@@ -178,7 +310,15 @@ export const PlanOutputSchema = z.strictObject({
     .array(
       z.strictObject({
         assetId: assetIdField(),
-        modality: z.enum(['image', 'audio', 'video']),
+        // Core's own AssetKind, not the image/audio/video subset this field
+        // used to list. A plan steps into any registered pattern, so what its
+        // `assets[]` can carry is whatever a pattern can produce — and core
+        // classifies a produced file with seven kinds, four of which this
+        // enum used to reject. The narrower list did not prevent a plan
+        // ending in a document from being WRITTEN; it only moved the refusal
+        // to the dispatch exit, as an OUTPUT_SCHEMA_MISMATCH naming the plan
+        // rather than the step, after every step had been paid for.
+        modality: assetKindField(),
         url: urlField().optional(),
         label: boundedText(64),
       }),

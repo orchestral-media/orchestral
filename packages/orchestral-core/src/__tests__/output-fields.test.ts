@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { assetIdField, auditOutputsSchema, boundedText, opaqueToken, urlField } from '../output-fields'
+import { ASSET_KINDS, assetIdField, assetKindField, auditOutputsSchema, boundedText, opaqueToken, urlField } from '../output-fields'
+import type { AssetKind } from '../asset-index.types'
 import { defaultAgentFinishOutputs } from '../agent-finish'
 
 describe('output-fields vocabulary', () => {
@@ -68,5 +69,50 @@ describe('output-fields vocabulary', () => {
 
   it('defaultAgentFinishOutputs is fully bounded (no unbounded string fields)', () => {
     expect(auditOutputsSchema(defaultAgentFinishOutputs).unbounded).toEqual([])
+  })
+})
+
+describe('assetKindField', () => {
+  it('accepts every AssetKind and nothing else', () => {
+    for (const kind of ASSET_KINDS) {
+      expect(assetKindField().safeParse(kind).success).toBe(true)
+    }
+    expect(assetKindField().safeParse('text').success).toBe(false)
+    expect(assetKindField().safeParse('').success).toBe(false)
+  })
+
+  // The drift this exists to prevent: `AssetKind` gaining a member while a zod
+  // enum somewhere still lists three. The compile-time half is in
+  // output-fields.ts; this is the runtime half of the same claim.
+  it('lists exactly the seven kinds, with no duplicates', () => {
+    expect([...ASSET_KINDS].sort()).toEqual([
+      'archive',
+      'audio',
+      'data',
+      'document',
+      'image',
+      'other',
+      'video',
+    ])
+    expect(new Set(ASSET_KINDS).size).toBe(ASSET_KINDS.length)
+  })
+
+  it('is assignable to AssetKind in both directions', () => {
+    // Compile-time assertions; a widening or narrowing of either side breaks
+    // typecheck rather than this expectation.
+    const fromTuple: AssetKind = ASSET_KINDS[0]
+    const toTuple: (typeof ASSET_KINDS)[number] = 'document' satisfies AssetKind
+    expect(fromTuple).toBe('image')
+    expect(toTuple).toBe('document')
+  })
+
+  // An enum carries no maxLength, and the audit deliberately does not flag one
+  // (it cannot hold a blob and a caller cannot .max() it). Widening the member
+  // list must not change that.
+  it('does not register as an unbounded string in the outputs audit', () => {
+    expect(auditOutputsSchema(z.object({ modality: assetKindField() }))).toEqual({
+      unbounded: [],
+      notTraversed: [],
+    })
   })
 })

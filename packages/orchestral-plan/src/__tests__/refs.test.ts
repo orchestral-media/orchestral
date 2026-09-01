@@ -190,3 +190,69 @@ describe('planLevels', () => {
     expect(levels.map((bucket) => bucket.map((s) => s.id))).toEqual([['render']])
   })
 })
+
+// ── The `$input` asset production ───────────────────────────────────────────
+//
+// A plan that declares asset slots takes media from its CALLER, and the two
+// selectors are deliberately different words for different namespaces:
+// `[0]` / `[label=…]` pick out of a producing step's output, `[slot=…]` picks
+// out of what the caller supplied. The producer branch carves `input.` out of
+// its head so the two cannot both match one string — otherwise the rendered
+// grammar would advertise `$input.assets[0]`, which resolves to nothing.
+
+describe('$input.assets[slot=…]', () => {
+  it('parses as an asset ref carrying the slot, with head `input`', () => {
+    expect(parseAssetRef('$input.assets[slot=hero]')).toEqual({
+      head: 'input',
+      slot: 'hero',
+    })
+  })
+
+  it('is not a dependency — $input is the plan\'s own parameters', () => {
+    const into = new Set<string>()
+    collectRefHeads({ a: '$input.assets[slot=hero]' }, into)
+    expect([...into]).toEqual([])
+
+    const s = step('edit', {}, { source: '$input.assets[slot=hero]' })
+    expect([...dependenciesOf(s)]).toEqual([])
+  })
+
+  it('leaves a step bound only from $input on level 0', () => {
+    const dag = {
+      steps: [
+        step('edit', {}, { source: '$input.assets[slot=hero]' }),
+        step('after', { prompt: '$edit.text' }),
+      ],
+      output: { values: { out: '$after.text' } },
+    } as unknown as PlanDag
+    const { levelOf } = planLevels(dag)
+    expect(levelOf.get('edit')).toBe(0)
+    expect(levelOf.get('after')).toBe(1)
+  })
+
+  it('refHead reports `input` for it, as it does for a value ref', () => {
+    expect(refHead('$input.assets[slot=hero]')).toBe('input')
+    expect(refHead('$input.prompt')).toBe('input')
+  })
+
+  it('the positional and label selectors are NOT accepted at the $input root', () => {
+    expect(parseAssetRef('$input.assets[0]')).toBeNull()
+    expect(parseAssetRef('$input.assets[label=hero]')).toBeNull()
+  })
+
+  it('a step whose id merely starts with "input" still parses as a producer', () => {
+    expect(parseAssetRef('$inputs.assets[0]')).toEqual({ head: 'inputs', index: 0 })
+    expect(parseAssetRef('$input-frames.assets[0]')).toEqual({
+      head: 'input-frames',
+      index: 0,
+    })
+  })
+
+  it('the producer selectors are unchanged', () => {
+    expect(parseAssetRef('$hero.assets[0]')).toEqual({ head: 'hero', index: 0 })
+    expect(parseAssetRef('$hero.assets[label=winner]')).toEqual({
+      head: 'hero',
+      label: 'winner',
+    })
+  })
+})

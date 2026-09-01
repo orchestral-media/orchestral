@@ -4,11 +4,13 @@ import { auditOutputsSchema, toJsonSchema } from '@orchestral/core'
 
 import {
   PLAN_ASSET_REF_RE,
+  PLAN_INPUT_ASSET_REF_RE,
   PLAN_STEP_ID_RE,
   PLAN_VALUE_REF_RE,
   PlanDagSchema,
   PlanOutputSchema,
   PlanRetrySchema,
+  planDagSchema,
 } from '../plan'
 import { planRefine } from '../validate'
 
@@ -101,6 +103,54 @@ describe('PlanDagSchema renders for find_pattern', () => {
   })
 })
 
+describe('planDagSchema — one grammar, two reaches', () => {
+  const full = toJsonSchema(planDagSchema({ inputAssets: true }))
+  const narrow = toJsonSchema(planDagSchema({ inputAssets: false })) as unknown as JsonNode
+
+  /** Every `pattern` the render carries, at any depth. */
+  const patternsOf = (root: unknown): Set<string> =>
+    new Set(
+      nodes(root)
+        .map((n) => n.pattern)
+        .filter((p): p is string => typeof p === 'string'),
+    )
+
+  it('the declaring variant IS PlanDagSchema, byte for byte', () => {
+    // The exported constant is not a second definition to keep in step; it is
+    // one of the two calls. Stringified rather than `toEqual` because what
+    // ships to a model is bytes, and key order is part of them.
+    expect(JSON.stringify(full)).toBe(JSON.stringify(toJsonSchema(PlanDagSchema)))
+  })
+
+  it('the declaring variant still advertises both asset productions', () => {
+    expect(patternsOf(full)).toContain(PLAN_ASSET_REF_RE.source)
+    expect(patternsOf(full)).toContain(PLAN_INPUT_ASSET_REF_RE.source)
+    expect(JSON.stringify(full)).toContain('$input.assets[slot=<name>]')
+  })
+
+  it('the producer-only variant advertises no slot form at all', () => {
+    // Not just the pattern: the describe copy is what a model actually reads,
+    // and a form it can never satisfy is worse there than in a regex.
+    expect(patternsOf(narrow)).toContain(PLAN_ASSET_REF_RE.source)
+    expect(patternsOf(narrow)).not.toContain(PLAN_INPUT_ASSET_REF_RE.source)
+    const bytes = JSON.stringify(narrow)
+    expect(bytes).not.toContain('slot=')
+    expect(bytes).not.toContain('$input.assets')
+  })
+
+  it('differs from the full variant in the asset ref alone', () => {
+    // Everything else — bounds, required lists, the value-ref production, the
+    // output block — is the same schema. If this ever fails, the two variants
+    // have started to diverge into two grammars.
+    expect(patternsOf(narrow)).toEqual(
+      new Set([...patternsOf(full)].filter((p) => p !== PLAN_INPUT_ASSET_REF_RE.source)),
+    )
+    expect(at(narrow, 'properties', 'steps', 'items').required).toEqual(
+      at(full as unknown as JsonNode, 'properties', 'steps', 'items').required,
+    )
+  })
+})
+
 describe('PlanOutputSchema', () => {
   it('reports nothing unbounded', () => {
     expect(auditOutputsSchema(PlanOutputSchema)).toEqual({
@@ -128,7 +178,7 @@ describe('PlanOutputSchema', () => {
   })
 })
 
-describe('the three productions', () => {
+describe('the four productions', () => {
   it('accepts the forms the worked examples use', () => {
     expect(PLAN_STEP_ID_RE.test('take-0')).toBe(true)
     expect(PLAN_VALUE_REF_RE.test('$describe.text')).toBe(true)
@@ -136,6 +186,7 @@ describe('the three productions', () => {
     expect(PLAN_VALUE_REF_RE.test('$input.motion')).toBe(true)
     expect(PLAN_ASSET_REF_RE.test('$render.assets[0]')).toBe(true)
     expect(PLAN_ASSET_REF_RE.test('$bestof.assets[label=winner]')).toBe(true)
+    expect(PLAN_INPUT_ASSET_REF_RE.test('$input.assets[slot=still]')).toBe(true)
   })
 
   it('refuses the forms the grammar deliberately lacks', () => {
@@ -145,5 +196,57 @@ describe('the three productions', () => {
     expect(PLAN_VALUE_REF_RE.test('$describe')).toBe(false)
     expect(PLAN_VALUE_REF_RE.test('{{ describe.text }}')).toBe(false)
     expect(PLAN_ASSET_REF_RE.test('$render.assets[label=has space]')).toBe(false)
+    expect(PLAN_INPUT_ASSET_REF_RE.test('$input.assets[0]')).toBe(false)
+  })
+
+  it('the two asset productions are disjoint', () => {
+    // The carve-out is what makes "which production is this" a question with
+    // one answer, so the parse can discriminate on `slot !== undefined`.
+    expect(PLAN_ASSET_REF_RE.test('$input.assets[slot=still]')).toBe(false)
+    expect(PLAN_ASSET_REF_RE.test('$input.assets[0]')).toBe(false)
+    // Narrow, though: a step id that merely begins with `input` is a producer.
+    expect(PLAN_ASSET_REF_RE.test('$inputs.assets[0]')).toBe(true)
+    expect(PLAN_ASSET_REF_RE.test('$input-frames.assets[0]')).toBe(true)
+  })
+})
+
+describe('PlanOutputSchema.assets[].modality is core\'s AssetKind', () => {
+  const asset = (modality: string) => ({
+    assets: [{ assetId: 'a1', modality, label: 'out' }],
+    values: {},
+    steps: [],
+    cost: null,
+    latencyMs: 0,
+  })
+
+  // The four kinds the old image/audio/video enum rejected. A plan ending in a
+  // document or a data file is an ordinary plan; it used to parse only at the
+  // dispatch exit, where it failed.
+  it.each(['document', 'data', 'archive', 'other'])('accepts %s', (kind) => {
+    expect(PlanOutputSchema.safeParse(asset(kind)).success).toBe(true)
+  })
+
+  it.each(['image', 'audio', 'video'])('still accepts %s', (kind) => {
+    expect(PlanOutputSchema.safeParse(asset(kind)).success).toBe(true)
+  })
+
+  it('rejects a modality that is not an AssetKind', () => {
+    expect(PlanOutputSchema.safeParse(asset('text')).success).toBe(false)
+    expect(PlanOutputSchema.safeParse(asset('embedding')).success).toBe(false)
+  })
+
+  it('renders the full kind list to the model', () => {
+    const rendered = toJsonSchema(PlanOutputSchema) as unknown as {
+      properties: { assets: { items: { properties: { modality: { enum: string[] } } } } }
+    }
+    expect(rendered.properties.assets.items.properties.modality.enum.sort()).toEqual([
+      'archive',
+      'audio',
+      'data',
+      'document',
+      'image',
+      'other',
+      'video',
+    ])
   })
 })
