@@ -12,6 +12,7 @@ export {
   PLAN_STEP_ID_RE,
   PLAN_VALUE_REF_RE,
   PlanDagSchema,
+  planDagSchema,
   PlanOutputSchema,
   PlanRetrySchema,
   PlanStepSchema,

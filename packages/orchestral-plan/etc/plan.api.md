@@ -55,14 +55,46 @@ export const PLAN_VALUE_REF_RE: RegExp;
 // @public (undocumented)
 export type PlanDag = z.infer<typeof PlanDagSchema>;
 
-// @public (undocumented)
+// @public
 export const PlanDagSchema: z.ZodObject<{
     description: z.ZodOptional<z.ZodString>;
     steps: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
         pattern: z.ZodString;
         input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodUnion<readonly [z.ZodString, z.ZodString]>, z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodString]>>]>>>;
+        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>, z.ZodArray<z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>>]>>>;
+        retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            kind: z.ZodLiteral<"none">;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"exponential">;
+            maxAttempts: z.ZodNumber;
+            baseMs: z.ZodNumber;
+            maxMs: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>, z.ZodObject<{
+            kind: z.ZodLiteral<"fixed">;
+            maxAttempts: z.ZodNumber;
+            delayMs: z.ZodNumber;
+        }, z.core.$strict>], "kind">>;
+    }, z.core.$strict>>;
+    output: z.ZodObject<{
+        assets: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            from: z.ZodString;
+            label: z.ZodString;
+        }, z.core.$strict>>>;
+        values: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    }, z.core.$strict>;
+}, z.core.$strict>;
+
+// @public
+export function planDagSchema(options: {
+    inputAssets: boolean;
+}): z.ZodObject<{
+    description: z.ZodOptional<z.ZodString>;
+    steps: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        pattern: z.ZodString;
+        input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+        assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>, z.ZodArray<z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>>]>>>;
         retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
             kind: z.ZodLiteral<"none">;
         }, z.core.$strict>, z.ZodObject<{
@@ -231,12 +263,12 @@ export type PlanStepRouting = {
     nested?: PlanPreflightReport;
 };
 
-// @public (undocumented)
+// @public
 export const PlanStepSchema: z.ZodObject<{
     id: z.ZodString;
     pattern: z.ZodString;
     input: z.ZodRecord<z.ZodString, z.ZodUnknown>;
-    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodUnion<readonly [z.ZodString, z.ZodString]>, z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodString]>>]>>>;
+    assets: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>, z.ZodArray<z.ZodType<string, unknown, z.core.$ZodTypeInternals<string, unknown>>>]>>>;
     retry: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
         kind: z.ZodLiteral<"none">;
     }, z.core.$strict>, z.ZodObject<{

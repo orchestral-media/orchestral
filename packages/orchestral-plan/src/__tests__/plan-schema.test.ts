@@ -4,11 +4,13 @@ import { auditOutputsSchema, toJsonSchema } from '@orchestral/core'
 
 import {
   PLAN_ASSET_REF_RE,
+  PLAN_INPUT_ASSET_REF_RE,
   PLAN_STEP_ID_RE,
   PLAN_VALUE_REF_RE,
   PlanDagSchema,
   PlanOutputSchema,
   PlanRetrySchema,
+  planDagSchema,
 } from '../plan'
 import { planRefine } from '../validate'
 
@@ -98,6 +100,54 @@ describe('PlanDagSchema renders for find_pattern', () => {
       PlanDagSchema.superRefine(planRefine(emptyLookup, { selfId: 'meta_plan' })),
     )
     expect(refined).toEqual(rendered)
+  })
+})
+
+describe('planDagSchema — one grammar, two reaches', () => {
+  const full = toJsonSchema(planDagSchema({ inputAssets: true }))
+  const narrow = toJsonSchema(planDagSchema({ inputAssets: false })) as unknown as JsonNode
+
+  /** Every `pattern` the render carries, at any depth. */
+  const patternsOf = (root: unknown): Set<string> =>
+    new Set(
+      nodes(root)
+        .map((n) => n.pattern)
+        .filter((p): p is string => typeof p === 'string'),
+    )
+
+  it('the declaring variant IS PlanDagSchema, byte for byte', () => {
+    // The exported constant is not a second definition to keep in step; it is
+    // one of the two calls. Stringified rather than `toEqual` because what
+    // ships to a model is bytes, and key order is part of them.
+    expect(JSON.stringify(full)).toBe(JSON.stringify(toJsonSchema(PlanDagSchema)))
+  })
+
+  it('the declaring variant still advertises both asset productions', () => {
+    expect(patternsOf(full)).toContain(PLAN_ASSET_REF_RE.source)
+    expect(patternsOf(full)).toContain(PLAN_INPUT_ASSET_REF_RE.source)
+    expect(JSON.stringify(full)).toContain('$input.assets[slot=<name>]')
+  })
+
+  it('the producer-only variant advertises no slot form at all', () => {
+    // Not just the pattern: the describe copy is what a model actually reads,
+    // and a form it can never satisfy is worse there than in a regex.
+    expect(patternsOf(narrow)).toContain(PLAN_ASSET_REF_RE.source)
+    expect(patternsOf(narrow)).not.toContain(PLAN_INPUT_ASSET_REF_RE.source)
+    const bytes = JSON.stringify(narrow)
+    expect(bytes).not.toContain('slot=')
+    expect(bytes).not.toContain('$input.assets')
+  })
+
+  it('differs from the full variant in the asset ref alone', () => {
+    // Everything else — bounds, required lists, the value-ref production, the
+    // output block — is the same schema. If this ever fails, the two variants
+    // have started to diverge into two grammars.
+    expect(patternsOf(narrow)).toEqual(
+      new Set([...patternsOf(full)].filter((p) => p !== PLAN_INPUT_ASSET_REF_RE.source)),
+    )
+    expect(at(narrow, 'properties', 'steps', 'items').required).toEqual(
+      at(full as unknown as JsonNode, 'properties', 'steps', 'items').required,
+    )
   })
 })
 

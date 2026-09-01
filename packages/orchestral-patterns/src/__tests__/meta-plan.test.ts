@@ -21,6 +21,7 @@ import {
   createPlanMeta,
   planToMeta,
   PlanDagSchema,
+  planDagSchema,
   PlanOutputSchema,
   PLAN_PATTERN_ID,
   PLAN_TOOL_DESCRIPTION,
@@ -668,7 +669,21 @@ describe('meta_plan — the registered pattern', () => {
     // A `.superRefine` contributes nothing to the rendered shape — which is
     // exactly why the graph rules are also spelled out in `.describe()` copy
     // and in the tool description.
-    expect(rendered).toEqual(toJsonSchema(PlanDagSchema))
+    //
+    // The producer-only variant, not `PlanDagSchema`: a one-shot declares no
+    // asset slots and has no way to, so `$input.assets[slot=…]` is refused for
+    // every DAG this tool will ever receive. What it renders is the grammar it
+    // can actually satisfy.
+    expect(rendered).toEqual(toJsonSchema(planDagSchema({ inputAssets: false })))
+  })
+
+  it('advertises no caller-slot form the walk would always refuse', () => {
+    const bytes = JSON.stringify(toJsonSchema(meta.tool.inputs))
+    expect(bytes).not.toContain('slot=')
+    expect(bytes).not.toContain('$input.assets')
+    // The producer form is untouched — the narrowing drops one alternative,
+    // not the asset channel.
+    expect(bytes).toContain('$<stepId>.assets[0]')
   })
 
   it('is a deferred tool in the meta-pipelines namespace, authored from data', () => {

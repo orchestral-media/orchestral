@@ -29,6 +29,7 @@ describe('@orchestral/plan public surface', () => {
         "assertPlanValid",
         "createPlanMeta",
         "formatPlanPreflight",
+        "planDagSchema",
         "planRefine",
         "planToMeta",
         "preflightPlan",

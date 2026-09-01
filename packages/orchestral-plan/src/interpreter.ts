@@ -50,8 +50,8 @@ import {
 import { z } from 'zod'
 
 import {
-  PlanDagSchema,
   PlanOutputSchema,
+  planDagSchema,
   type PlanDag,
   type PlanOutput,
   type PlanStep,
@@ -309,12 +309,21 @@ export function createPlanMeta(
       'pipeline; multi-step; chain several patterns; fan out then judge; workflow as data',
     tool: {
       description: PLAN_TOOL_DESCRIPTION,
-      // The whole of layer 1 as a refine, so every problem reaches the model
-      // through the INPUT_VALIDATION_FAILED tool result the dispatch path
-      // already produces. Invisible to `toJsonSchema` — which is why the rules
-      // it enforces are also spelled out in the schema's `.describe()` copy and
-      // in the tool description above.
-      inputs: PlanDagSchema.superRefine(
+      // The producer-only grammar, not the whole one. A one-shot has no
+      // `assetNeeds` and no way to acquire any — this factory takes none — so
+      // `$input.assets[slot=…]` is not merely unused here but unsatisfiable,
+      // and rule 25 refuses every instance of it. Rendering the form anyway
+      // spends a few hundred bytes of a deferred tool's prefix advertising a
+      // guaranteed rejection, and costs the model a turn to discover. A plan
+      // that DOES declare slots renders the full grammar, byte for byte as
+      // before, through `PlanDagSchema`.
+      //
+      // The whole of layer 1 rides on top as a refine, so every problem reaches
+      // the model through the INPUT_VALIDATION_FAILED tool result the dispatch
+      // path already produces. Invisible to `toJsonSchema` — which is why the
+      // rules it enforces are also spelled out in the schema's `.describe()`
+      // copy and in the tool description above.
+      inputs: planDagSchema({ inputAssets: false }).superRefine(
         planRefine(lookup, { selfId: PLAN_PATTERN_ID, audience }),
       ) as unknown as z.ZodType<PlanDag>,
     },
