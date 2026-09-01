@@ -93,10 +93,20 @@ export interface StepOptions {
    * `identity` governs (which id the step reports, how nested namespaces
    * compose) is untouched, so a step may sensibly pass both.
    *
-   * The whole burden moves with the key. The engine stops asking whether the
-   * input changed, so a key that omits something the step actually reads hands
-   * back the earlier output for later work — the failure mode is a stale
-   * result, not an error. Derive it from everything the step depends on.
+   * Almost the whole burden moves with the key. The engine stops asking
+   * whether the input changed, so a key that omits something the step actually
+   * reads hands back the earlier output for later work — within one pattern
+   * that is a stale-but-valid result, not an error, and the caller is the only
+   * one who can tell it is wrong.
+   *
+   * The one collision the runtime still refuses is a key already held by a row
+   * for a DIFFERENT pattern: `IDEMPOTENCY_KEY_CROSS_PATTERN`. That row's output
+   * was gated against the other pattern's `outputs` schema and never against
+   * this one's, so handing it back is not a stale answer to this question but
+   * an answer to a different one. Only a caller-supplied key can produce it —
+   * the derivation hashes `patternId`.
+   *
+   * So: derive it from everything the step depends on, and include the pattern.
    */
   idempotencyKey?: string
 }

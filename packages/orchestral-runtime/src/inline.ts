@@ -769,6 +769,43 @@ export class InlineRuntime implements Runtime {
       // Dedup hit — a sequential repeat and a lost race land here alike, and
       // the row we hand back is the canonical one (possibly still in flight).
       //
+      // Except when it is a row for a DIFFERENT pattern. The derivation always
+      // hashes `patternId`, so no key it produces can land here; only a
+      // caller-supplied `JobSpec.idempotencyKey` / `StepOptions.idempotencyKey`
+      // can, and only by omitting the pattern from what it keys on. The
+      // override moves the burden of "what is the same work" to the caller and
+      // the documented cost of getting it wrong is a STALE result — an earlier
+      // output for the same contract. This is not that. The row's output was
+      // gated against the other pattern's `outputs` schema and never against
+      // this one's, so returning it hands the dispatch exit a value no schema
+      // in this call's path ever checked: a two-step plan keyed on its input
+      // alone gets its image-to-video step answered with the text-to-image row,
+      // reports `done`, and returns a still under a video label. Refuse.
+      //
+      // Only the key's first characters are quoted. A caller-derived key can
+      // embed host data (a tenant id, a content hash of a private prompt), and
+      // this message reaches a model as a tool result.
+      // DESIGN: idempotency-key-cross-pattern
+      if (winner.patternId !== spec.patternId) {
+        throw Object.assign(
+          new Error(
+            `IDEMPOTENCY_KEY_CROSS_PATTERN: the idempotency key for ` +
+              `"${spec.patternId}" is already held by a "${winner.patternId}" job ` +
+              `(key "${key.slice(0, 12)}…"). A caller-supplied key must include ` +
+              'whatever distinguishes the work; the derivation hashes patternId ' +
+              'for exactly this reason.',
+          ),
+          {
+            code: 'IDEMPOTENCY_KEY_CROSS_PATTERN',
+            details: {
+              patternId: spec.patternId,
+              heldBy: winner.patternId,
+              jobId: winner.id,
+            },
+          },
+        )
+      }
+      //
       // Async-agent dedup re-attach. For a non-agent dedup hit the
       // constructor-level onJobCreated does NOT fire: it's a per-row-INSERT
       // hook and a dedup hit inserts nothing, so firing it would double-bind

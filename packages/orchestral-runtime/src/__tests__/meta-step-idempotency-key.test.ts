@@ -63,15 +63,46 @@ function makeRouter(prompts: string[]): CapabilityRouter {
   } as unknown as CapabilityRouter
 }
 
-function createFakeGenPattern(): AtomicPattern<{ prompt: string }, unknown> {
+function createFakeGenPattern(
+  id = 'fake-gen',
+): AtomicPattern<{ prompt: string }, unknown> {
   return {
-    id: 'fake-gen',
+    id,
     kind: 'atomic',
     description: 'fake generator for the step idempotency-key test',
     outputs: z.any() as never,
     primary: {
       tool: { description: 'fake', inputs: z.object({ prompt: z.string() }) },
       modelTags: [],
+    },
+  }
+}
+
+/**
+ * Two steps under ONE caller-supplied key, deliberately naming two different
+ * patterns — the collision the derivation could never produce, because it
+ * hashes `patternId`.
+ */
+function createCrossPatternMeta(): MetaPattern<KeyedInput, unknown> {
+  return {
+    id: 'meta_cross',
+    kind: 'meta',
+    description: 'two patterns, one caller-supplied key',
+    outputs: z.any() as never,
+    tool: { description: 'cross', inputs: z.any() as never },
+    async compose({ input }, ctx) {
+      // Absent `key`, the derivation runs — and it hashes `patternId`, which is
+      // why no derived key can reach the refusal below.
+      const keyed =
+        input.key === undefined ? {} : { idempotencyKey: input.key }
+      await ctx.step(
+        { patternId: 'fake-gen', input: { prompt: input.prompt } },
+        { stepId: 'a', identity: 'id', ...keyed },
+      )
+      return await ctx.step(
+        { patternId: 'fake-gen-b', input: { prompt: input.prompt } },
+        { stepId: 'b', identity: 'id', ...keyed },
+      )
     },
   }
 }
@@ -105,7 +136,9 @@ function makeHost() {
   const prompts: string[] = []
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   registry.register(createFakeGenPattern() as never)
+  registry.register(createFakeGenPattern('fake-gen-b') as never)
   registry.register(createKeyedMeta() as never)
+  registry.register(createCrossPatternMeta() as never)
 
   let collecting: StepRecord[] | undefined
   let sawRoot = false
@@ -127,14 +160,14 @@ function makeHost() {
 
   return {
     prompts,
-    async run(input: KeyedInput, sessionId: string) {
+    async run(input: KeyedInput, sessionId: string, patternId = 'meta_keyed') {
       const sink: StepRecord[] = []
       collecting = sink
       sawRoot = false
       const before = prompts.length
       try {
         const job = await runtime.submitJob({
-          patternId: 'meta_keyed',
+          patternId,
           input,
           sessionId,
         } as never)
@@ -199,5 +232,45 @@ describe('StepOptions.idempotencyKey', () => {
 
     expect(childOf(second.steps)).toBe(childOf(first.steps))
     expect(host.prompts).toEqual(['first prompt'])
+  })
+
+  it('refuses a key that collides across two patterns', async () => {
+    // The one collision the engine can still call wrong on the caller's
+    // behalf. "The same work" is the caller's to define, but a row filed under
+    // another pattern is not a stale answer to this question — it is an answer
+    // to a different one, and its output never met this pattern's schema.
+    const host = makeHost()
+
+    const run = await host.run(
+      { prompt: 'a still of a hare', key: 'tenant-42:a-private-prompt-hash' },
+      'session-one',
+      'meta_cross',
+    )
+
+    expect(run.job.status).toBe('error')
+    expect(run.job.error?.code).toBe('IDEMPOTENCY_KEY_CROSS_PATTERN')
+    expect(run.job.error?.message).toContain('fake-gen')
+    expect(run.job.error?.message).toContain('fake-gen-b')
+    // The key is truncated on the way out: a caller-derived key can embed host
+    // data, and this message reaches a model as a tool result. Enough to
+    // recognise the key, not enough to read it.
+    expect(run.job.error?.message).toContain('tenant-42:a-')
+    expect(run.job.error?.message).not.toContain('a-private-prompt-hash')
+    // The unabridged facts are on `details`, which stays host-side.
+    expect(run.job.error?.details).toMatchObject({
+      patternId: 'fake-gen-b',
+      heldBy: 'fake-gen',
+    })
+  })
+
+  it('the same two steps unkeyed are fine: the derivation hashes patternId', async () => {
+    // The refusal is reachable only through the override, which is the whole
+    // argument for putting it there rather than in the derivation.
+    const host = makeHost()
+
+    const run = await host.run({ prompt: 'a hare' }, 'session-one', 'meta_cross')
+
+    expect(run.job.status).toBe('done')
+    expect(host.prompts).toEqual(['a hare', 'a hare'])
   })
 })

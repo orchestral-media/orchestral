@@ -436,9 +436,25 @@ export interface RunPlanOptions {
    *
    * A pure derivation, and deliberately nothing more: it cannot skip a step,
    * substitute an output, or stop the walk. What it changes is which row the
-   * dispatch lands on — after which the engine's own dedup does the rest, and
-   * a hit returns an output that has already been through the dispatch exit's
-   * schema gate like any other.
+   * dispatch lands on — after which the engine's own dedup does the rest.
+   *
+   * Two collisions a key written for a plan can produce, because a plan has
+   * many steps where a hand-written meta has one call site:
+   *
+   *   • Across PATTERNS — a key derived from the step's input alone is the same
+   *     string for `render` and for `animate`, and the second would land on the
+   *     first's row: a video slot answered with a still, by a value this step's
+   *     schema never saw. The engine refuses it,
+   *     `IDEMPOTENCY_KEY_CROSS_PATTERN`. Include `step.pattern`.
+   *   • Within one LEVEL — two independent steps of the SAME pattern under one
+   *     key is a fan-out collapsing to one row, and the engine cannot call that
+   *     wrong: the row is the right pattern, it is simply still queued when the
+   *     sibling arrives. It surfaces as `PLAN_STEP_IN_FLIGHT` naming the second
+   *     step. Include `step.id`, or anything else that tells the two apart.
+   *
+   * Within one pattern and one step, a key that omits something the step reads
+   * is a stale-but-valid result rather than an error — the caller's own risk,
+   * as it is for `StepOptions.idempotencyKey`.
    */
   idempotencyKeyFor?: PlanStepIdentity
 }

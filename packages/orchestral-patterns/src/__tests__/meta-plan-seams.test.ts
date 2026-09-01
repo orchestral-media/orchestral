@@ -416,6 +416,119 @@ describe('RunPlanOptions.idempotencyKeyFor', () => {
   })
 })
 
+// ── what a caller-written key can collide with ──────────────────────────
+//
+// The seam hands the caller the whole burden, and the two ways a hand-written
+// key goes wrong are both reachable from one DAG. A key that ignores the
+// pattern collides ACROSS patterns, which the engine now refuses; a key that
+// ignores the step collides WITHIN one level, which it cannot refuse — the row
+// is legitimately the same pattern, it is simply not finished yet.
+
+/** Two steps, two different patterns: the cross-pattern collision. */
+const RENDER_THEN_ANIMATE = {
+  description: 'Render a still, then animate it.',
+  steps: [
+    { id: 'render', pattern: 'text-to-image', input: { prompt: '$input.prompt' } },
+    {
+      id: 'animate',
+      pattern: 'image-to-video',
+      input: { prompt: 'slow drift' },
+      assets: { startFrame: '$render.assets[0]' },
+    },
+  ],
+  output: { assets: [{ from: '$animate.assets[0]', label: 'clip' }] },
+} as const
+
+/** Two steps, ONE pattern, no dependency between them: the fan-out collision. */
+const TWO_RENDERS = {
+  description: 'Two independent renders.',
+  steps: [
+    { id: 'left', pattern: 'text-to-image', input: { prompt: 'a hare' } },
+    { id: 'right', pattern: 'text-to-image', input: { prompt: 'a hare' } },
+  ],
+  output: {
+    assets: [
+      { from: '$left.assets[0]', label: 'l' },
+      { from: '$right.assets[0]', label: 'r' },
+    ],
+  },
+} as const
+
+describe('a caller-supplied key that collides', () => {
+  function host(dag: unknown, id: string, key: string): PlanHost {
+    const h = makePlanHost()
+    h.registry.register(
+      planToMeta(dag as never, {
+        id: id as PatternId,
+        lookup: h.registry,
+        inputs: z.object({ prompt: z.string().min(1).max(2000) }).partial(),
+        exposure: 'tool',
+        idempotencyKeyFor: () => key,
+      }),
+    )
+    return h
+  }
+
+  it('across patterns is refused, not silently answered with the other pattern’s output', async () => {
+    // Without the guard this plan reports `done`: `animate` dedupes onto
+    // `render`'s row, image-to-video is never called, and `output.assets.clip`
+    // is the IMAGE — a video slot filled by a still, with both steps priced.
+    const h = host(RENDER_THEN_ANIMATE, 'meta_cross', 'same-key')
+    const run = await h.run<PlanOutput>(
+      'meta_cross' as PatternId,
+      { prompt: 'a hare' },
+      'session-cross',
+    )
+
+    expect(run.job.status).toBe('error')
+    expect(run.job.error?.code).toBe('IDEMPOTENCY_KEY_CROSS_PATTERN')
+    expect(run.job.error?.details).toMatchObject({
+      planStepId: 'animate',
+      patternId: 'image-to-video',
+      heldBy: 'text-to-image',
+    })
+    // Both pattern ids are named, and the key is not spelled out in full.
+    expect(run.job.error?.message).toContain('text-to-image')
+    expect(run.job.error?.message).toContain('image-to-video')
+    expect(h.calls.imageToVideo).not.toHaveBeenCalled()
+  })
+
+  it('within one pattern still dedupes — the guard tightens nothing else', async () => {
+    const h = host(ONE_RENDER, 'meta_same', 'one-key')
+    const first = await h.run<PlanOutput>(
+      'meta_same' as PatternId,
+      { prompt: 'a hare' },
+      'session-one',
+    )
+    const second = await h.run<PlanOutput>(
+      'meta_same' as PatternId,
+      { prompt: 'a hare' },
+      'session-two',
+    )
+
+    expect(first.job.status).toBe('done')
+    expect(second.job.status).toBe('done')
+    expect(h.calls.textToImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('within one level names the in-flight row rather than the key', async () => {
+    // Both steps are the same pattern, so the cross-pattern guard says nothing
+    // — and it should not: the row IS the right pattern. What it is not is
+    // finished, because the second step deduped onto the first while that one
+    // was still queued. This is the fan-out failure mode of a key derived
+    // only from the input.
+    const h = host(TWO_RENDERS, 'meta_fanout', 'one-key-for-both')
+    const run = await h.run<PlanOutput>(
+      'meta_fanout' as PatternId,
+      { prompt: 'unused' },
+      'session-fanout',
+    )
+
+    expect(run.job.status).toBe('error')
+    expect(run.job.error?.code).toBe('PLAN_STEP_IN_FLIGHT')
+  })
+})
+
 // ── the width of a level ────────────────────────────────────────────────
 
 /** Six independent renders, all on level 0. */

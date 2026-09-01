@@ -353,18 +353,30 @@ two identical dispatches are one unit of work. It is the seam for a caller whose
 notion of "the same work" the derivation cannot express, the concrete case being
 reuse that outlives a session: `sessionId` is hashed on purpose ("dedup never
 crosses a session boundary"), so no choice of `identity` mode escapes it. The
-burden moves with the key and is stated where it is declared — a key that omits
-something the step reads returns the earlier output for later work, which is a
-stale result rather than an error. `runPlan` exposes the same seam as
+burden moves with the key and is stated where it is declared — within one
+pattern, a key that omits something the step reads returns the earlier output
+for later work, which is a stale but schema-valid result rather than an error.
+One collision does not move with it: a key already held by a row for a
+DIFFERENT pattern is refused, `IDEMPOTENCY_KEY_CROSS_PATTERN`. That row's output
+was gated against the other pattern's `outputs` schema and never against this
+one's, so returning it is not a stale answer to the caller's question but an
+answer to a different one — and only a caller-supplied key can produce it, since
+the derivation always hashes `patternId`. `runPlan` exposes the same seam as
 `idempotencyKeyFor`, because the interpreter owns the `ctx.step` call and a
-plan's steps would otherwise be the only steps that cannot reach the option.
+plan's steps would otherwise be the only steps that cannot reach the option; a
+plan is also where the two ways to write the key badly show up, since one key
+function serves many steps (a key ignoring the pattern hits the refusal above,
+one ignoring the step id collapses a fan-out onto a row that has not finished —
+`PLAN_STEP_IN_FLIGHT`).
 **Where.** `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional),
 `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id),
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: caller-supplied-step-identity);
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: caller-supplied-step-identity),
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: idempotency-key-cross-pattern);
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-fan-out-note),
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-explicit-step-id);
 `packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds"),
-`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("dedupes across sessions, which the derived key cannot");
+`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("dedupes across sessions, which the derived key cannot"),
+`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("refuses a key that collides across two patterns");
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-id.test.ts`.
 
 ### We don't impose concurrency caps, timeouts, or TTLs
