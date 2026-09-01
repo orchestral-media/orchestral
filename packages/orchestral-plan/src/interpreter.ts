@@ -961,8 +961,21 @@ function finiteCost(cost: number | null | undefined): number | null {
  * so this only fires for a producer whose schema does not pin the field — one
  * declaring `modality: z.string()`. Left as a cast, such a value flowed into
  * `PlanOutput.assets[]` and failed the PLAN's output parse instead: same job
- * failed, but the error named the plan and the reader had no way to tell which
- * step produced the offending value. Refusing here names the step and the ref.
+ * failed, but the error named the plan and the reader had no way to tell where
+ * the offending value entered. Refusing here names the site and the ref.
+ *
+ * Which step `details.planStepId` names. The two call sites differ, and the
+ * field means the same thing at both — where the plan was USING the asset, not
+ * where it came from:
+ *
+ *   • the binding site (`step.assets`) carries the CONSUMING step's id, the
+ *     step that was about to be dispatched with this asset in a slot;
+ *   • the assembly site (`output.assets[].from`) carries none, because
+ *     assembly happens after the level loop and belongs to no step. It carries
+ *     `path` instead — `['output', 'assets', <label>]`.
+ *
+ * The producer is on `details.ref` at both, which is the only place it could
+ * be: `ref` is the string the author wrote, and its head IS the producing step.
  *
  * Not fail-open to `'other'`. That fallback exists for a host classifying a
  * real file it still holds the mediaType for; here there is no file and no

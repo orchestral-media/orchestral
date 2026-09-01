@@ -7,7 +7,12 @@
 // reached a step is a question about `ctx.assets` on the model call; whether a
 // row was reused is a question about how often a model was reached at all.
 
-import type { AssetNeed, PatternId, ResolvedAssetRef } from '@orchestral/core'
+import type {
+  AssetNeed,
+  Pattern,
+  PatternId,
+  ResolvedAssetRef,
+} from '@orchestral/core'
 import { planToMeta, type PlanOutput } from '@orchestral/plan'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -526,6 +531,140 @@ describe('a caller-supplied key that collides', () => {
 
     expect(run.job.status).toBe('error')
     expect(run.job.error?.code).toBe('PLAN_STEP_IN_FLIGHT')
+  })
+})
+
+// ── a modality the producer's own schema does not pin ───────────────────
+//
+// `PlanOutputSchema.assets[].modality` is core's `AssetKind` enum, and the
+// interpreter narrows a producing step's `modality` string to it rather than
+// asserting. The narrowing only ever fires for a pattern whose outputs declare
+// `modality: z.string()` — the dispatch exit already held everything else to a
+// literal — which is exactly why it had no coverage: none of the shipped
+// patterns is loose enough to reach it. So the fixture below is.
+
+/** A meta that returns a modality its own schema permits and core does not. */
+function looseModalityMeta(modality: string): Pattern {
+  return {
+    id: 'meta_loose' as PatternId,
+    kind: 'meta',
+    description: 'returns an asset whose modality its own outputs do not pin',
+    outputs: z.object({
+      assets: z
+        .array(
+          z.object({
+            assetId: z.string().max(128),
+            // The whole point of the fixture: a bare bounded string where
+            // every shipped pattern writes a literal or an enum.
+            modality: z.string().max(32),
+            url: z.string().max(2048).optional(),
+          }),
+        )
+        .max(8),
+      cost: z.number().min(0).nullable(),
+      latencyMs: z.number().int().min(0),
+    }) as never,
+    tool: { description: 'loose', inputs: z.object({}) as never },
+    async compose() {
+      return {
+        assets: [{ assetId: 'loose-1', modality, url: PNG_URL }],
+        cost: 0,
+        latencyMs: 0,
+      }
+    },
+  } as unknown as Pattern
+}
+
+const PNG_URL = 'data:image/png;base64,aVZCT1J3MEtHZ29BQUFBTlNVaEVVZ0E='
+
+/** The loose asset is bound into a LATER step's slot. */
+const LOOSE_INTO_STEP = {
+  description: 'Animate an asset whose modality is not a kind.',
+  steps: [
+    { id: 'produce', pattern: 'meta_loose', input: {} },
+    {
+      id: 'animate',
+      pattern: 'image-to-video',
+      input: { prompt: 'drift' },
+      assets: { startFrame: '$produce.assets[0]' },
+    },
+  ],
+  output: { assets: [{ from: '$animate.assets[0]', label: 'clip' }] },
+} as const
+
+/** The loose asset is returned directly, with no consuming step at all. */
+const LOOSE_INTO_OUTPUT = {
+  description: 'Return an asset whose modality is not a kind.',
+  steps: [{ id: 'produce', pattern: 'meta_loose', input: {} }],
+  output: { assets: [{ from: '$produce.assets[0]', label: 'out' }] },
+} as const
+
+describe('a produced modality core does not recognise', () => {
+  function looseHost(dag: unknown, id: string, modality = 'img'): PlanHost {
+    const h = makePlanHost({ extra: [looseModalityMeta(modality)] })
+    h.registry.register(
+      planToMeta(dag as never, {
+        id: id as PatternId,
+        lookup: h.registry,
+        exposure: 'tool',
+      }),
+    )
+    return h
+  }
+
+  it('fails at the binding site, naming the CONSUMING step and the ref', async () => {
+    const h = looseHost(LOOSE_INTO_STEP, 'meta_loose-step')
+    const run = await h.run<PlanOutput>(
+      'meta_loose-step' as PatternId,
+      {},
+      'session-loose-step',
+    )
+
+    expect(run.job.status).toBe('error')
+    expect(run.job.error?.code).toBe('PLAN_ASSET_MODALITY_UNKNOWN')
+    expect(run.job.error?.details).toMatchObject({
+      // The step that was about to be dispatched, not the one that produced
+      // the value — the producer is readable off `ref`.
+      planStepId: 'animate',
+      ref: '$produce.assets[0]',
+      modality: 'img',
+    })
+    // Refused before the dispatch, not after paying for it.
+    expect(h.calls.imageToVideo).not.toHaveBeenCalled()
+  })
+
+  it('fails at the output site too, where there is no consuming step to name', async () => {
+    const h = looseHost(LOOSE_INTO_OUTPUT, 'meta_loose-out')
+    const run = await h.run<PlanOutput>(
+      'meta_loose-out' as PatternId,
+      {},
+      'session-loose-out',
+    )
+
+    expect(run.job.status).toBe('error')
+    expect(run.job.error?.code).toBe('PLAN_ASSET_MODALITY_UNKNOWN')
+    // No `planStepId`: assembly happens after the level loop, and the entry
+    // this failed on is addressed by its path in the output block.
+    expect(run.job.error?.details).toMatchObject({
+      ref: '$produce.assets[0]',
+      path: ['output', 'assets', 'out'],
+      modality: 'img',
+    })
+    expect(
+      (run.job.error?.details as { planStepId?: string } | undefined)?.planStepId,
+    ).toBeUndefined()
+  })
+
+  it('a kind core DOES recognise passes through untouched', async () => {
+    const h = looseHost(LOOSE_INTO_OUTPUT, 'meta_loose-ok', 'document')
+    const run = await h.run<PlanOutput>(
+      'meta_loose-ok' as PatternId,
+      {},
+      'session-loose-ok',
+    )
+
+    expect(run.job.status).toBe('done')
+    expect(run.job.output?.assets[0]?.modality).toBe('document')
   })
 })
 
