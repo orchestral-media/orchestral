@@ -432,6 +432,14 @@ export interface RunPlanOptions {
    * once, and a provider's rate limit does not care that the DAG says they may
    * overlap.
    *
+   * Why the library offers the knob at all, having refused to impose a cap. A
+   * host's semaphore goes around `submitJob`, and a plan's whole fan-out
+   * happens INSIDE one such call: from the host's side the plan is one job, so
+   * the seam it already has cannot see the twenty. This is where that decision
+   * becomes exercisable rather than merely assigned — the default is still
+   * unlimited, and the library still picks no number.
+   * DESIGN: plan-concurrency-is-the-hosts-knob
+   *
    * It is not free. `ctx.step` advances a tree-shared counter at CALL time, and
    * that counter keys every POSITIONAL child — the internals of a nested meta
    * run as one plan step. Uncapped, a level's steps are all called

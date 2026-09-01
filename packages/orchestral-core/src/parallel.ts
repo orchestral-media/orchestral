@@ -20,6 +20,14 @@ export interface ParallelFn {
   /**
    * Fan out with an upper bound on how many run at once.
    *
+   * The library still imposes no cap of its own — "concurrency limits are the
+   * host's to impose" — and this changes nothing about that. It is the
+   * mechanism a caller needs to impose one INSIDE a single dispatch, where the
+   * host's own semaphore around `submitJob` cannot reach because the host has
+   * one call outstanding and the compose body has twenty. Nothing here picks a
+   * number; `Infinity` is what every caller gets until one is passed.
+   * DESIGN: fan-out-cap-is-a-mechanism-not-a-policy
+   *
    * Takes THUNKS, not promises — and that is the whole point rather than an
    * inconvenience. A promise is already running by the time it is a value, so
    * `parallel([...])` cannot throttle anything: the calls it is handed have all
