@@ -129,6 +129,28 @@ describe('releaseNotes', () => {
     expect(notes).not.toContain('Patch Changes')
   })
 
+  it('drops a dependency bump written without the "Updated dependencies" line', () => {
+    // 0.2.0's real spelling across discovery, runtime and adapters: the bullet
+    // is the package reference itself. It is the same bookkeeping, and it
+    // reached the v0.2.0 release page before this case existed.
+    const bare = '## 0.4.0\n\n### Patch Changes\n\n- @orchestral/core@0.4.0\n'
+    const nested =
+      '## 0.4.0\n\n### Patch Changes\n\n- @orchestral/core@0.4.0\n  - @orchestral/discovery@0.4.0\n'
+
+    expect(releaseNotes([bare], '0.4.0')).toBeNull()
+    expect(releaseNotes([nested], '0.4.0')).toBeNull()
+    expect(releaseNotes([CORE, bare, nested], '0.4.0')).not.toContain('@orchestral/core@0.4.0')
+  })
+
+  it('keeps a summary that merely mentions a package and version', () => {
+    // The stop against over-matching: `- <sha>: text` is news however many
+    // package references the text goes on to carry.
+    const summary =
+      '## 0.4.0\n\n### Minor Changes\n\n- aa11bb: Bumped the floor to @orchestral/core@0.4.0.\n'
+
+    expect(releaseNotes([summary], '0.4.0')).toContain('Bumped the floor')
+  })
+
   it('returns null when every section is bookkeeping, rather than empty notes', () => {
     // The workflow turns this into a failed step. A release whose body is
     // "updated dependencies" says nothing about a version already on the

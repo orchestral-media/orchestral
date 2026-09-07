@@ -79,10 +79,35 @@ function entriesOf(section) {
   return entries.map((entry) => ({ heading: entry.heading, text: entry.lines.join('\n').trim() }))
 }
 
-// `- Updated dependencies [sha]` plus the indented list under it. Written by
-// `changeset version` for a package that only moved because something it
-// depends on did.
-const BOOKKEEPING = /^-\s+Updated dependencies\b/
+// A package reference — `@orchestral/core@0.2.0`, or an unscoped name — as a
+// whole line. The `\d` after the last `@` is what separates a reference from
+// prose that happens to contain one.
+const PACKAGE_REF = /^@?[\w.-]+(?:\/[\w.-]+)?@\d[\w.+-]*$/
+
+/**
+ * Whether an entry is `changeset version`'s dependency bookkeeping, written for
+ * a package that only moved because something it depends on did.
+ *
+ * The test is that the entry says nothing but package references: every line is
+ * either the `Updated dependencies [sha]` header or a reference. Two spellings
+ * are in this repo's history — the current one with that header and an indented
+ * list, and 0.2.0's bare `- @orchestral/core@0.2.0`, which reached the v0.2.0
+ * release page before this was keyed on content rather than on the header.
+ *
+ * A summary is never mistaken for one: it opens `<sha>: ` and its prose fails
+ * the reference shape however many packages it goes on to name.
+ */
+function isDependencyBump(text) {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim().replace(/^-\s*/, ''))
+    .filter((line) => line !== '')
+
+  return (
+    lines.length > 0 &&
+    lines.every((line) => /^Updated dependencies\b/.test(line) || PACKAGE_REF.test(line))
+  )
+}
 
 /**
  * The release body for one version: every distinct changeset summary across the
@@ -101,7 +126,7 @@ export function releaseNotes(changelogs, version) {
     if (section === null) continue
 
     for (const { heading, text } of entriesOf(section)) {
-      if (BOOKKEEPING.test(text)) continue
+      if (isDependencyBump(text)) continue
       // The same summary is copied verbatim into every package the changeset
       // named, so identical text is one piece of news, not several.
       const key = text.replace(/\s+/g, ' ')
