@@ -26,8 +26,9 @@
 #   - Examples are private and skipped by pnpm publish on their own.
 #   - `create-github-releases: false`: the action detects releases by parsing
 #     its own `changeset publish` output, which `pnpm -r publish` does not
-#     emit — better no releases than releases keyed on a parse that cannot
-#     match. The v<version> git tag below is the release marker.
+#     emit. The releases are not given up with it — the last two steps below
+#     cut the tag and publish the notes from core's CHANGELOG, both of which
+#     are true after a publish whatever the publisher printed.
 #
 # Auth: npm trusted publishing (OIDC). Each published package names this
 # repo + this workflow file as its trusted publisher (configured via
@@ -103,7 +104,7 @@ jobs:
           create-github-releases: false
 
       # One human-readable tag per release of the line (v0.1.0 set the
-      # convention), cut from core's version — the six move together, so any
+      # convention), cut from core's version — the seven move together, so any
       # of them names the line. Self-computed against the REGISTRY rather
       # than read off the action's `published` output: that output is derived
       # from the publish script's stdout, which `pnpm -r publish` does not
@@ -124,5 +125,36 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$V" -m "$V — the @orchestral six-package line"
+          git tag -a "v$V" -m "$V — the @orchestral seven-package line"
           git push origin "v$V"
+
+      # The release page for that tag, with core's CHANGELOG section for the
+      # version as its body — PUBLISH.md §5 set the convention by hand at
+      # 0.1.0 ("one tag and one GitHub Release per version line"), and this is
+      # the automated flow finally keeping it.
+      #
+      # Keyed on whether the RELEASE exists, not on whether this run cut the
+      # tag. Those are different questions, and only this one survives the
+      # state that actually occurred: four tags standing with no release behind
+      # any of them. Keyed the other way, a version whose tag was already cut
+      # could never be announced.
+      #
+      # `--verify-tag` so a release is never cut against a tag that failed to
+      # push, and a missing CHANGELOG section fails the step loudly rather than
+      # publishing an empty release — see scripts/release-notes.mjs, which
+      # argues both.
+      - name: Announce the released line
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(node -p "require('./packages/orchestral-core/package.json').version")
+          if ! npm view "@orchestral/core@$V" version >/dev/null 2>&1; then
+            echo "@orchestral/core@$V is not on the registry — nothing to announce"
+            exit 0
+          fi
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "release v$V already exists"
+            exit 0
+          fi
+          node scripts/release-notes.mjs "$V" > "$RUNNER_TEMP/notes.md"
+          gh release create "v$V" --verify-tag --title "v$V" --notes-file "$RUNNER_TEMP/notes.md"

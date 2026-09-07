@@ -16,7 +16,9 @@ hand, §4–§6), releases ride **changesets** through
 3. Merging the Version Packages PR publishes: the workflow re-runs the full
    verification wall (build / typecheck / tests / lint / api:check /
    smoke-dist), then `pnpm -r publish` in topological order, skipping
-   versions already on the registry, then tags `v<version>`.
+   versions already on the registry, then tags `v<version>` and cuts the
+   GitHub Release for that tag with core's CHANGELOG section as its notes
+   (§5's convention, automated — nothing to assemble by hand any more).
 
 One-time setup the automation needs (all done for this repo):
 
