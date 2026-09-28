@@ -27,8 +27,9 @@
 #   - `create-github-releases: false`: the action detects releases by parsing
 #     its own `changeset publish` output, which `pnpm -r publish` does not
 #     emit. The releases are not given up with it — the last two steps below
-#     cut the tag and publish the notes from core's CHANGELOG, both of which
-#     are true after a publish whatever the publisher printed.
+#     cut the tag and publish notes built from the published packages'
+#     CHANGELOGs, both of which are true after a publish whatever the
+#     publisher printed.
 #
 # Auth: npm trusted publishing (OIDC). Each published package names this
 # repo + this workflow file as its trusted publisher (configured via
@@ -128,10 +129,13 @@ jobs:
           git tag -a "v$V" -m "$V — the @orchestral seven-package line"
           git push origin "v$V"
 
-      # The release page for that tag, with core's CHANGELOG section for the
-      # version as its body — PUBLISH.md §5 set the convention by hand at
-      # 0.1.0 ("one tag and one GitHub Release per version line"), and this is
-      # the automated flow finally keeping it.
+      # The release page for that tag. Its body is the distinct changeset
+      # summaries for the version across every published package's CHANGELOG
+      # — not core's section alone, which is a bare heading at 0.2.0 because
+      # that changeset never named core, and not the seven concatenated,
+      # which would print 0.3.0's summaries seven times over. PUBLISH.md §5
+      # set the convention by hand at 0.1.0 ("one tag and one GitHub Release
+      # per version line"), and this is the automated flow finally keeping it.
       #
       # Keyed on whether the RELEASE exists, not on whether this run cut the
       # tag. Those are different questions, and only this one survives the
@@ -140,9 +144,9 @@ jobs:
       # could never be announced.
       #
       # `--verify-tag` so a release is never cut against a tag that failed to
-      # push, and a missing CHANGELOG section fails the step loudly rather than
-      # publishing an empty release — see scripts/release-notes.mjs, which
-      # argues both.
+      # push, and a version no published CHANGELOG has a summary for fails the
+      # step loudly rather than publishing an empty release — see
+      # scripts/release-notes.mjs, which argues that and the dedup above.
       - name: Announce the released line
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
