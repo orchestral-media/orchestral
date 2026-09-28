@@ -7,13 +7,16 @@
 // would get a silent no-op from cancelJob (both guarded writes miss) instead of
 // JOB_ALREADY_TERMINAL.
 //
-// Two halves, so neither side can drift:
-//   • the table iterates core's export — every member refuses, every other
-//     status is cancelled — so it grows with the set instead of pinning four;
-//   • the seam perturbs core's set and checks cancelJob follows. A runtime that
-//     READS the export passes; a copy that merely agrees today does not.
+// The table iterates core's export — every member refuses, every other status
+// is cancelled — so it grows with the set instead of pinning four, and the
+// `satisfies` below keeps the complement honest as the union grows. There is
+// no seam test perturbing core's set: a copy that agrees with it today behaves
+// exactly like a read of it until the set moves, and then this table,
+// regenerated from the real export against the real runtime and store, fails
+// on the copy anyway — and commit 2057cdd's message records the one-time
+// perturbation that proved cancelJob reads the export.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import type { Job, JobEvent, JobStatus } from '@orchestral/core'
 import {
@@ -24,25 +27,6 @@ import {
 import { InMemoryJobStore } from '@orchestral/core/memory'
 
 import { InlineRuntime } from '../inline'
-
-// Core's real set unless a test overrides it. A getter rather than a copied
-// array, so the table below reads the actual export and only the seam test
-// sees anything else.
-const coreSet = vi.hoisted(() => ({ override: undefined as readonly JobStatus[] | undefined }))
-
-vi.mock('@orchestral/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@orchestral/core')>()
-  return {
-    ...actual,
-    get JOB_TERMINAL_STATUSES() {
-      return coreSet.override ?? actual.JOB_TERMINAL_STATUSES
-    },
-  }
-})
-
-afterEach(() => {
-  coreSet.override = undefined
-})
 
 // Every JobStatus, spelled so the compiler holds it to the union: a status
 // added to core without a line here fails `satisfies`, and the complement
@@ -113,16 +97,4 @@ describe('cancelJob and core’s terminal set', () => {
       expect(events).toEqual(['job:cancelled'])
     })
   }
-
-  it('follows core when core’s set moves — the refusal is read, not copied', async () => {
-    // A core that called `running` terminal. Nothing in the runtime changes;
-    // only the export it is supposed to be reading.
-    coreSet.override = [...JOB_TERMINAL_STATUSES, 'running']
-    const { store, runtime, id } = await seeded('running')
-
-    await expect(runtime.cancelJob(id)).rejects.toMatchObject({
-      code: 'JOB_ALREADY_TERMINAL',
-    })
-    expect((await store.get(id))!.status).toBe('running')
-  })
 })
