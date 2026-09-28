@@ -161,13 +161,15 @@ describe('fromVisionModel', () => {
     await expect(envelope.call({}, ctx({ assets: undefined }))).rejects.toThrow(
       'NO_SOURCE_ASSET',
     )
-    // A resolved asset in some other slot is not a source either.
+    // A resolved asset in some other slot is not a source either — and it is
+    // refused by name before the source is even looked for, so what the host
+    // reads is the slot it sent, not only the slot it did not.
     await expect(
       envelope.call(
         {},
         ctx({ assets: [{ slot: 'reference', assetId: 'r', modality: 'image' }] }),
       ),
-    ).rejects.toThrow('NO_SOURCE_ASSET')
+    ).rejects.toMatchObject({ code: 'ASSET_SLOT_NOT_SUPPORTED' })
     expect(loadImage).not.toHaveBeenCalled()
     expect(model.doGenerateCalls).toHaveLength(0)
   })
@@ -186,6 +188,31 @@ describe('fromVisionModel', () => {
       'SOURCE_ASSET_NOT_LOADED: image-to-text call: loadImage returned nothing for asset "asset-2" in slot "source"',
     )
     expect(model.doGenerateCalls).toHaveLength(0)
+  })
+
+  it('refuses a resolved asset slot it cannot send, naming the slot, before loading or paying the provider', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => reply(CAPTION))
+    const loadImage = vi.fn(loadBytes)
+    const envelope = fromVisionModel(mockVisionModel(doGenerate), { loadImage })
+    const mask: ResolvedAssetRef = {
+      slot: 'mask',
+      assetId: 'mask-1',
+      modality: 'image',
+      handle: 'image_2',
+    }
+
+    await expect(
+      envelope.call({ mode: 'describe' }, ctx({ assets: [source('asset-1'), mask] })),
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'ASSET_SLOT_NOT_SUPPORTED: image-to-text call: this adapter does not send the resolved asset slot(s) "mask"',
+      ),
+    })
+    // Mapping `source` is not a licence to drop the rest: a description of the
+    // image without the region the caller marked answers a different question.
+    expect(loadImage).not.toHaveBeenCalled()
+    expect(doGenerate).not.toHaveBeenCalled()
   })
 
   it("places system / prompt / mode the way the pattern's field descriptions say", async () => {

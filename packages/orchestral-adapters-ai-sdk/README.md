@@ -253,7 +253,9 @@ store — enough for a host that only ever reads the artifacts, and what
   correct one. A host that needs those slots writes its own adapter (or wraps
   this one and adds them); a host that does not, drops the reference from the
   input. ASR's and image-to-text's `source` are mapped, through `loadAudio` /
-  `loadImage`.
+  `loadImage` — and nothing beside them: every adapter here refuses the slots
+  it does not send, so a `source` call carrying a second slot fails the same
+  way, and so does any slot on a `text-generation` call, which maps none.
 - **`loadImage` / `loadAudio` are the host's, not defaults.** `@orchestral/core`
   defines no assetId → bytes read on purpose (an id is whatever the host's
   store says it is), so the adapters cannot ship one; a vision or transcription

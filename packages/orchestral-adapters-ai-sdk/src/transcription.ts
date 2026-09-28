@@ -14,6 +14,7 @@ import {
   buildRecord,
   dispatchEnvelope,
   providerOptionsFor,
+  refuseUnmappedAssetSlots,
   requireSourceAsset,
   resolveIdentity,
 } from './envelope'
@@ -68,6 +69,9 @@ const SOURCE_SLOT = 'source'
  * Not mapped: `input.language` / `input.prompt` / `timestamps` / `format` —
  * the AI SDK's `transcribe` has no shared fields for them; they are
  * provider-specific `providerOptions` (see README). `words` is never emitted.
+ *
+ * Refused, not ignored: a resolved asset in any slot but `source` fails the
+ * call with `ASSET_SLOT_NOT_SUPPORTED` (see README).
  */
 export function fromTranscriptionModel(
   model: TranscriptionModelInstance,
@@ -81,6 +85,9 @@ export function fromTranscriptionModel(
       outputs: ['text'],
     }),
     async call<I, O>(input: I, ctx: DispatchContext): Promise<DispatchResult<O>> {
+      // `transcribe` takes one audio input and nothing beside it, so `source`
+      // is the only slot this call can carry.
+      refuseUnmappedAssetSlots(ctx, 'automatic-speech-recognition', [SOURCE_SLOT])
       const fields = asRecord(input)
       const audio = await requireSourceAsset<AudioSource>(
         ctx,

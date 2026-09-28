@@ -5,7 +5,11 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { MockLanguageModelV3, MockLanguageModelV4 } from 'ai/test'
-import { MODEL_SPEC_VERSION, type DispatchContext } from '@orchestral/core'
+import {
+  MODEL_SPEC_VERSION,
+  type DispatchContext,
+  type ResolvedAssetRef,
+} from '@orchestral/core'
 import { TextGenerationOutputSchema } from '@orchestral/patterns'
 import { z } from 'zod'
 
@@ -300,5 +304,33 @@ describe('fromLanguageModel', () => {
       'text-generation call: input.prompt (non-empty string) is required',
     )
     expect(doGenerate).not.toHaveBeenCalled()
+  })
+
+  it('refuses any resolved asset slot — it maps none — before paying the provider', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => reply('A red bicycle.'))
+    const envelope = fromLanguageModel(mockLanguageModel(doGenerate))
+    const reference: ResolvedAssetRef = {
+      slot: 'reference',
+      assetId: 'img-1',
+      modality: 'image',
+      handle: 'image_1',
+    }
+
+    await expect(
+      envelope.call({ prompt: 'Describe the attached image.' }, ctx({ assets: [reference] })),
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'ASSET_SLOT_NOT_SUPPORTED: text-generation call: this adapter does not send the resolved asset slot(s) "reference"',
+      ),
+    })
+    // Text generation sends a prompt and nothing else. A reply to "describe the
+    // attached image" written without the image is fluent, and wrong.
+    expect(doGenerate).not.toHaveBeenCalled()
+
+    // No resolved assets is the ordinary call, not a refusal.
+    await expect(
+      envelope.call({ prompt: 'x' }, ctx({ assets: [] })),
+    ).resolves.toMatchObject({ output: { text: 'A red bicycle.' } })
   })
 })

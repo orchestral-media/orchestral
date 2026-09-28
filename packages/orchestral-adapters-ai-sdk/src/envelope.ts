@@ -231,6 +231,15 @@ function describeId(id: unknown): string {
  * and the voice-cloning APIs are provider-specific), so the adapter refuses
  * instead of inventing one, and names the slot so the host knows exactly what
  * its own adapter has to carry.
+ *
+ * Every adapter in this package calls it, first thing in `call` — before a
+ * source loader runs, before the provider is paid — and passes the slots it
+ * does send: `[SOURCE_SLOT]` for vision and transcription, `[]` for the rest.
+ * Mapping one slot is no licence to drop another, and text generation, which
+ * maps none, is the same rule with an empty list rather than an exception to
+ * it. Structural rather than case-by-case because the silent drop is the same
+ * failure whichever adapter commits it, and an adapter that skipped the call
+ * was exactly how vision, transcription and text generation came to commit it.
  */
 export function refuseUnmappedAssetSlots(
   ctx: DispatchContext,
