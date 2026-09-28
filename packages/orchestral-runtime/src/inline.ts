@@ -70,6 +70,7 @@ import {
   applicableAlternatives,
   assertSupportedModelSpecVersion,
   consoleDiagnosticsLogger,
+  JOB_TERMINAL_STATUSES,
   pickAlternative,
   readRequiresSemantics,
 } from '@orchestral/core'
@@ -130,6 +131,14 @@ function stepAssets(
 /**
  * Event types after which no further event can fan out for that job. Used to
  * release the job's subscriber set — see `fanout`.
+ *
+ * A second spelling of core's state machine, kept by hand: these are the
+ * events core's `nextJobState` names for entering each of
+ * `JOB_TERMINAL_STATUSES` (its private `EVENT_FOR_ENTERING` table). Deriving
+ * the set would mean calling `nextJobState` on a made-up `prev` and throwing
+ * away a refusal branch that cannot fire — a contortion to save four strings.
+ * A status core adds to the terminal set needs its event added here, or its
+ * subscribers are never released.
  */
 const TERMINAL_EVENTS: ReadonlySet<JobEvent['type']> = new Set([
   'job:completed',
@@ -610,7 +619,7 @@ export class InlineRuntime implements Runtime {
       const row = (await this.store.get(jobId)) as Job<TIn, TOut> | null
       // The row exists but never reached terminal, so the failure is in the
       // persistence path, not the dispatch — the row would misreport it.
-      if (!row || row.status === 'queued' || row.status === 'running') throw err
+      if (!row || !JOB_TERMINAL_STATUSES.includes(row.status)) throw err
       return row
     }
   }
@@ -1012,7 +1021,9 @@ export class InlineRuntime implements Runtime {
     } catch (err) {
       if (controller.signal.aborted) {
         const current = await this.store.get(id)
-        if (current && (current.status === 'queued' || current.status === 'running')) {
+        // Core's set decides what is already settled; only an unsettled row
+        // takes the cancel write.
+        if (current && !JOB_TERMINAL_STATUSES.includes(current.status)) {
           await this.store.update(id, {
             status: 'cancelled',
             error: null,
@@ -1675,12 +1686,10 @@ export class InlineRuntime implements Runtime {
         code: 'JOB_NOT_FOUND',
       })
     }
-    if (
-      existing.status === 'done' ||
-      existing.status === 'error' ||
-      existing.status === 'cancelled' ||
-      existing.status === 'stale'
-    ) {
+    // Core's set, not a list spelled here: a copy agrees only until core's set
+    // moves, and then a newly terminal status would get a silent no-op below
+    // (both guarded writes miss) instead of this refusal.
+    if (JOB_TERMINAL_STATUSES.includes(existing.status)) {
       throw Object.assign(
         new Error(`JOB_ALREADY_TERMINAL: ${jobId} is ${existing.status}`),
         { code: 'JOB_ALREADY_TERMINAL' },
@@ -1700,6 +1709,12 @@ export class InlineRuntime implements Runtime {
     // (`findByIdempotencyKey` returns hits only for queued/running/done) —
     // cancelled jobs are still re-runnable.
     void reason // cancellation reason goes to the event below, not the row
+
+    // The two values are core's non-terminal statuses, spelled by hand:
+    // conditionalUpdate takes each as a value, and core exports the terminal
+    // set but no list of all statuses to take its complement from. A status
+    // core adds outside `JOB_TERMINAL_STATUSES` belongs here too, or a job in
+    // it passes the refusal above and is never cancelled.
     for (const nonTerminal of ['queued', 'running'] as const) {
       const wrote = await this.store.conditionalUpdate(
         jobId,
@@ -1744,6 +1759,10 @@ export class InlineRuntime implements Runtime {
    * Runtime.abandonOrphanedJobs for the substrate contract.
    */
   async abandonOrphanedJobs(): Promise<readonly Job[]> {
+    // Core's non-terminal statuses, spelled by hand for the same reason as
+    // cancelJob's guarded writes: the query takes values, and core exports no
+    // complement of `JOB_TERMINAL_STATUSES`. A status core adds outside that
+    // set belongs here, or an orphan in it is never swept.
     const stuck = await this.store.query({
       status: ['queued', 'running'] as readonly JobStatus[],
     })
