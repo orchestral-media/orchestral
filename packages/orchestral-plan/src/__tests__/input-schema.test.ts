@@ -16,6 +16,13 @@
 // The sink's schema is `strictObject` on purpose: under zod 4's default strip
 // an extra key parses either way, so only a strict schema can tell a gate that
 // applies the passthrough from one that does not.
+//
+// The last case is the one input-schema.ts's header leans on. Both layers
+// promise the verdict core's dispatch path would give, and core keeps its own
+// copy of that parse rather than exporting it, so the promise is only as good
+// as a test that puts the two side by side: the same sink and the same two
+// inputs, through `resolveDispatchTarget` and through both plan gates, compared
+// verdict for verdict rather than each against a constant.
 
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -24,6 +31,10 @@ import {
   boundedText,
   defineAtomicPattern,
   dispatchEnvelopeShape,
+  isDispatchError,
+  PatternRegistry,
+  resolveDispatchTarget,
+  silentDiagnosticsLogger,
   type ExecutionContext,
   type Pattern,
   type PatternId,
@@ -52,6 +63,9 @@ const producer = defineAtomicPattern({
 const sink = defineAtomicPattern({
   id: 'sink',
   description: 'A strict input schema with one required field and one nested one.',
+  // Visible to the audience the parity case dispatches as, so the dispatch
+  // path's exposure gate passes and its input parse is what gets compared.
+  exposure: { agentLoop: true },
   primary: {
     tool: {
       description: 'Consume.',
@@ -169,5 +183,60 @@ describe('the step-input gate, layer 2 (runPlan, after substitution)', () => {
       details: { planStepId: 'use' },
     })
     expect(dispatched.map((ref) => ref.patternId)).toEqual(['producer'])
+  })
+})
+
+describe('the dispatch path both layers mirror (core’s resolveDispatchTarget)', () => {
+  it('reaches the verdict both plan gates reach, on the same sink and the same two inputs', async () => {
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
+    registry.register(sink as unknown as Pattern)
+
+    const inputs: Record<string, Record<string, unknown>> = {
+      'undeclared keys': { prompt: 'made', seed: 7, providerOptions: { quality: 'hd' } },
+      'a missing required key': { seed: 7 },
+    }
+    const shapeOf = (issues: readonly { code: string; path: readonly PropertyKey[] }[]) =>
+      issues.map(({ code, path }) => ({ code, path: [...path] }))
+    // The sink alone, fed a literal: the input a gate sees is exactly the one
+    // the dispatch is sent, with no upstream step for the walk to object to.
+    const sinkOnly = (input: Record<string, unknown>): PlanDag => ({
+      steps: [{ id: 'use', pattern: 'sink', input }],
+      output: { values: { out: '$use.text' } },
+    })
+
+    for (const [name, input] of Object.entries(inputs)) {
+      const dispatch = resolveDispatchTarget(
+        registry,
+        { pattern_id: 'sink', input },
+        'agent-loop',
+      )
+      const layer1 = validatePlan(sinkOnly(input), lookup, {})
+      // runPlan is layer 1 again and then layer 2. A missing key can only come
+      // from the literal — substitution never deletes one — so on that input
+      // its refusal is its own layer-1 pass; layer 2 refusing a substituted
+      // value is the case further up.
+      const { ctx, dispatched } = fakeCtx(PRODUCED)
+      const ran = await runPlan(sinkOnly(input), lookup, { selfId }, {}, ctx).then(
+        () => true,
+        () => false,
+      )
+      const sent = dispatched.find((ref) => ref.patternId === 'sink')?.input
+
+      if (isDispatchError(dispatch)) {
+        expect(dispatch.code, name).toBe('INPUT_VALIDATION_FAILED')
+        const issues = (dispatch as { issues: readonly z.core.$ZodIssue[] }).issues
+        expect(layer1.map((p) => p.code), name).toEqual(['PLAN_STEP_INPUT_INVALID'])
+        const planIssues = layer1[0]!.details?.issues as readonly z.core.$ZodIssue[]
+        expect(shapeOf(planIssues), name).toEqual(shapeOf(issues))
+        expect(ran, name).toBe(false)
+        expect(sent, name).toBeUndefined()
+      } else {
+        expect(layer1, name).toEqual([])
+        expect(ran, name).toBe(true)
+        // What the plan hands `ctx.step` is what the dispatch would have
+        // parsed out of it: the passthrough kept the same keys on both sides.
+        expect(sent, name).toEqual(dispatch.parsedInput)
+      }
+    }
   })
 })

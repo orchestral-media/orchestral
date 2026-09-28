@@ -16,8 +16,14 @@
 // layer can refuse what the dispatch would take, or take what it would refuse.
 // That copy stays in core on purpose. Exporting a two-line zod shim from core's
 // public surface for two internal callers here would give it an API report and
-// a semver contract, to save a mirror that one test (input-schema.test.ts)
-// already holds to the dispatch path's behaviour.
+// a semver contract, to save a mirror one test already holds to it.
+// input-schema.test.ts ("reaches the verdict both plan gates reach, on the same
+// sink and the same two inputs") sends an atomic with a strict schema and two
+// inputs — undeclared keys, a missing required key — through
+// `resolveDispatchTarget` and through both plan gates, and fails when the
+// verdicts part, whichever side moved. What it does not reach: a meta target
+// (`selectInputSchema`'s meta branch agrees with `inputSchemaOf`'s by reading
+// the same field, not by test) and a nested field.
 //
 // Internal to this package — not re-exported from index.ts.
 
