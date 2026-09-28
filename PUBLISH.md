@@ -45,11 +45,15 @@ One-time setup the automation needs (all done for this repo):
     404 unauthenticated, 400 authenticated. So a new package cannot be trusted
     ahead of its first release: that first publish goes out by hand (§4–§6,
     with an `npm login` or the kept `NPM_TOKEN`), then the loop above is run
-    for it, and OIDC covers it from its next version on. The order does not
-    hold the rest of the line back: the workflow's `pnpm -r publish` skips
-    what the registry already has, so it is rerun-safe — the packages that
-    already trust the workflow publish on the first pass, and the newcomer
-    joins on the rerun after its hand publish and the loop.
+    for it, and OIDC covers it from its next version on. The release that
+    first carries it therefore takes two passes. The first fails at the
+    newcomer, which has no trusted publisher yet; the failure stops
+    `pnpm -r publish`, so whatever comes after it in topological order has
+    not gone out either, and with the publish step red the tag and the
+    release are not cut. Publish the newcomer by hand and run the loop for
+    it, then rerun the workflow: `pnpm -r publish` skips every version the
+    registry already has (the newcomer's included) and finishes the rest,
+    and the tag and the release follow.
   - **`--allow-publish` needs npm ≥ 11.15.** An older CLI rejects the flag
     outright (`EUSAGE`), and dropping the flag to get past that sends a body
     the registry rejects with 400. Upgrade npm before running the loop

@@ -190,7 +190,7 @@ describe('fromTranscriptionModel', () => {
     ).rejects.toMatchObject({
       code: 'ASSET_SLOT_NOT_SUPPORTED',
       message: expect.stringContaining(
-        'ASSET_SLOT_NOT_SUPPORTED: automatic-speech-recognition call: this adapter does not send the resolved asset slot(s) "vocabulary"',
+        'ASSET_SLOT_NOT_SUPPORTED: automatic-speech-recognition call: this adapter does not send the resolved asset slot(s) "vocabulary" to the provider; this adapter sends only "source"',
       ),
     })
     // A transcript that never saw the glossary the caller attached reads like

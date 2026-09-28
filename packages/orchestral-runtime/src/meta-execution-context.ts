@@ -355,8 +355,8 @@ export function buildMetaExecutionContext(
     }
   }
 
-  // ctx.step: one sub-Pattern dispatch per call, and the whole of what a meta
-  // can ask of one — a PatternRef (id, input, internal assets) plus
+  // ctx.step: one sub-Pattern dispatch per call, and everything with an effect
+  // a meta can ask of one — a PatternRef (id, input, internal assets) plus
   // StepOptions (retry, id, identity, key). Everything else a step gets — the
   // dedup, the duplicate-id and cycle guards, the job:step event, the abort
   // cascade — the runtime supplies, whoever wrote the call.
@@ -420,8 +420,9 @@ export function buildMetaExecutionContext(
           : stepId
 
         // One effective id per tree. An explicit id that repeats, or one that
-        // lands on a default, is an authoring error: refused before anything
-        // is dispatched, rather than served twice.
+        // lands on a default, is an authoring error: refused at the call,
+        // before the step reusing it is submitted, rather than served twice —
+        // though not before the steps that came earlier in compose have run.
         // DESIGN: duplicate-step-id
         if (stepIds.has(effectiveStepId)) {
           throw Object.assign(

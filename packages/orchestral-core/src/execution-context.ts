@@ -25,10 +25,10 @@ export type RetryPolicy =
   | { kind: 'exponential'; maxAttempts: number; baseMs: number; maxMs?: number }
   | { kind: 'fixed'; maxAttempts: number; delayMs: number }
 
-// Everything a caller can ask of one `ctx.step` beyond the PatternRef: how to
-// retry it, what to call it, which identity keys its durable row, and a key of
-// the caller's own. None of it changes what the step dispatches — only how it
-// is retried, named and deduped.
+// Everything with an effect a caller can ask of one `ctx.step` beyond the
+// PatternRef: how to retry it, what to call it, which identity keys its durable
+// row, and a key of the caller's own. None of it changes what the step
+// dispatches — only how it is retried, named and deduped.
 // DESIGN: step-options
 export interface StepOptions {
   /** Retry policy; default `{ kind: 'none' }`. */

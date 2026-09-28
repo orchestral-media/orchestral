@@ -320,8 +320,9 @@ describe('fromLanguageModel', () => {
       envelope.call({ prompt: 'Describe the attached image.' }, ctx({ assets: [reference] })),
     ).rejects.toMatchObject({
       code: 'ASSET_SLOT_NOT_SUPPORTED',
+      // Nothing after the slot: an adapter that maps no slot has none to name.
       message: expect.stringContaining(
-        'ASSET_SLOT_NOT_SUPPORTED: text-generation call: this adapter does not send the resolved asset slot(s) "reference"',
+        'ASSET_SLOT_NOT_SUPPORTED: text-generation call: this adapter does not send the resolved asset slot(s) "reference" to the provider — write an adapter that does',
       ),
     })
     // Text generation sends a prompt and nothing else. A reply to "describe the

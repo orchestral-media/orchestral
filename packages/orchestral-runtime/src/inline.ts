@@ -723,11 +723,14 @@ export class InlineRuntime implements Runtime {
     // alter dispatch flow.
     opts?: { onJobCreated?: (jobId: string) => void },
   ): Promise<Job<TIn, TOut>> {
-    // The only gate a submit passes before it has a row: the pattern is
-    // registered. Read per call, so a meta's steps see the registry as it is
-    // when each one runs, not as it was at submit. Nothing else is asked here —
-    // no exposure (host-direct is not an LLM surface) and no allowlist (that is
-    // the agent loop's guard, checked before it submits).
+    // The only question a submit asks of the pattern before it has a row: is
+    // it registered. Read per call, so a meta's steps see the registry as it
+    // is when each one runs, not as it was at submit. Nothing else is asked of
+    // the pattern here — no exposure (host-direct is not an LLM surface) and no
+    // allowlist (that is the agent loop's guard, checked before it submits).
+    // The input can still be refused before the insert: deriving a key the
+    // caller did not supply runs `canonicalise`, which throws on what JSON
+    // cannot carry.
     // DESIGN: submit-registry-lookup
     const pattern = this.registry.get(spec.patternId)
     if (!pattern) {
@@ -1602,9 +1605,12 @@ export class InlineRuntime implements Runtime {
               (n) => !(coveredSlots.has(n.slot) && refs?.[n.slot] === undefined),
             )
             if (needs.length === 0) return []
-            // Fail-closed — resolveForDispatch throws on unknown handle/slot;
-            // the throw propagates out of ctx.step and fails the meta step
-            // visibly (META_STEP_FAILED), never a silent zero-source dispatch.
+            // Fail-closed — resolveForDispatch throws on an unknown handle or
+            // slot, and that throw unwinds out of ctx.step as thrown: the meta
+            // fails with the bridge's own `.code` (normaliseError keeps it, and
+            // falls back to DISPATCH_EXECUTE_FAILED only when there is none),
+            // not a META_STEP_FAILED relabel — never a silent zero-source
+            // dispatch.
             return bridge.resolveForDispatch({
               contextId: metaContextId,
               input,
@@ -1671,7 +1677,8 @@ export class InlineRuntime implements Runtime {
       ctx,
     )
     // Gated, then returned as compose built it — no projection, no copy. A
-    // parent meta's ctx.step hands this same object to its own compose.
+    // parent meta's ctx.step hands the same value, unprojected, to its own
+    // compose: as the child's stored output, after any afterDispatch rewrite.
     // DESIGN: meta-output-returned-raw
     this.assertOutputConforms(pattern, output)
     return output as TOut

@@ -163,13 +163,19 @@ describe('fromVisionModel', () => {
     )
     // A resolved asset in some other slot is not a source either — and it is
     // refused by name before the source is even looked for, so what the host
-    // reads is the slot it sent, not only the slot it did not.
+    // reads is the slot it sent and the one it should have: a source under the
+    // wrong name is fixed in one turn.
     await expect(
       envelope.call(
         {},
-        ctx({ assets: [{ slot: 'reference', assetId: 'r', modality: 'image' }] }),
+        ctx({ assets: [{ slot: 'image', assetId: 'r', modality: 'image' }] }),
       ),
-    ).rejects.toMatchObject({ code: 'ASSET_SLOT_NOT_SUPPORTED' })
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'the resolved asset slot(s) "image" to the provider; this adapter sends only "source"',
+      ),
+    })
     expect(loadImage).not.toHaveBeenCalled()
     expect(model.doGenerateCalls).toHaveLength(0)
   })
@@ -206,7 +212,7 @@ describe('fromVisionModel', () => {
     ).rejects.toMatchObject({
       code: 'ASSET_SLOT_NOT_SUPPORTED',
       message: expect.stringContaining(
-        'ASSET_SLOT_NOT_SUPPORTED: image-to-text call: this adapter does not send the resolved asset slot(s) "mask"',
+        'ASSET_SLOT_NOT_SUPPORTED: image-to-text call: this adapter does not send the resolved asset slot(s) "mask" to the provider; this adapter sends only "source"',
       ),
     })
     // Mapping `source` is not a licence to drop the rest: a description of the
