@@ -12,7 +12,7 @@
 //   • Host-direct: `assertPlanValid(dag, lookup, opts)` before submitJob.
 //   • The LLM path: `PlanDagSchema.superRefine(planRefine(lookup, opts))` as a
 //     meta's `tool.inputs`. `resolveDispatchTarget` applies top-level
-//     `.passthrough()` and `safeParse`s (dispatch-pattern.ts:198-202); on zod
+//     `.passthrough()` and `safeParse`s (dispatch-pattern.ts, `parseSchema`); on zod
 //     4.4.3 `.passthrough()` preserves the refine and reports its issues with
 //     their paths, so the walk reaches the model through the existing
 //     INPUT_VALIDATION_FAILED tool result with no new hook. The honest limit:
@@ -45,6 +45,7 @@ import {
   PlanDagSchema,
   type PlanDag,
 } from './plan'
+import { inputSchemaOf, passthroughOf } from './input-schema'
 import {
   PLAN_REF_MAX_DEPTH,
   collectRefHeads,
@@ -1069,14 +1070,15 @@ class PlanWalk {
   // as `resolveDispatchTarget` does it (meta → tool.inputs, atomic →
   // primary.tool.inputs, top-level `.passthrough()`), so `size` / `seed` /
   // `providerOptions` / the derived `references` survive instead of reading as
-  // unrecognized keys. Issues landing on a ref-valued field are suppressed:
-  // that field's type only exists after substitution, and a `"$describe.text"`
-  // in a numeric slot is not a type error the model can act on here. What it
-  // does catch is a mistyped literal — `"temperature": "0.7"` — before the step
-  // it belongs to has any upstream spend.
+  // unrecognized keys. Both halves come from input-schema.ts, which layer 2
+  // reads too — one verdict, not two copies of it. Issues landing on a
+  // ref-valued field are suppressed: that field's type only exists after
+  // substitution, and a `"$describe.text"` in a numeric slot is not a type
+  // error the model can act on here. What it does catch is a mistyped literal
+  // — `"temperature": "0.7"` — before the step it belongs to has any upstream
+  // spend.
   private ruleStepInput(step: StepView, target: Pattern): void {
-    const schema =
-      target.kind === 'meta' ? target.tool.inputs : target.primary?.tool.inputs
+    const schema = inputSchemaOf(target)
     if (schema === undefined) return
     const result = passthroughOf(schema).safeParse(step.input)
     if (result.success) return
@@ -1332,11 +1334,6 @@ function exposedTo(pattern: Pattern, audience: DispatchAudience): boolean {
 }
 
 /**
- * Top-level `.passthrough()` when the schema supports it — byte-for-byte what
- * `resolveDispatchTarget` does (its `parseSchema` branch), so rule 21's
- * verdict and the dispatch path's verdict cannot disagree.
- */
-/**
  * The one-shot interpreter, recognised structurally: interpreted-from-steps by
  * `origin`, but carrying no step list of its own — its input IS a DAG. A
  * `planToMeta` product carries its frozen list as `.plan` (a field
@@ -1348,18 +1345,6 @@ function isOneShotPlan(pattern: Pattern): boolean {
     pattern.origin === 'plan' &&
     (pattern as { plan?: unknown }).plan === undefined
   )
-}
-
-function passthroughOf(schema: unknown): z.ZodType<unknown> {
-  if (
-    typeof schema === 'object' &&
-    schema !== null &&
-    'passthrough' in schema &&
-    typeof (schema as { passthrough?: unknown }).passthrough === 'function'
-  ) {
-    return (schema as { passthrough: () => z.ZodType<unknown> }).passthrough()
-  }
-  return schema as z.ZodType<unknown>
 }
 
 /**

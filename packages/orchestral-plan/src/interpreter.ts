@@ -29,7 +29,8 @@
 // runtime and a populated registry — both of which live downstream of
 // @orchestral/plan, which depends only on core. What this package's own
 // `__tests__` hold is everything provable without them: the schema, the
-// validation walk, `$ref` parsing, and preflight pricing.
+// validation walk, `$ref` parsing, preflight pricing, and the step-input gate
+// both layers share — which needs only a `ctx.step` to observe.
 
 import {
   assetKindField,
@@ -56,6 +57,7 @@ import {
   type PlanOutput,
   type PlanStep,
 } from './plan'
+import { inputSchemaOf, passthroughOf } from './input-schema'
 import { dependenciesOf, parseAssetRef, parseValueRef, planLevels } from './refs'
 import {
   PlanInvalidError,
@@ -629,6 +631,7 @@ export async function runPlan(
     // 4. Layer 2 — the SUBSTITUTED input against the target's own schema, with
     //    the same top-level passthrough `resolveDispatchTarget` applies, so
     //    `size` / `seed` / `providerOptions` / the derived `references` survive.
+    //    Rule 21 reads both through the same two functions (input-schema.ts).
     //    A gate, not a rewrite: what gets dispatched below is `input`, the
     //    object built above, never `parsed.data`. zod's copy would carry the
     //    schema's defaults, which would land in the child's idempotency input
@@ -968,28 +971,6 @@ function readPath(root: unknown, segments: readonly (string | number)[]): unknow
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** The schema a dispatch would parse this target's input against. */
-function inputSchemaOf(target: Pattern): z.ZodType<unknown> | undefined {
-  return target.kind === 'meta' ? target.tool.inputs : target.primary?.tool.inputs
-}
-
-/**
- * Top-level `.passthrough()` when the schema supports it — byte-for-byte what
- * `resolveDispatchTarget` does, so the gate's verdict and the dispatch path's
- * verdict cannot disagree.
- */
-function passthroughOf(schema: unknown): z.ZodType<unknown> {
-  if (
-    typeof schema === 'object' &&
-    schema !== null &&
-    'passthrough' in schema &&
-    typeof (schema as { passthrough?: unknown }).passthrough === 'function'
-  ) {
-    return (schema as { passthrough: () => z.ZodType<unknown> }).passthrough()
-  }
-  return schema as z.ZodType<unknown>
 }
 
 /** `steps[].cost` is `number | null`; an absent or non-finite value is null. */
