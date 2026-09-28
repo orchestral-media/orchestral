@@ -1273,9 +1273,10 @@ describe('planRefine through the real dispatch path', () => {
   /**
    * The claim being proved: a plan meta needs NO new hook to get walk problems
    * to the model. `resolveDispatchTarget` applies `.passthrough()` and
-   * `safeParse`s (dispatch-pattern.ts:198-202); on zod 4.4.3 that preserves the
-   * superRefine and reports its issues with their paths, so the walk arrives
-   * through the existing INPUT_VALIDATION_FAILED tool result.
+   * `safeParse`s (`packages/orchestral-core/src/dispatch-pattern.ts` (DESIGN: dispatch-parse-passthrough));
+   * on zod 4.4.3 that preserves the superRefine and reports its issues with
+   * their paths, so the walk arrives through the existing
+   * INPUT_VALIDATION_FAILED tool result.
    */
   function registryWithPlanMeta(): PatternRegistry {
     const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })

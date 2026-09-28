@@ -33,6 +33,11 @@
 // would have been a second convention with its own sweep, and two tags on one
 // argument are two things to keep in step.
 //
+// docs/plan.md also cites DESIGN.md itself, by ENTRY: `DESIGN.md, "We don't
+// …"`. The heading is the handle there, exactly as a slug is here, and a
+// renamed entry leaves the quote naming nothing just as quietly — so the last
+// check holds every such quote to a heading DESIGN.md still has.
+//
 // Same move as error-code-convention.test.ts in @orchestral/runtime: turn a
 // convention nothing enforces into a failing test rather than a habit.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -57,6 +62,13 @@ const TEST_CITATION = /`([^`\n]*__tests__\/[^`\n]+\.test\.ts)`(?:\s*\("([^"]+)"\
 
 /** An anchor as it appears in a comment, in any of the three comment syntaxes. */
 const ANCHOR = /DESIGN:[ ]([a-z][a-z0-9-]*)/g
+
+/**
+ * `DESIGN.md, "We don't …"` and `DESIGN.md's "We don't …"` — an entry cited by
+ * its heading. The quote may wrap across a line, so its whitespace is folded
+ * before it is looked up.
+ */
+const HEADING_CITATION = /DESIGN\.md(?:,|'s)\s+"([^"]+)"/g
 
 /**
  * A line number riding on a citation, in every spelling the two documents have
@@ -219,5 +231,20 @@ describe('the anchors in the tree', () => {
     // An anchor nobody cites is an argument whose entry was removed (delete the
     // anchor) or a citation someone forgot to write (add it to the Where).
     expect(orphans).toEqual([])
+  })
+})
+
+describe('docs/plan.md citations of DESIGN.md entries', () => {
+  it('every entry it quotes by heading is a heading DESIGN.md still has', () => {
+    const headings = new Set(
+      [...TEXT['DESIGN.md'].matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim()),
+    )
+    const quoted = [...TEXT['docs/plan.md'].matchAll(HEADING_CITATION)].map((m) =>
+      m[1].replace(/\s+/g, ' '),
+    )
+    // Self-check, as for the anchors: fourteen today, and a pattern that
+    // stopped matching would otherwise pass on an empty list.
+    expect(quoted.length).toBeGreaterThan(10)
+    expect(quoted.filter((heading) => !headings.has(heading))).toEqual([])
   })
 })

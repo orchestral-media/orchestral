@@ -42,8 +42,9 @@ import {
 // ── The four productions ────────────────────────────────────────────────
 
 // Identifiers start with a letter: no '/', the namespace separator
-// (meta-execution-context.ts:379-381); no '.', '$' or '[' (the ref grammar);
-// and "$5.99" in a prompt is never mistaken for a reference.
+// (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-id-namespace-nesting));
+// no '.', '$' or '[' (the ref grammar); and "$5.99" in a prompt is never
+// mistaken for a reference.
 // DESIGN: plan-ref-grammar
 export const PLAN_STEP_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const PLAN_VALUE_REF_RE =
@@ -144,8 +145,9 @@ const ValueRef = z.string().regex(PLAN_VALUE_REF_RE)
 
 // ── The DAG ─────────────────────────────────────────────────────────────
 
-// Mirrors RetryPolicy (execution-context.ts:22-25). Delays are bounded because
-// the model writes them; the runtime itself still imposes no clock (DESIGN.md:327).
+// Mirrors RetryPolicy (`packages/orchestral-core/src/execution-context.ts` (DESIGN: retry-policy)).
+// Delays are bounded because the model writes them; the runtime itself still
+// imposes no clock (DESIGN.md, "We don't impose concurrency caps, timeouts, or TTLs").
 export const PlanRetrySchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('none') }),
   z.strictObject({

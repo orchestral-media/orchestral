@@ -91,8 +91,9 @@ describe('handleFindPattern', () => {
       // FindPatternMatch carries no `bindings` field: host-injected bindings are
       // never rendered into the LLM-facing schema.
       expect((match as unknown as { bindings?: unknown }).bindings).toBeUndefined()
-      // PatternBase.description is host-engineer prose (pattern.ts:38) — NEVER
-      // surfaced to LLM. LLM gets its signal from primary.toolDescription.
+      // PatternBase.description is host-engineer prose (its doc comment on the
+      // interface says as much) — NEVER surfaced to LLM. LLM gets its signal
+      // from primary.toolDescription.
       expect((match as unknown as { description?: unknown }).description).toBeUndefined()
     })
 

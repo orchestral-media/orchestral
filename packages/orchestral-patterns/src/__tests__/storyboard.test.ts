@@ -129,7 +129,8 @@ function makeCtx(
  *   • dispatching meta_image-best-of-n recurses into its compose() with a child
  *     ctx whose namespace = the parent step's effective stepId (panel-N);
  *   • the shared stepIds set throws DUPLICATE_STEP_ID on collision, just like
- *     meta-execution-context.ts:223.
+ *     the runtime's guard
+ *     (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: duplicate-step-id)).
  * Before the namespace fix this set would see candidate-0 twice (one per panel)
  * and throw; after, it sees panel-0/candidate-0 and panel-1/candidate-0.
  *
