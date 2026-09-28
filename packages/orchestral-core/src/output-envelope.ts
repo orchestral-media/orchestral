@@ -19,6 +19,7 @@
 // output carries domain fields alongside the envelope, and spreading lets each
 // Pattern keep chaining `.describe()` / extra constraints on individual fields
 // where its wording legitimately differs (see `metaEnvelopeShape`).
+// DESIGN: envelope-cost-nullable
 
 import { z } from 'zod'
 
@@ -91,6 +92,7 @@ export const metaEnvelopeShape = {
  * `metaEnvelopeShape.cost` above is the rule's definition and two packages now
  * aggregate against it: the shipped metas and @orchestral/plan's interpreter.
  * @orchestral/patterns re-exports it, so its public surface is unchanged.
+ * DESIGN: sum-costs-null-if-unpriced
  */
 export function sumCosts(
   costs: readonly (number | null | undefined)[],
@@ -115,6 +117,12 @@ export type ProducedAssetModality = 'image' | 'audio' | 'video'
  * optional per-asset `cost`. Build the element with
  * `z.object(producedAssetShape('image'))`; the enclosing array keeps its own
  * per-Pattern `.describe()`.
+ *
+ * No `label`: an atomic returns what one call made and has no roles to tell
+ * apart. A meta's element adds one (`labelledAssetShape` in
+ * `@orchestral/patterns`), which is why only a meta's output can be picked
+ * from by role.
+ * DESIGN: produced-asset-shape
  */
 export function producedAssetShape<M extends ProducedAssetModality>(modality: M) {
   return {

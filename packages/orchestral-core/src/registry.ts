@@ -224,6 +224,9 @@ export class PatternRegistry {
           `<vendor>__${pattern.id}`,
       )
     }
+    // Stored whole and type-erased: whatever the Pattern carries rides along,
+    // provenance (`origin`) included, and nothing here reads it back.
+    // DESIGN: registry-stores-pattern-whole
     this.byId.set(pattern.id, pattern as Pattern)
     this.byShortName.set(dn, pattern.id)
     // namespace index — resolveNamespace is the shared normalization; the
@@ -266,6 +269,7 @@ export class PatternRegistry {
    *     `find_pattern` indexes the registry at each dispatch, so anything
    *     registered under a default exposure becomes another loop's tool for as
    *     long as the scope lives.
+   * DESIGN: registry-scope
    */
   scope(): PatternScope {
     const ids: PatternId[] = []
@@ -318,6 +322,7 @@ export class PatternRegistry {
    * but it can be by loading the same package twice.
    *
    * Returns what was registered and what was skipped, both in manifest order.
+   * DESIGN: add-from-manifest
    */
   addFromManifest(
     manifest: unknown,
@@ -627,6 +632,12 @@ function selectManifestEntries<T extends { id: string }>(
 const EMPTY_ALTERNATIVES: readonly Alternative<unknown, unknown>[] = []
 const EMPTY_PATTERNS: readonly Pattern[] = []
 
+/**
+ * The short name a person types (`/fancy-edit` for `image-gen/fancy-edit`):
+ * everything after the id's last `/`. `register` refuses two ids that share
+ * one, so a `/` in an id is a claim on the name after it.
+ * DESIGN: short-name-last-segment
+ */
 function shortNameOf(patternId: PatternId): string {
   const idx = patternId.lastIndexOf('/')
   return idx === -1 ? patternId : patternId.slice(idx + 1)

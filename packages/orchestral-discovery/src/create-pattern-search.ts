@@ -55,6 +55,7 @@ export interface CreatePatternSearchOptions {
  * Typed to its own result rather than to the bare `PatternSearch`: what the
  * runtime needs is assignability into the seam (which this satisfies), and a
  * host calling it directly should still see the shape it gets back.
+ * DESIGN: index-built-per-call
  */
 export function createPatternSearch(
   registry: PatternRegistry,

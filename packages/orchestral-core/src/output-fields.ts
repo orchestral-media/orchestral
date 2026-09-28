@@ -112,6 +112,7 @@ export interface OutputsSchemaAudit {
  * values (`additionalProperties`), and `anyOf` / `oneOf` / `allOf` branches.
  * Anything it cannot follow is reported in `notTraversed` instead of being
  * silently counted as clean.
+ * DESIGN: audit-outputs-schema
  */
 export function auditOutputsSchema(schema: ZodType): OutputsSchemaAudit {
   const audit: OutputsSchemaAudit = { unbounded: [], notTraversed: [] }

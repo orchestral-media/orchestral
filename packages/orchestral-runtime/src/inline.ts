@@ -723,6 +723,12 @@ export class InlineRuntime implements Runtime {
     // alter dispatch flow.
     opts?: { onJobCreated?: (jobId: string) => void },
   ): Promise<Job<TIn, TOut>> {
+    // The only gate a submit passes before it has a row: the pattern is
+    // registered. Read per call, so a meta's steps see the registry as it is
+    // when each one runs, not as it was at submit. Nothing else is asked here —
+    // no exposure (host-direct is not an LLM surface) and no allowlist (that is
+    // the agent loop's guard, checked before it submits).
+    // DESIGN: submit-registry-lookup
     const pattern = this.registry.get(spec.patternId)
     if (!pattern) {
       throw Object.assign(
@@ -772,7 +778,10 @@ export class InlineRuntime implements Runtime {
     // because between its `await` and this write another submit with the same
     // key can run the same lookup, also miss, and dispatch a second time
     // (twice the provider spend). The store settles it in one step: we either
-    // own the key or we get handed the row that does.
+    // own the key or we get handed the row that does. That row comes back as it
+    // stands, never awaited: a hit on one still queued or running hands the
+    // caller its null output.
+    // DESIGN: dedup-or-create
     const winner = await this.store.insertIfAbsent(queued as Job)
     if (winner.id !== id) {
       // Dedup hit — a sequential repeat and a lost race land here alike, and
@@ -1019,6 +1028,12 @@ export class InlineRuntime implements Runtime {
       this.fanout(id, { type: 'job:completed', job: final })
       return final
     } catch (err) {
+      // A failed dispatch leaves by THROWING, after its row is written:
+      // `cancelled` when this job's controller was aborted (cancelJob, or a
+      // parent's cascade), `error` under the thrower's own code otherwise. The
+      // throw is what unwinds a meta's compose at a failed ctx.step, so the
+      // code a parent's row ends up carrying is the innermost one.
+      // DESIGN: dispatch-failure-rethrows
       if (controller.signal.aborted) {
         const current = await this.store.get(id)
         // Core's set decides what is already settled; only an unsettled row
@@ -1125,6 +1140,10 @@ export class InlineRuntime implements Runtime {
       })
     }
 
+    // `kind` picks the engine, and nothing else here branches on what a
+    // Pattern is: meta and agent return from their own dispatchers, and
+    // everything below is the atomic path.
+    // DESIGN: dispatch-branches-on-kind
     if (pattern.kind === 'meta') {
       return this.dispatchMeta<TIn, TOut>(
         jobId,
@@ -1157,6 +1176,11 @@ export class InlineRuntime implements Runtime {
     // The caller's side of `appliesWhen: { kind: 'preserves-required' }` —
     // see readRequiresSemantics for why it comes off the input.
     const requestedSemantics = readRequiresSemantics(spec.input)
+    // The input as submitted. No dispatch path parses it against
+    // `tool.inputs`: the one input parse is `resolveDispatchTarget`'s, where an
+    // LLM's dispatch_pattern call comes in, and a host submit or a meta's
+    // ctx.step arrives here as written.
+    // DESIGN: dispatch-input-unparsed
     const effectiveInput = spec.input
 
     const baseCtx = this.resolveCtxProvider?.(spec) ?? {}
@@ -1169,6 +1193,10 @@ export class InlineRuntime implements Runtime {
       baseCtx,
     )
 
+    // Alternatives are an atomic-path concern: meta and agent returned above,
+    // so a meta — plan or hand-written — never has a semantic fallback of its
+    // own, only whatever the atomics it dispatches carry.
+    // DESIGN: alternatives-atomic-only
     if (!sat.ok) {
       if (this.alternativesMode === 'auto') {
         const alt = pickAlternative({ registry: this.registry, router: this.router }, atomic, baseCtx, requiredTags, requestedSemantics)
@@ -1547,6 +1575,11 @@ export class InlineRuntime implements Runtime {
     // assets. Gated on bridge + a context id: without either (tests running
     // without a host bridge, host-only meta), sub-steps fall back to the
     // internal `ref.assets` channel as their only source.
+    //
+    // A required slot a step leaves unbound falls to the resolver's default —
+    // the most recent asset of that modality in the context — unless the
+    // internal channel already covers it (the needs filter below).
+    // DESIGN: meta-step-references-resolver
     const bridge = this.agentAssetBridge
     const metaContextId = spec.assetContextId ?? spec.sessionId
     const resolveStepReferences =
@@ -1590,6 +1623,7 @@ export class InlineRuntime implements Runtime {
           // `ctx.step` child so `cancelJob(metaJobId)` cascades down. `signal`
           // here closes over dispatchMeta's `signal` arg, which is the meta's
           // controller.signal (set up in _submitJobInternal).
+          // DESIGN: meta-signal-cascades
         ) => this._submitJobInternal<TIn2, TOut2>(s, ancestors, ss, signal),
         // Sub-steps settle on the parent's stream: a meta is one Job to the
         // caller, so without this a multi-minute chain is silent between
@@ -1636,6 +1670,9 @@ export class InlineRuntime implements Runtime {
       { input: spec.input },
       ctx,
     )
+    // Gated, then returned as compose built it — no projection, no copy. A
+    // parent meta's ctx.step hands this same object to its own compose.
+    // DESIGN: meta-output-returned-raw
     this.assertOutputConforms(pattern, output)
     return output as TOut
   }

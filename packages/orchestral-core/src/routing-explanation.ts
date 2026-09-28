@@ -125,6 +125,7 @@ export interface RoutingExplanation {
  * entry. Pure and dependency-free — the library never writes to stdout, so
  * printing the result is the caller's move. ASCII only; the output is meant to
  * survive a Windows console and a grep.
+ * DESIGN: format-routing-explanation
  */
 export function formatRoutingExplanation(
   explanation: RoutingExplanation,

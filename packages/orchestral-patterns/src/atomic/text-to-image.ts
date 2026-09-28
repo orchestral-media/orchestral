@@ -92,6 +92,7 @@ export type TextToImageInput = z.infer<typeof TextToImagePrimaryInputSchema> & {
 // tool_result (only present after the handle is stamped), so natural-language
 // references stay precise ("the image I generated"). assetId is stripped by
 // toModelOutput's projection and stays invisible to the LLM.
+// DESIGN: text-to-image-assets
 export const TextToImageOutputSchema = z.object({
   modality: z.literal('image'),
   assets: z

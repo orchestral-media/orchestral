@@ -283,6 +283,7 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
        *
        * `ctx.compute` is silent: it wraps a local function, so there is no
        * sub-dispatch and nothing a progress UI could correlate.
+       * DESIGN: job-step-event
        */
       type: 'job:step'
       job: Job<TInput, TOutput>

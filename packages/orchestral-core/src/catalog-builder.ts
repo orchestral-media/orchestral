@@ -251,6 +251,7 @@ export function buildAlwaysLoadDescriptors(
       // Meta puts its LLM-facing tool at the top level (no primary wrapper);
       // emit the descriptor straight from `tool`. providerOptions lifting is
       // atomic-only (single model.call), so meta takes the BASE inputSchema.
+      // DESIGN: always-load-renders-meta
       out.push({
         name: p.id,
         description: p.tool.description,

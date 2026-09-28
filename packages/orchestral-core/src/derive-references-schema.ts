@@ -27,6 +27,11 @@
 import { z } from 'zod'
 import type { AssetNeed } from './asset-index.types'
 
+// The copy itself, frozen as above. It steers the model to handles keyed by
+// slot, and it is where a required slot's default is documented rather than
+// enforced: leave the slot out and the host fills it with the most recent
+// asset of its modality in the context.
+// DESIGN: references-copy
 const REFERENCES_DESCRIBE =
   'Reference assets by their handle (e.g. "image_2"), keyed by slot. ' +
   'Pick handles from the asset list provided in context. Never pass raw asset ids or URLs.'

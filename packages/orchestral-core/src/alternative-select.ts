@@ -14,6 +14,7 @@
 // @orchestral/plan's `preflightPlan`. A preflight that advertised a path with
 // different metadata — or a different applicability verdict — than the failure
 // would carry is a report about a different system.
+// DESIGN: alternative-selection-shared
 
 import type {
   Alternative,
@@ -127,6 +128,7 @@ function appliesWhen(
  * Pattern's zod schema, but `requiresSemantics` is convention, not schema, so
  * a missing or malformed value means "nothing required" and never a throw.
  * Anything that is not an array is ignored; non-string entries are dropped.
+ * DESIGN: requires-semantics-off-the-input
  */
 export function readRequiresSemantics(input: unknown): readonly Semantics[] {
   if (typeof input !== 'object' || input === null) return []

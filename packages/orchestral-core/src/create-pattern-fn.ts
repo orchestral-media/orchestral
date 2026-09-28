@@ -66,6 +66,11 @@ export interface PatternFn<I, O> {
  * The returned function's stepId defaults to ctx.step's auto-counter
  * (`${patternId}#${seq}`); pass `options.stepId` to override
  * for resume-stable map fan-out (`{ stepId: \`portrait-\${i}\` }`).
+ *
+ * Every option but `assets` reaches `ctx.step` untouched, so a new StepOptions
+ * field — `identity`, `idempotencyKey` — works through a typed wrapper the day
+ * it exists, with no change here.
+ * DESIGN: pattern-fn-forwards-step-options
  */
 export function createPatternFn<I = unknown, O = unknown>(
   patternId: PatternId,
