@@ -66,6 +66,11 @@ const INPUT_DESCRIBE_NO_SEARCH =
  * One shape, two spellings. Both schemas parse identically — `describe()` text
  * is metadata, never a parse rule — so the runtime keeps validating against
  * `DispatchPatternInputSchema` no matter which one the catalog serialised.
+ *
+ * `input` is an untyped record in both. The per-Pattern shape is the target
+ * Pattern's own schema, which `resolveDispatchTarget` parses against; this
+ * schema never restates it.
+ * DESIGN: dispatch-pattern-input-untyped
  */
 function buildDispatchPatternInputSchema(hasPatternSearch: boolean) {
   return z.object({
@@ -120,7 +125,9 @@ export type DispatchAudience = 'chat-turn' | 'agent-loop' | 'slash' | 'canvas'
  * a `code` literal so consumers narrow with `switch (err.code)` and TS knows
  * which side-fields are populated. Returned (not thrown) by
  * `resolveDispatchTarget` so the host can ship the JSON into a tool_result
- * for LLM self-correction.
+ * for LLM self-correction. `INPUT_VALIDATION_FAILED` carries zod's issues as
+ * they are, each with its path, so the model can tell which field to fix.
+ * DESIGN: dispatch-error-returned
  */
 export type DispatchPatternError =
   | {
@@ -313,6 +320,7 @@ export function resolveDispatchTarget(
   //    a numeric field with integer min/max bounds)
   //  - LLM-filled extras (providerOptions blob, lifted top-level fields)
   //    pass through to `parsedInput` for the host to forward
+  // DESIGN: dispatch-parse-passthrough
   const parseSchema =
     'passthrough' in schema && typeof (schema as { passthrough?: unknown }).passthrough === 'function'
       ? ((schema as unknown as { passthrough: () => ZodType<unknown> }).passthrough() as ZodType<unknown>)

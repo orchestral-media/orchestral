@@ -90,6 +90,7 @@ export const TextGenerationOutputSchema = z.object({
   // long-form example's prose-chunking does). Bounded so the registry's
   // OUTPUTS_UNBOUNDED_FIELDS lint stays silent; tabled in the patterns README,
   // "Conventions".
+  // DESIGN: text-bound-64-kib
   text: boundedText(65_536).describe('Generated text body.'),
   ...dispatchEnvelopeShape,
   usage: z
@@ -148,6 +149,7 @@ export function createTextGenerationPattern(
 // The dispatch-facing input uses the zod INPUT type (schema-`.default()` fields
 // stay optional — the sub-step dispatch path applies no parse, so a meta fills
 // only what it means to set and the resolved model adapter supplies the rest).
+// DESIGN: sub-step-dispatch-applies-no-parse
 type TextGenerationDispatchInput = z.input<typeof TextGenerationPrimaryInputSchema>
 
 /** Typed `ctx.step` sugar — dispatch text-generation from a meta compose(). */

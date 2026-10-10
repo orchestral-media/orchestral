@@ -16,6 +16,7 @@
 // the child's `assetNeeds` declares (`startFrame` here), and is folded into the
 // child's idempotency key — so the same `motion` over a different still is a
 // different unit of work.
+// DESIGN: short-clip-three-steps
 
 import {
   assetIdField,
@@ -102,6 +103,7 @@ export function createShortClipMeta(): MetaPattern<ShortClipInput, ShortClipOutp
       //     though its input did not change. The author owns that — a
       //     shipped meta's step order is part of its contract
       //     (meta-execution-context.ts: "production Patterns are write-once").
+      // DESIGN: explicit-step-id-not-in-key
 
       // 1. describe — reads only `prompt`. Its key: text-generation +
       //    { system, prompt } + session + stepIndex 0.

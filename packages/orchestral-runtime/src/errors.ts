@@ -2,6 +2,11 @@
 // with — a provider Error, a thrown object, a bare string — becomes one
 // `JobError` shape here, so the store, the subscription stream and the
 // middleware onError chain all read failures the same way.
+//
+// A thrown Error keeps its own `.code` and brings a structured `details` along
+// whole: the code a job row carries is the thrower's, never a relabel, which is
+// how a failure raised deep inside a meta reaches the outermost row intact.
+// DESIGN: normalise-error-keeps-code
 
 import type { JobError } from '@orchestral/core'
 

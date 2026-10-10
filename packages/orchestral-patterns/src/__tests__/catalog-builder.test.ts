@@ -78,13 +78,14 @@ describe('buildCatalogDescriptors', () => {
 //
 // buildCatalogDescriptors() output goes into the LLM's prompt cache prefix
 // (the catalog the chat agent loads at session start). The cache hit depends
-// on byte-identical serialization across invocations. Implementation layers
-// (`schema.ts:29`, `catalog-builder.ts:75-81`, `derive-pattern-input.ts:21`)
-// already enforce this via deterministic zod→JSON-Schema emission +
-// referential identity preservation, but that's spread across multiple files
-// and easy to regress accidentally. These tests lock the invariant at the
-// catalog-builder boundary so any future regression surfaces in CI rather
-// than as a silent cache-miss in production.
+// on byte-identical serialization across invocations. The layers underneath
+// already hold it — the builder renders every descriptor through one
+// serialiser with one target, deterministic for a given zod schema
+// (`packages/orchestral-core/src/schema.ts` (DESIGN: zod-only-authoring)) —
+// but that's spread across multiple files and easy to regress accidentally.
+// These tests lock the invariant at the catalog-builder boundary so any
+// future regression surfaces in CI rather than as a silent cache-miss in
+// production.
 describe('buildCatalogDescriptors — byte stability', () => {
   it('produces byte-identical JSON across multiple invocations', () => {
     const a = JSON.stringify(buildCatalogDescriptors())

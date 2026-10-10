@@ -12,7 +12,7 @@
 //   • Host-direct: `assertPlanValid(dag, lookup, opts)` before submitJob.
 //   • The LLM path: `PlanDagSchema.superRefine(planRefine(lookup, opts))` as a
 //     meta's `tool.inputs`. `resolveDispatchTarget` applies top-level
-//     `.passthrough()` and `safeParse`s (dispatch-pattern.ts:198-202); on zod
+//     `.passthrough()` and `safeParse`s (dispatch-pattern.ts, `parseSchema`); on zod
 //     4.4.3 `.passthrough()` preserves the refine and reports its issues with
 //     their paths, so the walk reaches the model through the existing
 //     INPUT_VALIDATION_FAILED tool result with no new hook. The honest limit:
@@ -45,6 +45,7 @@ import {
   PlanDagSchema,
   type PlanDag,
 } from './plan'
+import { inputSchemaOf, passthroughOf } from './input-schema'
 import {
   PLAN_REF_MAX_DEPTH,
   collectRefHeads,
@@ -122,9 +123,10 @@ export type PlanPatternLookup = Pick<PatternRegistry, 'get' | 'getEntry'>
 export interface PlanValidateOptions {
   /**
    * The surface this plan was authored on. Only when given does rule 13 run:
-   * host-direct submit has no exposure gate (`inline.ts:701-707`), so "exposed
-   * to the surface" is a parameter of the validator, not a fact the registry
-   * holds.
+   * host-direct submit has no exposure gate
+   * (`packages/orchestral-runtime/src/inline.ts` (DESIGN: submit-registry-lookup)),
+   * so "exposed to the surface" is a parameter of the validator, not a fact the
+   * registry holds.
    */
   audience?: DispatchAudience
   /**
@@ -322,9 +324,10 @@ class PlanWalk {
   // Rules 2 and 3.
   //
   // 2 — a duplicate id: the engine would throw DUPLICATE_STEP_ID mid-run
-  //     (meta-execution-context.ts:383-394), after the earlier steps had spent.
-  //     Here it costs nothing. It also makes `$<id>` ambiguous, which is the
-  //     deeper reason: a plan keys its JobStore rows by id.
+  //     (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: duplicate-step-id)),
+  //     after the earlier steps had spent. Here it costs nothing. It also makes
+  //     `$<id>` ambiguous, which is the deeper reason: a plan keys its JobStore
+  //     rows by id.
   // 3 — a step called `input`: `$input` names the plan's own parameters, so
   //     the step would be unreachable and every `$input.x` would silently mean
   //     something else than the author wrote.
@@ -388,7 +391,8 @@ class PlanWalk {
   //      @orchestral/core's barrel. An agent inside a plan is an unbounded LLM loop
   //      inside something sold as a fixed pipeline.
   // 12 — the plan itself: the runtime refuses it as CIRCULAR_META_STEP
-  //      (meta-execution-context.ts:396-404), again after earlier steps ran.
+  //      (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: circular-meta-step)),
+  //      again after earlier steps ran.
   // 13 — not exposed to the surface that authored the plan: without it a model
   //      reaches host-only patterns by naming them, which is the whole point of
   //      the exposure gate on dispatch_pattern.
@@ -688,7 +692,8 @@ class PlanWalk {
 
   // Rule 6 — does the path exist on what the producing step actually returns?
   // Walked against the producer's `outputs` zod shape with the same
-  // introspection find_pattern does on `outputs.shape` (find-pattern.ts:553-579):
+  // introspection find_pattern does on `outputs.shape`
+  // (`packages/orchestral-discovery/src/find-pattern.ts` (DESIGN: summarise-outputs)):
   // ZodObject / ZodArray / ZodOptional / ZodNullable are followed, anything else
   // accepts rather than guessing. `available` lists the producer's top-level
   // output keys because find_pattern never renders outputs — without them the
@@ -1069,14 +1074,15 @@ class PlanWalk {
   // as `resolveDispatchTarget` does it (meta → tool.inputs, atomic →
   // primary.tool.inputs, top-level `.passthrough()`), so `size` / `seed` /
   // `providerOptions` / the derived `references` survive instead of reading as
-  // unrecognized keys. Issues landing on a ref-valued field are suppressed:
-  // that field's type only exists after substitution, and a `"$describe.text"`
-  // in a numeric slot is not a type error the model can act on here. What it
-  // does catch is a mistyped literal — `"temperature": "0.7"` — before the step
-  // it belongs to has any upstream spend.
+  // unrecognized keys. Both halves come from input-schema.ts, which layer 2
+  // reads too — one verdict, not two copies of it. Issues landing on a
+  // ref-valued field are suppressed: that field's type only exists after
+  // substitution, and a `"$describe.text"` in a numeric slot is not a type
+  // error the model can act on here. What it does catch is a mistyped literal
+  // — `"temperature": "0.7"` — before the step it belongs to has any upstream
+  // spend.
   private ruleStepInput(step: StepView, target: Pattern): void {
-    const schema =
-      target.kind === 'meta' ? target.tool.inputs : target.primary?.tool.inputs
+    const schema = inputSchemaOf(target)
     if (schema === undefined) return
     const result = passthroughOf(schema).safeParse(step.input)
     if (result.success) return
@@ -1097,7 +1103,8 @@ class PlanWalk {
     })
   }
 
-  // Rule 24 — the input has to survive `canonicalise` (idempotency.ts:77-127),
+  // Rule 24 — the input has to survive `canonicalise`
+  // (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: canonicalise-refuses-non-json)),
   // which is what turns a dispatch into a durable key. A Date or a Map in there
   // makes the engine throw IDEMPOTENCY_NOT_SERIALISABLE at dispatch; a plan
   // that arrived as JSON cannot contain one, so this only ever fires on a
@@ -1219,11 +1226,12 @@ function pathLandsOnRef(
 // ── zod-shape introspection ─────────────────────────────────────────────
 //
 // Deliberately the same technique find_pattern uses on `outputs.shape`
-// (find-pattern.ts:553-579): read `_def.type` for the zod v4 type tag and walk
-// the four containers a Pattern output realistically nests. Anything else is
-// accepted rather than guessed — a false PLAN_REF_PATH_UNKNOWN on a
-// hand-rolled outputs schema would block a legal plan, which is worse than
-// missing a typo that layer 2 catches at the step.
+// (`packages/orchestral-discovery/src/find-pattern.ts` (DESIGN: summarise-outputs)):
+// read `_def.type` for the zod v4 type tag and walk the four containers a
+// Pattern output realistically nests. Anything else is accepted rather than
+// guessed — a false PLAN_REF_PATH_UNKNOWN on a hand-rolled outputs schema
+// would block a legal plan, which is worse than missing a typo that layer 2
+// catches at the step.
 
 function typeTag(node: unknown): string | undefined {
   return (node as { _def?: { type?: string } } | undefined)?._def?.type
@@ -1332,11 +1340,6 @@ function exposedTo(pattern: Pattern, audience: DispatchAudience): boolean {
 }
 
 /**
- * Top-level `.passthrough()` when the schema supports it — byte-for-byte what
- * `resolveDispatchTarget` does (its `parseSchema` branch), so rule 21's
- * verdict and the dispatch path's verdict cannot disagree.
- */
-/**
  * The one-shot interpreter, recognised structurally: interpreted-from-steps by
  * `origin`, but carrying no step list of its own — its input IS a DAG. A
  * `planToMeta` product carries its frozen list as `.plan` (a field
@@ -1350,23 +1353,13 @@ function isOneShotPlan(pattern: Pattern): boolean {
   )
 }
 
-function passthroughOf(schema: unknown): z.ZodType<unknown> {
-  if (
-    typeof schema === 'object' &&
-    schema !== null &&
-    'passthrough' in schema &&
-    typeof (schema as { passthrough?: unknown }).passthrough === 'function'
-  ) {
-    return (schema as { passthrough: () => z.ZodType<unknown> }).passthrough()
-  }
-  return schema as z.ZodType<unknown>
-}
-
 /**
- * Mirror of `canonicalise`'s refusals (idempotency.ts:77-127), collecting every
- * offending path instead of throwing on the first. Re-implemented rather than
- * imported because `canonicalise` is private to @orchestral/runtime, which this
- * package does not depend on; keep the two in step.
+ * Mirror of `canonicalise`'s refusals
+ * (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: canonicalise-refuses-non-json)),
+ * collecting every offending path instead of throwing on the first.
+ * Re-implemented rather than imported because `canonicalise` is private to
+ * @orchestral/runtime, which this package does not depend on; keep the two in
+ * step.
  */
 function collectNonSerialisable(
   value: unknown,

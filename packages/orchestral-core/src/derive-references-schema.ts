@@ -27,10 +27,19 @@
 import { z } from 'zod'
 import type { AssetNeed } from './asset-index.types'
 
+// The field's own copy, frozen as above: handles, keyed by slot, picked from
+// the context's asset list. What each slot says is below.
 const REFERENCES_DESCRIBE =
   'Reference assets by their handle (e.g. "image_2"), keyed by slot. ' +
   'Pick handles from the asset list provided in context. Never pass raw asset ids or URLs.'
 
+// Each slot's copy, frozen as above — the text a model reads when it decides
+// what to write under a slot key, and where a required slot's default is
+// documented rather than enforced: leave the slot out and the host fills it
+// with the most recent asset of its modality in the context (the most recent
+// batch, for an array slot). An optional slot says the opposite in as many
+// words, so "omit" never reads as "let the host choose" where it will not.
+// DESIGN: references-copy
 function slotDescribe(need: AssetNeed): string {
   const desc = need.description ? `${need.description} ` : ''
   if (!need.required) {

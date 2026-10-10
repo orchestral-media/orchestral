@@ -280,6 +280,10 @@ export function createStoryboardMeta(
   init: StoryboardMetaInit = {},
 ): MetaPattern<StoryboardInput, StoryboardOutput> {
   const resolved = resolvePrompts(STORYBOARD_DEFAULT_PROMPTS, init.prompts)
+  // A meta is a plain object: id and kind, the tool the model sees, the
+  // outputs the runtime gates on, the dispatches it declares, and compose.
+  // Built per call, so each caller's `init.prompts` resolve into its own copy.
+  // DESIGN: storyboard-meta-shape
   return {
     id: STORYBOARD_PATTERN_ID,
     kind: 'meta',
@@ -397,6 +401,10 @@ type Ctx = ExecutionContext
  * scene as <SCRIPT>, the character roster as <CHARACTERS>, and the optional
  * userRequirement as <USER_REQUIREMENT>, then parses the {storyboard:[...]}
  * shot-brief list (visual_desc, audio_desc, cam_idx, ...).
+ *
+ * The list it returns sets Stage 4's width: a shot count the model chose,
+ * known only once this step has answered.
+ * DESIGN: storyboard-design-parses-json
  */
 async function designStoryboard(
   ctx: Ctx,

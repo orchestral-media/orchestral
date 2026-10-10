@@ -976,6 +976,7 @@ deps: AgentDispatchDeps,
           if (isDispatchError(target)) {
             // Pattern lookup or input zod validation failed — return as
             // tool_result content so LLM self-corrects on next turn.
+            // DESIGN: dispatch-error-as-tool-result
             return target
           }
           const fullId = target.pattern.id
@@ -1025,6 +1026,7 @@ deps: AgentDispatchDeps,
             // turns into the resume seed and change what a resumed model sees.
             // The event stream carries the audit trail instead — the same
             // choice `job:step` and `job:alternative-selected` already make.
+            // DESIGN: tool-rejected-event-awaited
             await deps.fanoutJobEvent(jobId, (job) => ({
               type: 'job:tool-rejected',
               job,
@@ -1427,6 +1429,7 @@ deps: AgentDispatchDeps,
             // still kills the loop instead, and `signal.aborted` is checked
             // first so an abort that surfaced as some other error is not fed
             // to a model that would only try again.
+            // DESIGN: child-failure-is-a-tool-result
             const innerCode = (e as { code?: unknown }).code
             if (
               signal.aborted ||

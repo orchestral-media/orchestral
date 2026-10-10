@@ -17,8 +17,12 @@ hand, §4–§6), releases ride **changesets** through
    verification wall (build / typecheck / tests / lint / api:check /
    smoke-dist), then `pnpm -r publish` in topological order, skipping
    versions already on the registry, then tags `v<version>` and cuts the
-   GitHub Release for that tag with core's CHANGELOG section as its notes
-   (§5's convention, automated — nothing to assemble by hand any more).
+   GitHub Release for that tag. Its notes are the distinct changeset summaries
+   for the version across every published package's CHANGELOG
+   (`scripts/release-notes.mjs` — core's section alone misses a version whose
+   changesets never named core, and all seven repeat each summary once per
+   package it names). §5's convention, automated — nothing to assemble by hand
+   any more.
 
 One-time setup the automation needs (all done for this repo):
 
@@ -34,13 +38,30 @@ One-time setup the automation needs (all done for this repo):
   done
   ```
 
-  **`@orchestral/plan` joined the line after that loop was first run and has
-  never been published**, so it is the one package whose trusted publisher is
-  not yet configured. Re-run the loop around its first release and confirm with
-  `npm trust list @orchestral/plan`; a package the registry has no publisher
-  entry for is the failure this list exists to prevent.
+  Two things the first real OIDC release paid for, written down for the next
+  package that joins the line:
 
-  `npm trust list @orchestral/<p>` shows a package's publishers. The
+  - **The registry refuses `npm trust` for a package it does not have yet** —
+    404 unauthenticated, 400 authenticated. So a new package cannot be trusted
+    ahead of its first release: that first publish goes out by hand (§4–§6,
+    with an `npm login` or the kept `NPM_TOKEN`), then the loop above is run
+    for it, and OIDC covers it from its next version on. The release that
+    first carries it therefore takes two passes. The first fails at the
+    newcomer, which has no trusted publisher yet; the failure stops
+    `pnpm -r publish`, so whatever comes after it in topological order has
+    not gone out either, and with the publish step red the tag and the
+    release are not cut. Publish the newcomer by hand and run the loop for
+    it, then rerun the workflow: `pnpm -r publish` skips every version the
+    registry already has (the newcomer's included) and finishes the rest,
+    and the tag and the release follow.
+  - **`--allow-publish` needs npm ≥ 11.15.** An older CLI rejects the flag
+    outright (`EUSAGE`), and dropping the flag to get past that sends a body
+    the registry rejects with 400. Upgrade npm before running the loop
+    (`npm install -g npm@latest`), not the loop's arguments.
+
+  `npm trust list @orchestral/<p>` shows a package's publishers — run it for
+  the newcomer before its first OIDC release; a package the registry has no
+  publisher entry for is the failure this list exists to prevent. The
   workflow's `permissions:` carries the `id-token: write` this depends on.
 - The repository setting **Settings → Actions → General → Workflow
   permissions → "Allow GitHub Actions to create and approve pull requests"**

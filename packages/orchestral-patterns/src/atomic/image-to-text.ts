@@ -64,6 +64,10 @@ export const ImageToTextPrimaryInputSchema = z.object({
   // model (e.g. Anthropic thinking, OpenAI reasoning_effort).
 })
 
+// One slot, and an array: a caption reads one image, a comparison reads
+// several, and the order the images are bound in is the order the model sees
+// them in.
+// DESIGN: source-array-slot
 const ASSET_NEEDS = [
   {
     slot: 'source',

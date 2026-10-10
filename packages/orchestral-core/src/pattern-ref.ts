@@ -21,6 +21,7 @@ import type { ResolvedAssetRef } from './asset-index.types'
  * Capability sub-modes are expressed via `input.providerOptions` (typed
  * schema, derived per-model) and `input.references` asset slots — meta
  * compose passes those in `input` directly.
+ * DESIGN: pattern-ref-internal-asset-channel
  */
 export interface PatternRef {
   patternId: PatternId

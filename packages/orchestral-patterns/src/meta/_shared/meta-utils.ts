@@ -41,6 +41,7 @@ export const toJsonSchemaCached = (s: z.ZodType): unknown => {
  * it. `label` is the full error prefix — callers pass e.g.
  * `'product-ad-short: image-to-video'` so the thrown message reads
  * `'<label> produced no asset'`.
+ * DESIGN: first-asset
  */
 export function firstAsset<A extends { assetId: string }>(
   out: { assets?: ReadonlyArray<A> },
@@ -82,6 +83,7 @@ export function firstAssetId(
  * `label` is bounded like every other string in an outputs schema
  * (output-fields.ts); 64 characters fits any role a first-party meta stamps
  * (`scene-7-image`) with room for a third party's.
+ * DESIGN: labelled-asset-shape
  */
 export function labelledAssetShape<M extends ProducedAssetModality>(modality: M) {
   return {
@@ -130,6 +132,7 @@ export function labelAsset<M extends ProducedAssetModality>(
  * reads another's deliverable (storyboard reads best-of-n's `winner`; a host
  * reads every deliverable meta's `final-video`). Throws a labeled error when no
  * element carries it; `errLabel` is the error prefix, as for firstAsset.
+ * DESIGN: asset-id-by-label
  */
 export function assetIdByLabel(
   out: { assets?: ReadonlyArray<{ assetId: string; label?: string }> },

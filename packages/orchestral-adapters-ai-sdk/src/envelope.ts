@@ -230,7 +230,19 @@ function describeId(id: unknown): string {
  * back. The generic mapping is still a guess (`generateImage`'s editing input
  * and the voice-cloning APIs are provider-specific), so the adapter refuses
  * instead of inventing one, and names the slot so the host knows exactly what
- * its own adapter has to carry.
+ * its own adapter has to carry. An adapter that does send a slot names that
+ * one too: a slot refused beside it may be the same asset under a misspelt
+ * name (`image` for `source`), and a message that says only what was refused
+ * leaves the caller a turn short of the fix.
+ *
+ * Every adapter in this package calls it, first thing in `call` — before a
+ * source loader runs, before the provider is paid — and passes the slots it
+ * does send: `[SOURCE_SLOT]` for vision and transcription, `[]` for the rest.
+ * Mapping one slot is no licence to drop another, and text generation, which
+ * maps none, is the same rule with an empty list rather than an exception to
+ * it. Structural rather than case-by-case because the silent drop is the same
+ * failure whichever adapter commits it, and an adapter that skipped the call
+ * was exactly how vision, transcription and text generation came to commit it.
  */
 export function refuseUnmappedAssetSlots(
   ctx: DispatchContext,
@@ -245,10 +257,11 @@ export function refuseUnmappedAssetSlots(
     ),
   ]
   if (unmapped.length === 0) return
-  const slots = unmapped.map((slot) => JSON.stringify(slot)).join(', ')
+  const quote = (list: readonly string[]) => list.map((slot) => JSON.stringify(slot)).join(', ')
+  const sent = mapped.length > 0 ? `; this adapter sends only ${quote(mapped)}` : ''
   throw Object.assign(
     new Error(
-      `ASSET_SLOT_NOT_SUPPORTED: ${capability} call: this adapter does not send the resolved asset slot(s) ${slots} to the provider — write an adapter that does, wrap this one and add them, or drop the reference from the input to call this model without them`,
+      `ASSET_SLOT_NOT_SUPPORTED: ${capability} call: this adapter does not send the resolved asset slot(s) ${quote(unmapped)} to the provider${sent} — write an adapter that does, wrap this one and add them, or drop the reference from the input to call this model without them`,
     ),
     { code: 'ASSET_SLOT_NOT_SUPPORTED' },
   )

@@ -18,12 +18,18 @@ import type { AskUser } from './ask-user'
  * Retry policy for `ctx.step` / `ctx.compute`. One retry shape carries
  * across atomic dispatch and meta compose; hosts with their own step
  * runners can mirror it so a single mental model holds everywhere.
+ * DESIGN: retry-policy
  */
 export type RetryPolicy =
   | { kind: 'none' }
   | { kind: 'exponential'; maxAttempts: number; baseMs: number; maxMs?: number }
   | { kind: 'fixed'; maxAttempts: number; delayMs: number }
 
+// Everything with an effect a caller can ask of one `ctx.step` beyond the
+// PatternRef: how to retry it, what to call it, which identity keys its durable
+// row, and a key of the caller's own. None of it changes what the step
+// dispatches — only how it is retried, named and deduped.
+// DESIGN: step-options
 export interface StepOptions {
   /** Retry policy; default `{ kind: 'none' }`. */
   retry?: RetryPolicy
@@ -111,6 +117,10 @@ export interface StepOptions {
   idempotencyKey?: string
 }
 
+// What `ctx.step.withMeta` reports about a step: its author-facing id, how many
+// attempts it took, how long. No child job id — that stays on the runtime's
+// side of compose, and a host that needs one reads it off `job:step`.
+// DESIGN: step-meta-no-child-job-id
 export interface StepMeta {
   stepId: string
   attempts: number

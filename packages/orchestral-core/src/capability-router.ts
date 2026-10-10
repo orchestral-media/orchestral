@@ -82,6 +82,7 @@ export interface CapabilityRouter {
    * OPTIONAL so that implementing `CapabilityRouter` directly stays a
    * two-method job — a host router written before this existed keeps
    * compiling. Callers must feature-detect (`router.explain?.(...)`).
+   * DESIGN: explain-optional
    */
   explain?(
     capability: Capability,

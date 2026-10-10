@@ -99,6 +99,7 @@ export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string {
  * arrays). Plain undefined OBJECT properties are dropped (matches JSON
  * behaviour); arrays preserve their indices but reject `undefined` entries
  * because JSON.stringify would silently substitute null.
+ * DESIGN: canonicalise-refuses-non-json
  */
 function canonicalise(value: unknown): unknown {
   if (value === null) return null

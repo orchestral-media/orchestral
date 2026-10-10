@@ -296,6 +296,11 @@ export type {
 // publishes so its patterns are discoverable without executing it, and the
 // errors `PatternRegistry.addFromManifest` throws when the declaration and the
 // module disagree.
+//
+// `idCarriesKind` is not among them. It is how the id ↔ kind contract is
+// enforced where a Pattern comes in — `register` and the manifest schema — not
+// a query for callers: code that holds a Pattern has its `kind` to read.
+// DESIGN: id-carries-kind-off-the-barrel
 export {
   ManifestError,
   OrchestralManifestPatternSchema,

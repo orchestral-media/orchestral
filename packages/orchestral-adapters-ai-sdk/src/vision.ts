@@ -18,6 +18,7 @@ import {
   optionalNumber,
   optionalString,
   providerOptionsFor,
+  refuseUnmappedAssetSlots,
   requireSourceAssets,
   resolveIdentity,
 } from './envelope'
@@ -120,6 +121,9 @@ function toFilePart(source: ImageSource): FilePart {
  * instruction in text mode, never cut from the reply, and not applied to JSON
  * output. Returns an `ImageToTextOutput`: `text` (the validated object as
  * JSON when `responseFormat` is `'json'`), `cost: null`.
+ *
+ * Refused, not ignored: a resolved asset in any slot but `source` fails the
+ * call with `ASSET_SLOT_NOT_SUPPORTED` (see README).
  */
 export function fromVisionModel(
   model: LanguageModelInstance,
@@ -133,6 +137,9 @@ export function fromVisionModel(
       outputs: ['text'],
     }),
     async call<I, O>(input: I, ctx: DispatchContext): Promise<DispatchResult<O>> {
+      // `source` goes up as file parts; nothing else has a place in the one
+      // user message, so anything else is refused before a loader runs.
+      refuseUnmappedAssetSlots(ctx, 'image-to-text', [SOURCE_SLOT])
       const fields = asRecord(input)
       const files = (
         await requireSourceAssets<ImageSource>(

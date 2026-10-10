@@ -166,10 +166,37 @@ describe('fromTranscriptionModel', () => {
         'NO_SOURCE_ASSET: automatic-speech-recognition call: no resolved asset in slot "source" on ctx.assets',
       ),
     })
+    // A resolved asset in some other slot is no source either, but it is
+    // refused by name first: the host reads the slot it sent.
     await expect(
       envelope.call({}, ctx({ assets: [{ slot: 'voiceClone', assetId: 'v', modality: 'audio' }] })),
-    ).rejects.toMatchObject({ code: 'NO_SOURCE_ASSET' })
+    ).rejects.toMatchObject({ code: 'ASSET_SLOT_NOT_SUPPORTED' })
     expect(loadAudio).not.toHaveBeenCalled()
+  })
+
+  it('refuses a resolved asset slot it cannot send, naming the slot, before loading or paying the provider', async () => {
+    const doGenerate = vi.fn<DoGenerate>(async () => transcript())
+    const loadAudio = vi.fn(() => AUDIO)
+    const envelope = fromTranscriptionModel(mockTranscriptionModel(doGenerate), { loadAudio })
+    const vocabulary: ResolvedAssetRef = {
+      slot: 'vocabulary',
+      assetId: 'glossary-1',
+      modality: 'document',
+      handle: 'document_1',
+    }
+
+    await expect(
+      envelope.call({}, ctx({ assets: [SOURCE, vocabulary] })),
+    ).rejects.toMatchObject({
+      code: 'ASSET_SLOT_NOT_SUPPORTED',
+      message: expect.stringContaining(
+        'ASSET_SLOT_NOT_SUPPORTED: automatic-speech-recognition call: this adapter does not send the resolved asset slot(s) "vocabulary" to the provider; this adapter sends only "source"',
+      ),
+    })
+    // A transcript that never saw the glossary the caller attached reads like
+    // one that did.
+    expect(loadAudio).not.toHaveBeenCalled()
+    expect(doGenerate).not.toHaveBeenCalled()
   })
 
   it('fails with a coded message naming the asset when loadAudio hands back nothing', async () => {

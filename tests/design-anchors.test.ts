@@ -22,6 +22,22 @@
 // anchor. A test's name is a better handle than its line, the title already
 // states what the test pins, and renaming the test should break the citation.
 //
+// docs/plan.md is the second document this guards, on the same terms. It is
+// the plan feature's living spec — DESIGN.md cites it and source cites it back
+// — and it argued from ~160 line ranges, every one of which the move into
+// @orchestral/plan and the edits since had already walked out from under. Same
+// rot, one document over, so the same cure rather than a second one: a plan
+// citation names a `DESIGN:` anchor exactly as a DESIGN.md citation does, the
+// tree-wide sweep asks that an anchor be cited by SOME document, and one slug
+// serves both when both documents argue from the same construct. A `PLAN:` tag
+// would have been a second convention with its own sweep, and two tags on one
+// argument are two things to keep in step.
+//
+// docs/plan.md also cites DESIGN.md itself, by ENTRY: `DESIGN.md, "We don't
+// …"`. The heading is the handle there, exactly as a slug is here, and a
+// renamed entry leaves the quote naming nothing just as quietly — so the last
+// check holds every such quote to a heading DESIGN.md still has.
+//
 // Same move as error-code-convention.test.ts in @orchestral/runtime: turn a
 // convention nothing enforces into a failing test rather than a habit.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -29,7 +45,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const ROOT = new URL('../', import.meta.url).pathname
-const DESIGN = readFileSync(join(ROOT, 'DESIGN.md'), 'utf8')
+
+/** The documents whose citations this test holds to anchors. */
+const DOCUMENTS = ['DESIGN.md', 'docs/plan.md'] as const
+type DocumentPath = (typeof DOCUMENTS)[number]
+const TEXT: Record<DocumentPath, string> = {
+  'DESIGN.md': readFileSync(join(ROOT, 'DESIGN.md'), 'utf8'),
+  'docs/plan.md': readFileSync(join(ROOT, 'docs/plan.md'), 'utf8'),
+}
 
 /** `` `path/to/file.ts` (DESIGN: some-slug) `` — the anchored citation form. */
 const CITATION = /`([^`\n]+?)`\s*\(DESIGN:\s*([a-z][a-z0-9-]*)\)/g
@@ -39,6 +62,22 @@ const TEST_CITATION = /`([^`\n]*__tests__\/[^`\n]+\.test\.ts)`(?:\s*\("([^"]+)"\
 
 /** An anchor as it appears in a comment, in any of the three comment syntaxes. */
 const ANCHOR = /DESIGN:[ ]([a-z][a-z0-9-]*)/g
+
+/**
+ * `DESIGN.md, "We don't …"` and `DESIGN.md's "We don't …"` — an entry cited by
+ * its heading. The quote may wrap across a line, so its whitespace is folded
+ * before it is looked up.
+ */
+const HEADING_CITATION = /DESIGN\.md(?:,|'s)\s+"([^"]+)"/g
+
+/**
+ * A line number riding on a citation, in every spelling the two documents have
+ * used: `inline.ts:701-707` whether or not it sits in backticks (docs/plan.md
+ * cites from inside its fenced code too), `DESIGN.md:327-343`, and the bare
+ * `:379-381` / "doc at :80-96" that continues the file named just before it.
+ * The last is the one a narrower pattern would miss, and it is exactly as stale.
+ */
+const LINE_NUMBER = /[\w./-]+\.(?:ts|mjs|md|json):\d+(?:[-,]\s?\d+)*|(?<=[\s(`]):\d+(?:[-,]\s?\d+)*(?=[`),.\s])/g
 
 /**
  * Directories the anchor sweep does not enter. `docs/superpowers` and
@@ -90,33 +129,61 @@ interface Citation {
   slug: string
 }
 
-const citations: Citation[] = [...DESIGN.matchAll(CITATION)].map((m) => ({
-  file: m[1],
-  slug: m[2],
-}))
-const citedSlugs = new Set(citations.map((c) => c.slug))
+function citationsIn(doc: DocumentPath): Citation[] {
+  return [...TEXT[doc].matchAll(CITATION)].map((m) => ({ file: m[1], slug: m[2] }))
+}
+
+/** Every slug SOME document cites — what the orphan sweep answers to. */
+const citedSlugs = new Set(DOCUMENTS.flatMap((doc) => citationsIn(doc).map((c) => c.slug)))
+
+/**
+ * A file's text as the anchor checks read it. docs/plan.md both carries an
+ * anchor (DESIGN.md cites it) and cites anchors, and each of its citations
+ * spells `DESIGN: <slug>` — read raw, every plan citation would count as an
+ * anchor planted in the document doing the citing, and so as its own proof.
+ */
+function anchorSource(file: string): string {
+  const text = readFileSync(join(ROOT, file), 'utf8')
+  return (DOCUMENTS as readonly string[]).includes(file) ? text.replace(CITATION, '') : text
+}
 
 function countAnchor(source: string, slug: string): number {
   const re = new RegExp(`DESIGN:[ ]${slug}(?![a-z0-9-])`, 'g')
   return [...source.matchAll(re)].length
 }
 
-describe('DESIGN.md citations resolve to anchors', () => {
+/**
+ * The floor under each document's citation count, and two slugs it must find.
+ * Self-check: a scanner that silently matches nothing — someone reformats the
+ * Where segments, the regex rots — would pass every other assertion forever.
+ * DESIGN.md carries ~34 refusals and ~60 anchored citations; docs/plan.md
+ * argues nearly every sentence of its execution model from a citation.
+ */
+const EXPECTED: Record<DocumentPath, { atLeast: number; slugs: readonly string[] }> = {
+  'DESIGN.md': {
+    atLeast: 50,
+    slugs: ['stop-condition-not-a-predicate', 'project-then-sanitize'],
+  },
+  'docs/plan.md': {
+    atLeast: 100,
+    slugs: ['default-step-id-is-positional', 'submit-registry-lookup'],
+  },
+}
+
+describe.each(DOCUMENTS)('%s citations resolve to anchors', (doc) => {
+  const text = TEXT[doc]
+  const citations = citationsIn(doc)
+
   it('finds the citations it is supposed to be checking', () => {
-    // Self-check: a scanner that silently matches nothing — someone reformats
-    // the Where segments, the regex rots — would pass every assertion below
-    // forever. The document carries ~34 refusals and ~60 anchored citations.
-    expect(citations.length).toBeGreaterThan(50)
-    expect(citedSlugs.has('stop-condition-not-a-predicate')).toBe(true)
-    expect(citedSlugs.has('project-then-sanitize')).toBe(true)
+    expect(citations.length).toBeGreaterThan(EXPECTED[doc].atLeast)
+    const slugs = new Set(citations.map((c) => c.slug))
+    for (const slug of EXPECTED[doc].slugs) expect(slugs.has(slug)).toBe(true)
   })
 
   it('no citation still carries a line number', () => {
     // The failure mode this whole test exists to end. A `path.ts:120-140`
     // inside a Where segment is a citation that will rot without saying so.
-    const stale = [...DESIGN.matchAll(/`([^`\n]+\.(?:ts|md))(:\d+[-,\d\s]*)`/g)].map(
-      (m) => m[1] + m[2],
-    )
+    const stale = [...text.matchAll(LINE_NUMBER)].map((m) => m[0])
     expect(stale).toEqual([])
   })
 
@@ -128,7 +195,7 @@ describe('DESIGN.md citations resolve to anchors', () => {
         problems.push(`${file} (DESIGN: ${slug}) — no such file`)
         continue
       }
-      const n = countAnchor(readFileSync(full, 'utf8'), slug)
+      const n = countAnchor(anchorSource(file), slug)
       if (n !== 1) problems.push(`${file} (DESIGN: ${slug}) — found ${n}, want 1`)
     }
     // Listed rather than counted so a failure names what to fix. The fix is to
@@ -136,22 +203,9 @@ describe('DESIGN.md citations resolve to anchors', () => {
     expect(problems).toEqual([])
   })
 
-  it('every anchor in the tree is cited by DESIGN.md', () => {
-    const orphans: string[] = []
-    for (const file of walk(ROOT)) {
-      const source = readFileSync(join(ROOT, file), 'utf8')
-      for (const m of source.matchAll(ANCHOR)) {
-        if (!citedSlugs.has(m[1])) orphans.push(`${file}: ${m[1]}`)
-      }
-    }
-    // An anchor nobody cites is an argument whose entry was removed (delete the
-    // anchor) or a citation someone forgot to write (add it to the Where).
-    expect(orphans).toEqual([])
-  })
-
   it('every cited test file exists, and its cited title is still there', () => {
     const problems: string[] = []
-    for (const m of DESIGN.matchAll(TEST_CITATION)) {
+    for (const m of text.matchAll(TEST_CITATION)) {
       const [, file, title] = m
       const full = join(ROOT, file)
       if (!existsSync(full)) {
@@ -163,5 +217,34 @@ describe('DESIGN.md citations resolve to anchors', () => {
       }
     }
     expect(problems).toEqual([])
+  })
+})
+
+describe('the anchors in the tree', () => {
+  it('every anchor is cited by DESIGN.md or docs/plan.md', () => {
+    const orphans: string[] = []
+    for (const file of walk(ROOT)) {
+      for (const m of anchorSource(file).matchAll(ANCHOR)) {
+        if (!citedSlugs.has(m[1])) orphans.push(`${file}: ${m[1]}`)
+      }
+    }
+    // An anchor nobody cites is an argument whose entry was removed (delete the
+    // anchor) or a citation someone forgot to write (add it to the Where).
+    expect(orphans).toEqual([])
+  })
+})
+
+describe('docs/plan.md citations of DESIGN.md entries', () => {
+  it('every entry it quotes by heading is a heading DESIGN.md still has', () => {
+    const headings = new Set(
+      [...TEXT['DESIGN.md'].matchAll(/^#{2,3} (.+)$/gm)].map((m) => m[1].trim()),
+    )
+    const quoted = [...TEXT['docs/plan.md'].matchAll(HEADING_CITATION)].map((m) =>
+      m[1].replace(/\s+/g, ' '),
+    )
+    // Self-check, as for the anchors: fourteen today, and a pattern that
+    // stopped matching would otherwise pass on an empty list.
+    expect(quoted.length).toBeGreaterThan(10)
+    expect(quoted.filter((heading) => !headings.has(heading))).toEqual([])
   })
 })

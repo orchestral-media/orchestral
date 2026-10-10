@@ -21,6 +21,7 @@ import {
   optionalString,
   optionalStringArray,
   providerOptionsFor,
+  refuseUnmappedAssetSlots,
   requireString,
   resolveIdentity,
 } from './envelope'
@@ -79,6 +80,9 @@ function usageFor(usage: LanguageModelUsage) {
  * one); the reply is validated against that schema and lands in `text` as a
  * JSON string — the shape every first-party meta parses. A reply that does
  * not parse or does not match fails the call.
+ *
+ * Refused, not ignored: text generation maps no asset slot, so any resolved
+ * asset fails the call with `ASSET_SLOT_NOT_SUPPORTED` (see README).
  */
 export function fromLanguageModel(
   model: LanguageModelInstance,
@@ -92,6 +96,10 @@ export function fromLanguageModel(
       outputs: ['text'],
     }),
     async call<I, O>(input: I, ctx: DispatchContext): Promise<DispatchResult<O>> {
+      // Text generation sends a prompt and maps no slot, so every resolved
+      // slot is an unmapped one — the same rule as its siblings, with an empty
+      // list, not an exemption.
+      refuseUnmappedAssetSlots(ctx, 'text-generation', [])
       const fields = asRecord(input)
       const prompt = requireString(fields, 'prompt', 'text-generation')
       const system = optionalString(fields, 'system')

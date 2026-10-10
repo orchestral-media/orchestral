@@ -57,6 +57,9 @@ export const ImageBestOfNInputSchema = z.object({
   innerPatternId: z
     .enum(InnerImagePatternIds)
     .describe('Which image-gen atomic Pattern to fan out across N samples.'),
+  // Forwarded verbatim to every candidate. Its shape is the chosen inner
+  // Pattern's, so this schema does not restate it.
+  // DESIGN: best-of-n-inner-input-verbatim
   innerInput: z
     .unknown()
     .describe(
@@ -220,6 +223,7 @@ export function createImageBestOfNMeta(
       // Image 0..N-1" in the exact order buildJudgePrompt labels them.
       // (Candidates ride the internal ref.assets channel; references ride the
       // handle channel; the two meet in the runtime's same-slot merge.)
+      // DESIGN: best-of-n-judge-slot-merge
       const referenceHandles = input.referenceHandles ?? []
       const judgeOut = await imageToText(
         ctx,
@@ -261,6 +265,7 @@ export function createImageBestOfNMeta(
       return {
         // Submission order is preserved (assets[i] is candidate i); the role
         // rides on the label so it survives the model-facing projection.
+        // DESIGN: best-of-n-winner-label
         assets: candidates.map((c, idx) =>
           labelAsset(c, 'image', idx === parsed.best_image_index ? 'winner' : 'candidate'),
         ),

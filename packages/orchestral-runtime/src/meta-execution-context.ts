@@ -88,6 +88,14 @@ export interface MetaSharedState {
  * Dependencies the runtime injects so this module can dispatch sub-Patterns
  * and propagate the meta's ancestor chain + shared state. Keeps the runtime
  * class private — we don't import InlineRuntime here.
+ *
+ * They stay on the runtime's side of compose. The ExecutionContext built from
+ * them hands a meta dispatch-by-id and nothing it could inspect or route with:
+ * no registry and no router. The registry reads that do happen behind these
+ * seams (`getAssetNeeds`, and the lookup inside `resolveStepReferences`) serve
+ * the runtime's own guards, not the author — a meta names sub-Patterns, and
+ * the runtime alone decides what they are and where they run.
+ * DESIGN: compose-sees-no-registry
  */
 export interface MetaCtxDeps {
   /**
@@ -225,6 +233,7 @@ export function nextRetryDelayMs(
  * clash is possible otherwise. Absent seam / unknown cardinality → inert (the
  * array-style coexistence is preserved), which is safe because the handle
  * channel is empty without a resolver.
+ * DESIGN: dual-source-single-slot
  */
 function assertNoDualSourcedSingleSlot(
   patternId: PatternId,
@@ -304,6 +313,7 @@ export function buildMetaExecutionContext(
     // passed the duplicate guard and then returned the compute value: no
     // dispatch, no job:step event, no error. Keeping ctx.step out of the cache
     // entirely closes both.
+    // DESIGN: ctx-step-skips-step-cache
     useCache = true,
   ): Promise<{ value: T; attempts: number; durationMs: number }> => {
     if (signal.aborted) throw cancelledError('aborted before the step ran')
@@ -345,6 +355,12 @@ export function buildMetaExecutionContext(
     }
   }
 
+  // ctx.step: one sub-Pattern dispatch per call, and everything with an effect
+  // a meta can ask of one — a PatternRef (id, input, internal assets) plus
+  // StepOptions (retry, id, identity, key). Everything else a step gets — the
+  // dedup, the duplicate-id and cycle guards, the job:step event, the abort
+  // cascade — the runtime supplies, whoever wrote the call.
+  // DESIGN: ctx-step
   const stepCallable: CtxStepFn = Object.assign(
     async <T,>(ref: PatternRef, options?: StepOptions): Promise<T> => {
       const result = await stepCallable.withMeta<T>(ref, options)
@@ -403,6 +419,11 @@ export function buildMetaExecutionContext(
           ? `${stepIdNamespace}/${stepId}`
           : stepId
 
+        // One effective id per tree. An explicit id that repeats, or one that
+        // lands on a default, is an authoring error: refused at the call,
+        // before the step reusing it is submitted, rather than served twice —
+        // though not before the steps that came earlier in compose have run.
+        // DESIGN: duplicate-step-id
         if (stepIds.has(effectiveStepId)) {
           throw Object.assign(
             new Error(
@@ -416,6 +437,10 @@ export function buildMetaExecutionContext(
         }
         stepIds.add(effectiveStepId)
 
+        // A step naming a pattern already on the ancestor chain would recurse
+        // without bound. Refused at the call, before the child is submitted —
+        // though not before the steps that came earlier in compose have run.
+        // DESIGN: circular-meta-step
         if (visited.has(ref.patternId)) {
           throw Object.assign(
             new Error(
@@ -460,6 +485,7 @@ export function buildMetaExecutionContext(
           // (DUAL_SOURCE_SINGLE_SLOT) rather than relying on the coincidence
           // that no meta happens to pin ref.assets AND forward a handle onto the
           // same single slot.
+          // DESIGN: step-asset-merge-order
           assertNoDualSourcedSingleSlot(
             ref.patternId,
             resolvedFromHandles,
@@ -477,6 +503,11 @@ export function buildMetaExecutionContext(
           const child = await deps.submitChild<unknown, T>(
             {
               patternId: ref.patternId,
+              // As the meta wrote it. Nothing on this path parses a step's
+              // input against the child's `tool.inputs` — not here, not in
+              // `_submitJobInternal` — so a meta that wants a schema default
+              // applied applies it itself.
+              // DESIGN: step-input-unparsed
               input: ref.input,
               // Internal-asset channel (PatternRef.assets) ∪ handle-channel
               // resolution: threads into the child's DispatchContext.assets (the
@@ -514,6 +545,7 @@ export function buildMetaExecutionContext(
               // sub-step in two subtrees would fail to dedupe — is already
               // moot here: the tree-shared counter makes their stepIndex
               // differ today, so they never deduped onto each other anyway.)
+              // DESIGN: step-identity-field
               ...(byId
                 ? { stepKey: effectiveStepId }
                 : { stepIndex: idx }),
@@ -535,6 +567,11 @@ export function buildMetaExecutionContext(
             [...visited],
             sharedState,
           )
+          // A child row that comes back `error`. Unreachable with a conforming
+          // store: a fresh dispatch that fails throws out of `submitChild`
+          // carrying its own code — that throw is what unwinds compose — and
+          // dedup never hands back an errored row. Kept for a store that does.
+          // DESIGN: meta-step-failed-unreachable
           if (child.status === 'error') {
             throw Object.assign(
               new Error(
@@ -559,6 +596,11 @@ export function buildMetaExecutionContext(
               output: child.output,
             })
           }
+          // The child's output, raw — what compose reads, and what a plan's
+          // `$step.path` walks. No handle is minted for it (there is no
+          // recordOutput on this path), and a dedup hit on a row still queued
+          // or running hands back that row's null output, unawaited.
+          // DESIGN: step-returns-raw-output
           return child.output as T
         }
 
@@ -621,6 +663,10 @@ export function buildMetaExecutionContext(
     // counter, so no cross-tree collision. `request.jobId` is the root too — the
     // host routes/cleans by it, unchanged. (`?? jobId`: dispatchMeta always
     // claims rootJobId before this runs; the fallback is belt-and-suspenders.)
+    //
+    // Minting the id advances that counter, so a park moves the position — and
+    // with it the positional key — of every ctx.step after it.
+    // DESIGN: ask-user-consumes-step-counter
     const root = rootJobId ?? jobId
     const request: AskUserRequest = {
       id: `${root}:ask:${stepCounter.value++}`,
@@ -663,7 +709,10 @@ export function buildMetaExecutionContext(
     //
     // Note: ctx.submitJob does NOT pass sharedState — escape hatch starts a
     // fresh meta-state root by design. Authors who want cache inheritance
-    // use ctx.step.
+    // use ctx.step. Nor does it announce itself: job:step is fired from
+    // ctx.step's own run, so a child submitted here never reaches this meta's
+    // stream.
+    // DESIGN: submit-job-escape-hatch
     submitJob: <TIn = unknown, TOut = unknown>(s: JobSpec<TIn>) =>
       deps.submitChild<TIn, TOut>(s, [...visited], makeFreshState()),
     step: stepCallable,

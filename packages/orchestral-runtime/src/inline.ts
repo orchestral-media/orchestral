@@ -70,6 +70,7 @@ import {
   applicableAlternatives,
   assertSupportedModelSpecVersion,
   consoleDiagnosticsLogger,
+  JOB_TERMINAL_STATUSES,
   pickAlternative,
   readRequiresSemantics,
 } from '@orchestral/core'
@@ -130,6 +131,14 @@ function stepAssets(
 /**
  * Event types after which no further event can fan out for that job. Used to
  * release the job's subscriber set — see `fanout`.
+ *
+ * A second spelling of core's state machine, kept by hand: these are the
+ * events core's `nextJobState` names for entering each of
+ * `JOB_TERMINAL_STATUSES` (its private `EVENT_FOR_ENTERING` table). Deriving
+ * the set would mean calling `nextJobState` on a made-up `prev` and throwing
+ * away a refusal branch that cannot fire — a contortion to save four strings.
+ * A status core adds to the terminal set needs its event added here, or its
+ * subscribers are never released.
  */
 const TERMINAL_EVENTS: ReadonlySet<JobEvent['type']> = new Set([
   'job:completed',
@@ -610,7 +619,7 @@ export class InlineRuntime implements Runtime {
       const row = (await this.store.get(jobId)) as Job<TIn, TOut> | null
       // The row exists but never reached terminal, so the failure is in the
       // persistence path, not the dispatch — the row would misreport it.
-      if (!row || row.status === 'queued' || row.status === 'running') throw err
+      if (!row || !JOB_TERMINAL_STATUSES.includes(row.status)) throw err
       return row
     }
   }
@@ -714,6 +723,15 @@ export class InlineRuntime implements Runtime {
     // alter dispatch flow.
     opts?: { onJobCreated?: (jobId: string) => void },
   ): Promise<Job<TIn, TOut>> {
+    // The only question a submit asks of the pattern before it has a row: is
+    // it registered. Read per call, so a meta's steps see the registry as it
+    // is when each one runs, not as it was at submit. Nothing else is asked of
+    // the pattern here — no exposure (host-direct is not an LLM surface) and no
+    // allowlist (that is the agent loop's guard, checked before it submits).
+    // The input can still be refused before the insert: deriving a key the
+    // caller did not supply runs `canonicalise`, which throws on what JSON
+    // cannot carry.
+    // DESIGN: submit-registry-lookup
     const pattern = this.registry.get(spec.patternId)
     if (!pattern) {
       throw Object.assign(
@@ -763,7 +781,10 @@ export class InlineRuntime implements Runtime {
     // because between its `await` and this write another submit with the same
     // key can run the same lookup, also miss, and dispatch a second time
     // (twice the provider spend). The store settles it in one step: we either
-    // own the key or we get handed the row that does.
+    // own the key or we get handed the row that does. That row comes back as it
+    // stands, never awaited: a hit on one still queued or running hands the
+    // caller its null output.
+    // DESIGN: dedup-or-create
     const winner = await this.store.insertIfAbsent(queued as Job)
     if (winner.id !== id) {
       // Dedup hit — a sequential repeat and a lost race land here alike, and
@@ -1010,9 +1031,17 @@ export class InlineRuntime implements Runtime {
       this.fanout(id, { type: 'job:completed', job: final })
       return final
     } catch (err) {
+      // A failed dispatch leaves by THROWING, after its row is written:
+      // `cancelled` when this job's controller was aborted (cancelJob, or a
+      // parent's cascade), `error` under the thrower's own code otherwise. The
+      // throw is what unwinds a meta's compose at a failed ctx.step, so the
+      // code a parent's row ends up carrying is the innermost one.
+      // DESIGN: dispatch-failure-rethrows
       if (controller.signal.aborted) {
         const current = await this.store.get(id)
-        if (current && (current.status === 'queued' || current.status === 'running')) {
+        // Core's set decides what is already settled; only an unsettled row
+        // takes the cancel write.
+        if (current && !JOB_TERMINAL_STATUSES.includes(current.status)) {
           await this.store.update(id, {
             status: 'cancelled',
             error: null,
@@ -1114,6 +1143,10 @@ export class InlineRuntime implements Runtime {
       })
     }
 
+    // `kind` picks the engine, and nothing else here branches on what a
+    // Pattern is: meta and agent return from their own dispatchers, and
+    // everything below is the atomic path.
+    // DESIGN: dispatch-branches-on-kind
     if (pattern.kind === 'meta') {
       return this.dispatchMeta<TIn, TOut>(
         jobId,
@@ -1146,6 +1179,11 @@ export class InlineRuntime implements Runtime {
     // The caller's side of `appliesWhen: { kind: 'preserves-required' }` —
     // see readRequiresSemantics for why it comes off the input.
     const requestedSemantics = readRequiresSemantics(spec.input)
+    // The input as submitted. No dispatch path parses it against
+    // `tool.inputs`: the one input parse is `resolveDispatchTarget`'s, where an
+    // LLM's dispatch_pattern call comes in, and a host submit or a meta's
+    // ctx.step arrives here as written.
+    // DESIGN: dispatch-input-unparsed
     const effectiveInput = spec.input
 
     const baseCtx = this.resolveCtxProvider?.(spec) ?? {}
@@ -1158,6 +1196,10 @@ export class InlineRuntime implements Runtime {
       baseCtx,
     )
 
+    // Alternatives are an atomic-path concern: meta and agent returned above,
+    // so a meta — plan or hand-written — never has a semantic fallback of its
+    // own, only whatever the atomics it dispatches carry.
+    // DESIGN: alternatives-atomic-only
     if (!sat.ok) {
       if (this.alternativesMode === 'auto') {
         const alt = pickAlternative({ registry: this.registry, router: this.router }, atomic, baseCtx, requiredTags, requestedSemantics)
@@ -1536,6 +1578,11 @@ export class InlineRuntime implements Runtime {
     // assets. Gated on bridge + a context id: without either (tests running
     // without a host bridge, host-only meta), sub-steps fall back to the
     // internal `ref.assets` channel as their only source.
+    //
+    // A required slot a step leaves unbound falls to the resolver's default —
+    // the most recent asset of that modality in the context — unless the
+    // internal channel already covers it (the needs filter below).
+    // DESIGN: meta-step-references-resolver
     const bridge = this.agentAssetBridge
     const metaContextId = spec.assetContextId ?? spec.sessionId
     const resolveStepReferences =
@@ -1558,9 +1605,12 @@ export class InlineRuntime implements Runtime {
               (n) => !(coveredSlots.has(n.slot) && refs?.[n.slot] === undefined),
             )
             if (needs.length === 0) return []
-            // Fail-closed — resolveForDispatch throws on unknown handle/slot;
-            // the throw propagates out of ctx.step and fails the meta step
-            // visibly (META_STEP_FAILED), never a silent zero-source dispatch.
+            // Fail-closed — resolveForDispatch throws on an unknown handle or
+            // slot, and that throw unwinds out of ctx.step as thrown: the meta
+            // fails with the bridge's own `.code` (normaliseError keeps it, and
+            // falls back to DISPATCH_EXECUTE_FAILED only when there is none),
+            // not a META_STEP_FAILED relabel — never a silent zero-source
+            // dispatch.
             return bridge.resolveForDispatch({
               contextId: metaContextId,
               input,
@@ -1579,6 +1629,7 @@ export class InlineRuntime implements Runtime {
           // `ctx.step` child so `cancelJob(metaJobId)` cascades down. `signal`
           // here closes over dispatchMeta's `signal` arg, which is the meta's
           // controller.signal (set up in _submitJobInternal).
+          // DESIGN: meta-signal-cascades
         ) => this._submitJobInternal<TIn2, TOut2>(s, ancestors, ss, signal),
         // Sub-steps settle on the parent's stream: a meta is one Job to the
         // caller, so without this a multi-minute chain is silent between
@@ -1625,6 +1676,10 @@ export class InlineRuntime implements Runtime {
       { input: spec.input },
       ctx,
     )
+    // Gated, then returned as compose built it — no projection, no copy. A
+    // parent meta's ctx.step hands the same value, unprojected, to its own
+    // compose: as the child's stored output, after any afterDispatch rewrite.
+    // DESIGN: meta-output-returned-raw
     this.assertOutputConforms(pattern, output)
     return output as TOut
   }
@@ -1675,12 +1730,10 @@ export class InlineRuntime implements Runtime {
         code: 'JOB_NOT_FOUND',
       })
     }
-    if (
-      existing.status === 'done' ||
-      existing.status === 'error' ||
-      existing.status === 'cancelled' ||
-      existing.status === 'stale'
-    ) {
+    // Core's set, not a list spelled here: a copy agrees only until core's set
+    // moves, and then a newly terminal status would get a silent no-op below
+    // (both guarded writes miss) instead of this refusal.
+    if (JOB_TERMINAL_STATUSES.includes(existing.status)) {
       throw Object.assign(
         new Error(`JOB_ALREADY_TERMINAL: ${jobId} is ${existing.status}`),
         { code: 'JOB_ALREADY_TERMINAL' },
@@ -1700,6 +1753,12 @@ export class InlineRuntime implements Runtime {
     // (`findByIdempotencyKey` returns hits only for queued/running/done) —
     // cancelled jobs are still re-runnable.
     void reason // cancellation reason goes to the event below, not the row
+
+    // The two values are core's non-terminal statuses, spelled by hand:
+    // conditionalUpdate takes each as a value, and core exports the terminal
+    // set but no list of all statuses to take its complement from. A status
+    // core adds outside `JOB_TERMINAL_STATUSES` belongs here too, or a job in
+    // it passes the refusal above and is never cancelled.
     for (const nonTerminal of ['queued', 'running'] as const) {
       const wrote = await this.store.conditionalUpdate(
         jobId,
@@ -1744,6 +1803,10 @@ export class InlineRuntime implements Runtime {
    * Runtime.abandonOrphanedJobs for the substrate contract.
    */
   async abandonOrphanedJobs(): Promise<readonly Job[]> {
+    // Core's non-terminal statuses, spelled by hand for the same reason as
+    // cancelJob's guarded writes: the query takes values, and core exports no
+    // complement of `JOB_TERMINAL_STATUSES`. A status core adds outside that
+    // set belongs here, or an orphan in it is never swept.
     const stuck = await this.store.query({
       status: ['queued', 'running'] as readonly JobStatus[],
     })

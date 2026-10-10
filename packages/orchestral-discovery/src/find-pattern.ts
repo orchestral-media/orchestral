@@ -575,6 +575,7 @@ function isPrimarySatisfiable(
  * Non-ZodObject outputs (rare; legacy / hand-rolled Patterns) return
  * `{producesAssets: false}` with no modality — the LLM falls back to selecting
  * via `primary.toolDescription` alone.
+ * DESIGN: summarise-outputs
  */
 function summariseOutputs(outputs: unknown): FindPatternOutputsSummary {
   const summary: FindPatternOutputsSummary = { producesAssets: false }
@@ -623,6 +624,7 @@ function buildMatchDescriptor(
   // serialiser here would be a second place for those bytes to be decided.
   // (Byte-stability itself comes from zod: the render is deterministic for a
   // given ZodSchema — property order = ZodObject shape order.)
+  // DESIGN: find-pattern-renders-via-core
 
   // The host closure returns the merged LLM-facing schema
   // (LIFTABLE fields lifted to top level + typed z.object(remaining) for

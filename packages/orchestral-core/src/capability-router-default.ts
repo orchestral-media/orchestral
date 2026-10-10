@@ -145,6 +145,7 @@ class DefaultCapabilityRouter implements CapabilityRouter {
    * `checkSatisfiable` and `explain` differ only in what they read off the
    * result — the filters themselves exist once, so a diagnosis can never
    * disagree with the candidate list it explains.
+   * DESIGN: one-screening-pass
    */
   private screen(
     cap: Capability,

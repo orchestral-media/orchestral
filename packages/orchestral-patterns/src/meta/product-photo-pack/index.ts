@@ -80,7 +80,10 @@ export function createProductPhotoPackMeta(
     async compose({ input }, ctx: ExecutionContext): Promise<ProductPhotoPackOutput> {
       const startedAt = Date.now()
 
-      // Stage 1 — plan shot slots via text-generation
+      // Stage 1 — plan shot slots via text-generation. The model decides how
+      // many (up to maxSlots), and Stage 2 fans out to exactly that width —
+      // which is why this is compose code and not a fixed step list.
+      // DESIGN: photo-pack-width-from-model
       const gen = await textGeneration(ctx, {
         system: resolved.productPhotoPack,
         prompt: `<BRIEF>\n${input.brief}\n</BRIEF>${styleTag(input.style)}\nPlan up to ${input.maxSlots} shots.`,

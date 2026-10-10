@@ -68,6 +68,7 @@ interface PatternIndexDoc {
  *
  * Extracted to a named const so production telemetry can iterate weights
  * without grepping the constructor literal.
+ * DESIGN: field-boosts
  */
 const FIELD_BOOSTS = {
   patternIdParts: 5.0,

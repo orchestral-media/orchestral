@@ -8,16 +8,18 @@ pnpm changeset
 ```
 
 Pick the packages, pick the bump, write one or two sentences a consumer would
-want in the CHANGELOG. The six `@orchestral/*` packages are a **fixed group**
-— one version line, so any bump moves all six together, which is the
-documented contract (every CHANGELOG says "pin `~0.1`").
+want in the CHANGELOG. The seven `@orchestral/*` packages are a **fixed group**
+— one version line, so any bump moves all seven together, which is the
+documented contract (six of the seven CHANGELOGs say "pin `~0.1`" — all but
+plan's, which joined the line after 0.1.0 wrote that note — and the advice
+follows the line's minor: `~0.4` at 0.4.0).
 
 What happens on merge is `.github/workflows/release.yml`'s job: pending
 changesets accumulate into a "Version Packages" PR; merging THAT PR runs the
 full verification gate and publishes. `@orchestral/dsh-plugin` is in
 `ignore` on purpose — it versions against its dev-preview host and publishes
 manually (PUBLISH.md §7). Never give it a changeset, and never tick it in
-`pnpm changeset` alongside the six: changesets refuses a changeset that
+`pnpm changeset` alongside the seven: changesets refuses a changeset that
 mixes ignored and released packages, and the refusal lands as a red release
 run on main.
 

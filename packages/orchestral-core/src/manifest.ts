@@ -23,6 +23,7 @@ import type { Pattern } from './pattern'
 // `satisfies` rather than a bare literal: if a Pattern kind is ever renamed,
 // this stops compiling instead of silently accepting a manifest nothing can
 // build.
+// DESIGN: manifest-pattern-kinds
 const PATTERN_KINDS = [
   'atomic',
   'meta',

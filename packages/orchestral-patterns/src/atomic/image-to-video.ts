@@ -25,6 +25,9 @@ export const ImageToVideoPrimaryInputSchema = z.object({
     .describe('Optional natural-language description of the desired motion.'),
 })
 
+// `startFrame` is the only required slot, and single: a call animates exactly
+// one still. Everything after it refines the motion and may be left out.
+// DESIGN: start-frame-slot
 const ASSET_NEEDS = [
   {
     slot: 'startFrame',

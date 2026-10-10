@@ -36,6 +36,7 @@ same order, interleaved with `pnpm docs:catalog` and
   point — review the diff, run `pnpm api:update`, and commit the updated
   `packages/*/etc/*.api.md` report with your change so the API delta is visible
   in review.
+  <!-- DESIGN: api-report-with-the-change -->
 - **New behaviour needs a test.** The packages have no I/O and no provider SDK,
   so almost everything is directly unit-testable.
 - **Changing a published package? Add a changeset.** Run `pnpm changeset`,

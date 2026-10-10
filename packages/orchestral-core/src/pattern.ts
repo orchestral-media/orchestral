@@ -168,6 +168,7 @@ export interface PatternBase<I = unknown, O = unknown> {
    * Deliberately not a `kind`: adding a kind would touch PATTERN_KINDS, the
    * sub-agent blocklist and every kind filter, for no change in how the thing
    * executes.
+   * DESIGN: origin-is-provenance
    */
   origin?: 'plan'
 
@@ -219,6 +220,11 @@ export interface PatternBase<I = unknown, O = unknown> {
    * providerOptions / sessionId), since their branches run before any fork.
    *
    * The actual rejection/confirmation UI is up to the host.
+   *
+   * It is handed the input and a dispatch context, never the registry, and a
+   * refusal is always PERMISSION_DENIED — a verdict on whether this Pattern
+   * may run, not on whether what it was asked to do is well-formed.
+   * DESIGN: check-permissions-hook
    */
   checkPermissions?: (
     input: I,
@@ -234,6 +240,7 @@ export interface PatternBase<I = unknown, O = unknown> {
    * The resolution pass uses this to resolve the handle the LLM fills
    * (`inputs.references`) into a real assetId landing in `ctx.assets`. This
    * declares intent only; it carries no resolution logic.
+   * DESIGN: asset-needs-declared-slots
    */
   assetNeeds?: readonly AssetNeed[]
 }
