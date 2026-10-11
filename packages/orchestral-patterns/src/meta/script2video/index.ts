@@ -416,17 +416,28 @@ export function createScript2VideoMeta(
       //
       // Image-gen atomics (text-to-image / image-to-image) have no system
       // slot, so each per-view prompt is folded into the prompt prefix.
+      //
+      // Each view is named by the character's position in `visible`. Side and
+      // back are dispatched after that character's front settles, so across
+      // characters they are reached in completion order; unnamed, their
+      // positions — and so their keys — could change between runs, and a
+      // resubmit would pay for them again. `i`, not `c.idx`: the model writes
+      // `idx` and nothing makes it unique.
       const portraitByCharIdx = new Map<number, PortraitSet>()
       await parallel(
-        visible.map(async (c) => {
+        visible.map(async (c, i) => {
           // Stage 5a — front view (text-to-image, no reference).
-          const front = await textToImage(ctx, {
-            // No generation overrides — the slimmed atomic defers to the
-            // resolved model's native defaults; this meta consumes only the
-            // first produced still, and a still's dimensions don't drive the
-            // clip output (the image-to-video step owns that).
-            prompt: `${skills.portraitFront}\n\nCharacter: ${c.identifierInScene}\nFeatures: ${c.staticFeatures} ${c.dynamicFeatures}${styleSuffix}`,
-          })
+          const front = await textToImage(
+            ctx,
+            {
+              // No generation overrides — the slimmed atomic defers to the
+              // resolved model's native defaults; this meta consumes only the
+              // first produced still, and a still's dimensions don't drive the
+              // clip output (the image-to-video step owns that).
+              prompt: `${skills.portraitFront}\n\nCharacter: ${c.identifierInScene}\nFeatures: ${c.staticFeatures} ${c.dynamicFeatures}${styleSuffix}`,
+            },
+            { stepId: `portrait-front-${i}` },
+          )
           const frontId = firstAssetId(front, 'script2video: step')
 
           // Stage 5b/5c — side ∥ back (image-to-image, source = front).
@@ -436,14 +447,20 @@ export function createScript2VideoMeta(
               {
                 prompt: `${skills.portraitSide}\n\nCharacter: ${c.identifierInScene}`,
               },
-              { assets: [{ slot: 'source', assetId: frontId, modality: 'image' }] },
+              {
+                stepId: `portrait-side-${i}`,
+                assets: [{ slot: 'source', assetId: frontId, modality: 'image' }],
+              },
             ),
             imageToImage(
               ctx,
               {
                 prompt: `${skills.portraitBack}\n\nCharacter: ${c.identifierInScene}`,
               },
-              { assets: [{ slot: 'source', assetId: frontId, modality: 'image' }] },
+              {
+                stepId: `portrait-back-${i}`,
+                assets: [{ slot: 'source', assetId: frontId, modality: 'image' }],
+              },
             ),
           ])
           costs.push(front.cost, side.cost, back.cost)
