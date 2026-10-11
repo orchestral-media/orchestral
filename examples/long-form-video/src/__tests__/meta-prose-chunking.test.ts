@@ -135,9 +135,9 @@ describe('meta_prose-chunking', () => {
       (c) => String(c.input.system) === NARRATIVE_COMPRESSION_PROMPT,
     )
     expect(compressCalls.length).toBeGreaterThanOrEqual(2)
-    // Each compress call carries a unique stepId — without override they'd
-    // collapse onto a single stepCache entry and we'd only get one
-    // compressed chunk.
+    // Each compress call carries its own stepId, which keys each chunk's row
+    // by its chunk; unnamed they would still be one row per chunk, numbered
+    // by position among this compose's text-generation calls.
     const stepIds = compressCalls.map((c) => c.stepOptions?.stepId)
     const uniqueIds = new Set(stepIds)
     expect(uniqueIds.size).toBe(compressCalls.length)

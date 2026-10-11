@@ -349,7 +349,7 @@ describe('meta_plan — re-run after inserting an independent step', () => {
     expect(host.calls.imageToVideo).toHaveBeenCalledTimes(1)
   })
 
-  it('each child row is keyed on the stepKey, never on the counter position', async () => {
+  it('each child row is keyed on the step name, never on its position', async () => {
     const host = hostWithPlanMeta()
     const session = 'session-key'
     const run = await host.run<PlanOutput>(PLAN_PATTERN_ID, bicycle(), session)

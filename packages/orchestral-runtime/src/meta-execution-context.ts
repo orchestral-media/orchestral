@@ -173,6 +173,107 @@ export interface MetaCtxDeps {
   getAssetNeeds?: (patternId: PatternId) => readonly AssetNeed[]
   /** Host HITL seam (InlineRuntimeInit.askUser), threaded through dispatchMeta. */
   askUser?: AskUserHandler
+  /**
+   * The fence on this compose, held by `dispatchMeta`, which closes it when
+   * compose rejects or its output is refused. Optional so a host driving `buildMetaExecutionContext`
+   * directly needs none; absent, the ctx keeps one of its own that nothing
+   * closes.
+   */
+  fence?: ComposeFence
+}
+
+/**
+ * The `ctx.step` and `ctx.submitJob` calls one compose has started and not
+ * yet seen settle, and the switch that stops it starting more. Once closed,
+ * `ctx.step`, `ctx.submitJob` and `ctx.askUser` on that ctx refuse with
+ * `STEP_AFTER_COMPOSE_FAILED` before they claim an ordinal, register an id,
+ * submit a child or mint an ask id. `ctx.compute` is not fenced: it has no
+ * identity to register and nothing to park on.
+ */
+export interface ComposeFence {
+  readonly closed: boolean
+  /** Hold `step` until it settles; returns it unchanged. */
+  track<T>(step: Promise<T>): Promise<T>
+  /**
+   * Close, then resolve once every step tracked so far has settled. Nothing
+   * is tracked after the close, so that is every step the compose will ever
+   * have started. Never rejects.
+   */
+  closeAndSettle(): Promise<void>
+}
+
+export function makeComposeFence(): ComposeFence {
+  let closed = false
+  const inFlight = new Set<Promise<unknown>>()
+  return {
+    get closed() {
+      return closed
+    },
+    track(step) {
+      inFlight.add(step)
+      const drop = (): void => {
+        inFlight.delete(step)
+      }
+      step.then(drop, drop)
+      return step
+    },
+    async closeAndSettle() {
+      closed = true
+      await Promise.allSettled([...inFlight])
+    },
+  }
+}
+
+/**
+ * What a call on a fenced ctx meets. A compose that has failed starts nothing
+ * more: its row is about to fail, and a retry of the step that launched it
+ * releases the ids under that step and dedupes onto the rows they keyed — so
+ * an id registered, or a row started, after the failure is exactly what the
+ * retry must not meet.
+ */
+function stepAfterComposeFailedError(
+  metaId: PatternId,
+  call: 'ctx.step' | 'ctx.askUser' | 'ctx.submitJob',
+): Error {
+  return Object.assign(
+    new Error(
+      `STEP_AFTER_COMPOSE_FAILED: ${metaId} called ${call} after its compose ` +
+        `had already failed; a failed compose starts nothing more.`,
+    ),
+    { code: 'STEP_AFTER_COMPOSE_FAILED' },
+  )
+}
+
+/**
+ * One rule for every path segment: it never contains `/`. `/` joins the
+ * segments of a step's path, and a `ctx.compute` cache key is built the same
+ * way, so a segment carrying one forges a boundary. An explicit step id
+ * `panel-1/x` reads as step `x` under a sibling `panel-1`, is released when
+ * that sibling retries, and can then be taken again unchallenged; a root
+ * `compute('a/b')` shares a cache slot with `compute('b')` under a step named
+ * `a`, and one silently gets the other's value. So a step id or compute id
+ * carrying `/` is refused, before anything is registered or read. A pattern
+ * id may carry `/` (`image-gen/fancy-edit`), so a default segment escapes it
+ * instead — `%` first, then `/`, which keeps the encoding one-to-one.
+ * DESIGN: step-id-reserved-character
+ */
+function reservedCharacterError(
+  metaId: PatternId,
+  kind: 'step' | 'compute',
+  id: string,
+): Error {
+  return Object.assign(
+    new Error(
+      `STEP_ID_RESERVED_CHARACTER: ${metaId} named a ${kind} '${id}'; '/' ` +
+        `separates the segments of a step's path and cannot appear in one.`,
+    ),
+    { code: 'STEP_ID_RESERVED_CHARACTER' },
+  )
+}
+
+/** A default step id, `${patternId}#${n}`, with the pattern id escaped. */
+function defaultSegment(patternId: PatternId, n: number): string {
+  return `${patternId.replace(/%/g, '%25').replace(/\//g, '%2F')}#${n}`
 }
 
 /**
@@ -307,6 +408,8 @@ export function buildMetaExecutionContext(
   const { stepCache, askCounter, stepIds, rootJobId } = sharedState
   // Unnamed steps' ordinals, per pattern, for THIS compose only — see ctx.step.
   const ordinals = new Map<PatternId, number>()
+  // What this compose's steps have started, and whether it may start more.
+  const fence = deps.fence ?? makeComposeFence()
 
   const runWithRetry = async <T,>(
     id: string,
@@ -371,16 +474,33 @@ export function buildMetaExecutionContext(
   // dedup, the duplicate-id and cycle guards, the job:step event, the abort
   // cascade — the runtime supplies, whoever wrote the call.
   // DESIGN: ctx-step
+  //
+  // `withMeta` is fenced: once compose has failed and `dispatchMeta` has closed
+  // the fence, a call is refused before it claims anything; a call that gets
+  // past it is tracked until it settles, so `dispatchMeta` can wait for it.
+  const fenced =
+    (dispatch: CtxStepFn['withMeta']): CtxStepFn['withMeta'] =>
+    <T,>(ref: PatternRef, options?: StepOptions): Promise<StepResult<T>> => {
+      if (fence.closed) {
+        return Promise.reject(stepAfterComposeFailedError(metaId, 'ctx.step'))
+      }
+      return fence.track(dispatch<T>(ref, options))
+    }
   const stepCallable: CtxStepFn = Object.assign(
     async <T,>(ref: PatternRef, options?: StepOptions): Promise<T> => {
       const result = await stepCallable.withMeta<T>(ref, options)
       return result.value
     },
     {
-      withMeta: async <T,>(
+      withMeta: fenced(async <T,>(
         ref: PatternRef,
         options?: StepOptions,
       ): Promise<StepResult<T>> => {
+        // No `/` in a name: it would forge a path boundary (see
+        // reservedCharacterError). Refused before it is registered.
+        if (options?.stepId?.includes('/')) {
+          throw reservedCharacterError(metaId, 'step', options.stepId)
+        }
         // A step's id is its name, or — unnamed — its position: the ordinal of
         // this call among this compose's unnamed calls to the same pattern.
         // The ordinal lives in this closure, not in the shared state, because
@@ -388,12 +508,13 @@ export function buildMetaExecutionContext(
         // subtrees interleave on it, and a sibling that dedupes skips its
         // compose and the numbers it would have taken, so a step that had
         // succeeded drew a new number on the resubmit and was paid for again.
-        // Counting only unnamed calls means naming or moving a named step never
-        // renumbers one; counting per pattern means a call to another pattern
-        // never does. Claimed here, at the call, before anything is awaited —
-        // `parallel([...])` and an uncapped `parallel.limit` rely on that to
-        // number in list order. Unnamed calls reached from concurrent branches
-        // after an await take theirs in the order they are reached: name those.
+        // Counting only unnamed calls means adding, removing or moving a named
+        // step never renumbers one; counting per pattern means a call to
+        // another pattern never does. Claimed here, at the call, before
+        // anything is awaited — `parallel([...])` and an uncapped
+        // `parallel.limit` rely on that to number in list order. Unnamed calls
+        // reached from concurrent branches after an await take theirs in the
+        // order they are reached: name those.
         // DESIGN: default-step-id-is-positional
         let stepId: string
         if (options?.stepId !== undefined) {
@@ -401,7 +522,8 @@ export function buildMetaExecutionContext(
         } else {
           const n = ordinals.get(ref.patternId) ?? 0
           ordinals.set(ref.patternId, n + 1)
-          stepId = `${ref.patternId}#${n}`
+          // Escaped, so a `/` in the pattern id never reads as a boundary.
+          stepId = defaultSegment(ref.patternId, n)
         }
         // Prefix with the launching step's effective id. Default ids are
         // numbered per compose, so they repeat across composes exactly as an
@@ -453,7 +575,12 @@ export function buildMetaExecutionContext(
         // its own first step instead of finding the rows that attempt banked.
         // This step's own id is not under the prefix and stays registered
         // once. The compute cache is left alone: computes the failed attempt
-        // settled are reused, as the rows it banked are.
+        // settled are reused, as the rows it banked are. The failed attempt is
+        // quiet by now: when a meta child's compose fails or its output is
+        // refused, its row fails only once the steps that compose started
+        // have settled, and it starts none after (see ComposeFence) — so no
+        // id lands under the prefix after this release, and no row it keyed is
+        // still running.
         let attempt = 0
         const run = async (): Promise<T> => {
           if (attempt++ > 0) {
@@ -613,7 +740,7 @@ export function buildMetaExecutionContext(
           false,
         )
         return { value, meta: { stepId, attempts, durationMs } }
-      },
+      }),
     },
   )
 
@@ -631,7 +758,10 @@ export function buildMetaExecutionContext(
     // cached value → silently corrupted output. compute does NOT go
     // through the stepIds dedup set (only ctx.step does), so the cache key is
     // the only thing to namespace. Top-level compute (stepIdNamespace
-    // undefined) → cid === id, no prefix.
+    // undefined) → cid === id, no prefix. The key is built like a path, so
+    // an id carrying `/` is refused before the cache is read (see
+    // reservedCharacterError).
+    if (id.includes('/')) throw reservedCharacterError(metaId, 'compute', id)
     const cid = stepIdNamespace ? `${stepIdNamespace}/${id}` : id
     const { value } = await runWithRetry<T>(cid, fn, options)
     return value
@@ -640,6 +770,10 @@ export function buildMetaExecutionContext(
   const askUserRaw = async <TPayload, TAnswer>(
     opts: AskUserOptions<TPayload, TAnswer>,
   ): Promise<TAnswer> => {
+    // Fenced like ctx.step, before an ask id is minted. A park already open
+    // when compose failed is not waited for; it waits on a person, holds no
+    // row, and its branch meets this refusal if it asks again.
+    if (fence.closed) throw stepAfterComposeFailedError(metaId, 'ctx.askUser')
     if (signal.aborted) throw cancelledError('aborted before ctx.askUser parked')
     if (!deps.askUser) {
       throw Object.assign(
@@ -707,8 +841,16 @@ export function buildMetaExecutionContext(
     // ctx.step's own run, so a child submitted here never reaches this meta's
     // stream.
     // DESIGN: submit-job-escape-hatch
-    submitJob: <TIn = unknown, TOut = unknown>(s: JobSpec<TIn>) =>
-      deps.submitChild<TIn, TOut>(s, [...visited], makeFreshState()),
+    //
+    // It is fenced like ctx.step: refused once compose has failed, and
+    // tracked while in flight, so a failed compose starts nothing more by
+    // any route and its row fails only once this child has settled too.
+    submitJob: <TIn = unknown, TOut = unknown>(s: JobSpec<TIn>) => {
+      if (fence.closed) {
+        return Promise.reject(stepAfterComposeFailedError(metaId, 'ctx.submitJob'))
+      }
+      return fence.track(deps.submitChild<TIn, TOut>(s, [...visited], makeFreshState()))
+    },
     step: stepCallable,
     compute,
     // Generic raw bridge (mint id + raceAbort + answerSchema.parse) wrapped in

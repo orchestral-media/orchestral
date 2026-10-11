@@ -9,10 +9,11 @@
 //
 // What it buys that naming the step does not: the derived key hashes
 // `sessionId` ("dedup never crosses a session boundary" — idempotency.ts), so
-// name-keying survives an edit to the step list but not a new session. A caller
-// whose notion of "the same work" outlives a session — anything keyed on the
-// content of the request rather than on the conversation it arrived in — cannot
-// express it through the derivation at all.
+// name-keying survives an edit to the other steps in its compose (unless an
+// unnamed step that launched the compose is renumbered) but not a new session.
+// A caller whose notion of "the same work" outlives a session — anything keyed
+// on the content of the request rather than on the conversation it arrived in
+// — cannot express it through the derivation at all.
 //
 // Tested end to end over a real InlineRuntime + InMemoryJobStore, because the
 // property only exists across `ctx.step` → `submitChild` →

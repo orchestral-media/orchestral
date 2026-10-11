@@ -65,7 +65,7 @@ export interface PatternFn<I, O> {
  *
  * The returned function's stepId defaults to ctx.step's positional id
  * (`${patternId}#${n}`, n counted among this compose's unnamed calls to the
- * pattern); pass `options.stepId` to name it — the name then keys its row —
+ * pattern; a `/` in the pattern id is written `%2F`); pass `options.stepId` to name it — the name then keys its row —
  * for fan-out (`{ stepId: \`portrait-\${i}\` }`).
  *
  * Every option but `assets` reaches `ctx.step` untouched, so a new StepOptions

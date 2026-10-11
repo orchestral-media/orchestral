@@ -36,10 +36,12 @@ export interface StepOptions {
   /**
    * Name this step. The name keys the step's durable JobStore row, prefixed by
    * the ids of the steps that launched this compose, so adding, removing or
-   * reordering OTHER steps never re-keys it.
+   * reordering other steps in this compose never re-keys it. It moves only if
+   * a step that launched this compose is renumbered, so name that one too.
    *
-   * Unnamed, the id is `${patternId}#${n}`: n counts the unnamed calls to the
-   * same pattern this compose made before this one. Inserting a named step, or
+   * Unnamed, the id is `${patternId}#${n}` (a `/` in the pattern id is
+   * written `%2F`): n counts the unnamed calls to the same pattern this
+   * compose made before this one. Inserting a named step, or
    * an unnamed call to another pattern, leaves it alone; inserting an unnamed
    * call to the same pattern ahead of it renumbers it, and a renumbered step
    * runs again. N identical unnamed dispatches are still N rows.
@@ -55,6 +57,9 @@ export interface StepOptions {
    *
    * A name is unique within its compose: a repeat, or a name spelled like a
    * default id that this compose also produces, throws `DUPLICATE_STEP_ID`.
+   * It may not contain `/`, which separates the ids in a step's path: that
+   * throws `STEP_ID_RESERVED_CHARACTER`, as a `ctx.compute` id carrying one
+   * does.
    */
   stepId?: string
 
@@ -68,7 +73,9 @@ export interface StepOptions {
    * "dedup never crosses a session boundary" is a deliberate property of it,
    * not an oversight. So a caller whose notion of "the same work" is broader
    * than one session cannot express it through the step's name: a named step
-   * survives an edit to the step list, and still re-pays in a new session.
+   * survives an edit to the other steps in its compose (unless an unnamed
+   * step that launched the compose is renumbered), and still re-pays in a
+   * new session.
    * Content-addressed reuse that outlives the conversation the request arrived
    * in is a key question, and this is where a caller answers it.
    *

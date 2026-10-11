@@ -1153,8 +1153,9 @@ deps: AgentDispatchDeps,
           // judgements for every id it names, before anything is submitted:
           // a plan's inner steps inherit the allowlist of the call that
           // dispatched the plan, rather than escaping it by being one level
-          // down. `_submitJobInternal` checks only `registry.get`, and
-          // `ctx.step` adds only DUPLICATE_STEP_ID / CIRCULAR_META_STEP, so
+          // down. `_submitJobInternal` checks only `registry.get`, and none
+          // of the refusals `ctx.step` adds asks whether the target is
+          // allowed — none consults an allowlist or the `agent_` prefix — so
           // without this a meta in `toolPatternIds` can step into anything
           // registered.
           //

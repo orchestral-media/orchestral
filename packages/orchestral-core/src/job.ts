@@ -147,7 +147,8 @@ export interface JobSpec<TInput = unknown> {
    * submits: the ids of the steps that launched its compose, then its own,
    * joined by `/` — `panel-0/meta_image-best-of-n#0/text-to-image#1`. Each
    * segment is the name its author gave (`StepOptions.stepId`) or, unnamed,
-   * `${patternId}#${n}` with n counted within that one compose.
+   * `${patternId}#${n}` with n counted within that one compose (a `/` in the
+   * pattern id is written `%2F`).
    *
    * IDENTITY, not routing: `deriveIdempotencyKey` hashes it, so a step finds
    * its row run after run whatever else ran around it, and two places in one
@@ -162,16 +163,17 @@ export interface JobSpec<TInput = unknown> {
   stepKey?: string
   /**
    * stepId namespace prefix a parent meta stamps onto a child meta's spec. The
-   * child meta uses it to namespace its OWN internal stepId space (stepCache
-   * key, duplicate-detection set, and the `stepKey` of each of its steps), so
-   * the SAME meta type dispatched multiple times in one tree (e.g.
+   * child meta uses it to namespace its OWN ids — each step's entry in the
+   * duplicate-detection set and its `stepKey`, and each `ctx.compute` cache
+   * key — so the SAME meta type dispatched multiple times in one tree (e.g.
    * meta_storyboard rendering panel-0 and panel-1, each running
    * meta_image-best-of-n with fixed explicit stepIds `candidate-0`…) doesn't
    * collide on those ids — explicit ones like `candidate-0`, and default ones,
-   * which are numbered per compose — or cross-contaminate the shared
-   * stepCache. The parent sets it to the EFFECTIVE stepId of the step
-   * launching the child (e.g. `panel-0`), so the child's `candidate-0` becomes
-   * `panel-0/candidate-0` — deterministically unique at any nesting depth.
+   * which are numbered per compose — or serve one run's `ctx.compute` result
+   * to the other from the tree's shared cache. The parent sets it to the
+   * EFFECTIVE stepId of the step launching the child (e.g. `panel-0`), so the
+   * child's `candidate-0` becomes `panel-0/candidate-0` — deterministically
+   * unique at any nesting depth.
    * Top-level meta dispatches leave it absent, so no prefix is applied.
    *
    * Routing metadata: this field is never hashed. Its value is — once, as this

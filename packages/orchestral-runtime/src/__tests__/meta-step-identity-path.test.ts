@@ -3,7 +3,8 @@
 // unnamed, `${patternId}#${n}` with n counted among this compose's unnamed
 // calls to that pattern. Nothing that happens around the step moves it: not a
 // sibling subtree that dedupes and skips its compose, not a park, not a cap on
-// a level, not a retry, not a step inserted elsewhere.
+// a level, not a retry, not a named step, or a call to another pattern,
+// inserted elsewhere.
 //
 // Two harnesses. The end-to-end one is a real InlineRuntime + InMemoryJobStore,
 // because the property only exists there (`ctx.step` → `submitChild` →
@@ -92,6 +93,8 @@ function meta<I>(
 }
 
 const gen = (prompt: string) => ({ patternId: 'fake-gen' as PatternId, input: { prompt } })
+/** A pattern id with a vendor prefix, as the registry's short names allow. */
+const SLASHED = 'image-gen/fancy-edit' as PatternId
 const genB = (prompt: string) => ({ patternId: 'fake-gen-b' as PatternId, input: { prompt } })
 
 // Two unnamed steps, `${tag}-1` then `${tag}-2`.
@@ -178,6 +181,18 @@ const metaOuter = meta<Record<string, never>>('meta_outer', async (_p, ctx) => {
 
 const RETRY = { kind: 'fixed', maxAttempts: 2, delayMs: 0 } as const
 
+interface StrandInput {
+  named: boolean
+  shape: 'read' | 'late'
+}
+
+/** `done` if the call went through, else the code it was refused with. */
+const outcomeOf = (call: Promise<unknown>): Promise<string> =>
+  call.then(
+    () => 'done',
+    (err: unknown) => (err as { code?: string } | null)?.code ?? 'no code',
+  )
+
 // ── Host ───────────────────────────────────────────────────────────────────
 
 interface StepRecord {
@@ -241,7 +256,11 @@ function makeHost() {
       source: 'user',
       call,
     }) as unknown as ModelCapability
-  const caps = { 'fake-gen': capability('fake-gen'), 'fake-gen-b': capability('fake-gen-b') }
+  const caps = {
+    'fake-gen': capability('fake-gen'),
+    'fake-gen-b': capability('fake-gen-b'),
+    [SLASHED]: capability(SLASHED),
+  }
   const pick = (cap: string) => caps[cap as keyof typeof caps]
   // Ignores excludeModel, so a failing prompt is walked through the whole
   // fallback depth — see the header.
@@ -276,10 +295,170 @@ function makeHost() {
     }
   })
 
+  // A compose that fails while one of its branches is still running: `slow`
+  // waits on `strand.slow`, and `boom` fails on the first attempt only. Shape
+  // `read` hands slow's output to the branch's next step; shape `late` starts
+  // that step only once slow has settled, which is when a failed attempt's
+  // branch would register its id. A later attempt releases `slow` itself, at
+  // the moment its shape is about — so a runtime that failed the row at once
+  // meets the first attempt's branch still running.
+  //
+  // A runtime that waits never starts the retry while `slow` is held, so
+  // something else has to release it: a step the first compose asks for once
+  // the runtime has seen it reject. The ask is attached from a microtask queued
+  // inside compose, which runs after the runtime has started awaiting the
+  // promise compose returned, so its reaction to the rejection runs after the
+  // runtime's, which closes the fence before it awaits anything. Refused, the
+  // probe shows the ctx is fenced, and the hold can go; dispatched, it leaves
+  // `slow` held, and a runtime that waits would time the test out rather than
+  // pass it.
+  const strand = {
+    composeRuns: 0,
+    slow: deferred(),
+    lateCalled: deferred(),
+    /** What the first attempt's branch met when it asked for its next step. */
+    straggler: deferred<string>(),
+    /** What a step asked for after the runtime saw the first compose reject met. */
+    probe: deferred<string>(),
+  }
+  const metaStrand = meta<StrandInput>('meta_strand', ({ input }, ctx) => {
+    const attempt = ++strand.composeRuns
+    const as = (stepId: string) => (input.named ? { stepId } : undefined)
+    const body = (async () => {
+      if (attempt > 1) {
+        failing.delete('boom')
+        if (input.shape === 'late') {
+          strand.slow.resolve()
+          await strand.lateCalled.promise
+        }
+      }
+      const branch = (async () => {
+        const s = await ctx.step<{ assetId: string }>(gen('slow'), as('slow'))
+        const next = ctx.step(gen(input.shape === 'read' ? `late-${s.assetId}` : 'late'), as('late'))
+        if (attempt > 1) return next
+        strand.lateCalled.resolve()
+        strand.straggler.resolve(await outcomeOf(next))
+      })()
+      const boom = ctx.step(gen('boom'), as('boom'))
+      // `slow` has been asked for: the row the `read` shape dedupes onto is
+      // still running until now.
+      if (attempt > 1) strand.slow.resolve()
+      await parallel([branch, boom])
+      return 'ok'
+    })()
+    if (attempt === 1) {
+      queueMicrotask(() => {
+        body.catch(async () => {
+          // Another pattern, so an unnamed probe takes no `fake-gen` ordinal.
+          const code = await outcomeOf(ctx.step(genB('probe'), as('probe')))
+          strand.probe.resolve(code)
+          if (code !== 'done') strand.slow.resolve()
+        })
+      })
+    }
+    return body
+  })
+  const metaStrandRoot = meta<StrandInput>('meta_strand_root', async ({ input }, ctx) =>
+    ctx.step({ patternId: 'meta_strand' as PatternId, input }, { retry: RETRY }),
+  )
+
+  // Fails on `boom` while a branch waits — on `afterFailure.gate`, or parked on
+  // `ctx.askUser` — then, once let go, asks for a step and a park.
+  const afterFailure = {
+    gate: deferred(),
+    outcome: deferred<{ step: string; ask: string }>(),
+  }
+  const metaAfterFailure = meta<{ park: boolean }>('meta_after_failure', async ({ input }, ctx) => {
+    const waiting = (async () => {
+      if (input.park) await ctx.askUser.confirm({ title: 'parked' })
+      else await afterFailure.gate.promise
+      const step = await outcomeOf(ctx.step(gen('after')))
+      const ask = await outcomeOf(ctx.askUser.confirm({ title: 'after' }))
+      afterFailure.outcome.resolve({ step, ask })
+    })()
+    await parallel([waiting, ctx.step(gen('boom'))])
+    return 'unreachable'
+  })
+
+  // A root whose unnamed call to `image-gen/fancy-edit` sits beside a step
+  // named `image-gen`, whose child meta names its own step `fancy-edit#0` and
+  // fails its first attempt after that step. Last, the root names a step the
+  // way the sibling's default id is spelled, to see whether that id is still
+  // taken.
+  const slash = { attempts: 0 }
+  const metaSlashChild = meta<Record<string, never>>('meta_slash_child', async (_p, ctx) => {
+    const out = await ctx.step(gen('edit'), { stepId: 'fancy-edit#0' })
+    if (slash.attempts++ === 0) throw new Error('meta_slash_child: the first attempt fails after its step')
+    return out
+  })
+  const metaSlashRoot = meta<Record<string, never>>('meta_slash_root', async (_p, ctx) => {
+    await ctx.step({ patternId: SLASHED, input: { prompt: 'sibling' } })
+    await ctx.step(
+      { patternId: 'meta_slash_child' as PatternId, input: {} },
+      { stepId: 'image-gen', retry: RETRY },
+    )
+    const again = await outcomeOf(ctx.step(gen('again'), { stepId: 'image-gen%2Ffancy-edit#0' }))
+    return { again }
+  })
+
+  // Resolves with a step still in flight, then returns an output its gate
+  // refuses. The gate is where `slow` is let go: the refinement runs inside
+  // the runtime's output check, so whatever the runtime does on refusing the
+  // output it does before `slow`'s branch can move.
+  const gateFails = {
+    slow: deferred(),
+    /** What `slow`'s branch met when it asked for its next step. */
+    after: deferred<string>(),
+  }
+  const metaGate: MetaPattern<Record<string, never>, unknown> = {
+    ...meta<Record<string, never>>('meta_gate', async (_p, ctx) => {
+      await Promise.race([
+        ctx.step(gen('fast')),
+        (async () => {
+          await ctx.step(gen('slow'))
+          gateFails.after.resolve(await outcomeOf(ctx.step(gen('after-gate'))))
+        })(),
+      ])
+      return { ok: false }
+    }),
+    outputs: z.unknown().refine(() => {
+      gateFails.slow.resolve()
+      return false
+    }, 'the gate refuses every output') as never,
+  }
+
+  // Fails on `boom` while a `ctx.submitJob` child is in flight, then — once
+  // the runtime has seen compose reject (see `strand`) — asks for another.
+  const hatch = {
+    slow: deferred(),
+    /** What the escape hatch met when asked after the failure. */
+    probe: deferred<string>(),
+  }
+  const metaEscape = meta<Record<string, never>>('meta_escape', (_p, ctx) => {
+    const body = (async () => {
+      await parallel([
+        ctx.submitJob({ patternId: 'fake-gen' as PatternId, input: { prompt: 'escape-slow' } }),
+        ctx.step(gen('boom')),
+      ])
+      return 'unreachable'
+    })()
+    queueMicrotask(() => {
+      body.catch(async () => {
+        const code = await outcomeOf(
+          ctx.submitJob({ patternId: 'fake-gen' as PatternId, input: { prompt: 'escape-after' } }),
+        )
+        hatch.probe.resolve(code)
+        if (code !== 'done') hatch.slow.resolve()
+      })
+    })
+    return body
+  })
+
   const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
   for (const p of [
     atomic('fake-gen'),
     atomic('fake-gen-b'),
+    atomic(SLASHED),
     metaChild,
     metaRootParallel,
     metaCapped,
@@ -290,9 +469,19 @@ function makeHost() {
     metaOuter,
     metaFlaky,
     metaRetry,
+    metaStrand,
+    metaStrandRoot,
+    metaAfterFailure,
+    metaSlashChild,
+    metaSlashRoot,
+    metaGate,
+    metaEscape,
   ]) {
     registry.register(p as never)
   }
+
+  const asked: AskUserRequest[] = []
+  let askHold: Promise<void> | undefined
 
   const watchers: Array<{ match: (spec: JobSpec) => boolean; done: Deferred<void> }> = []
   let current: Run | undefined
@@ -303,7 +492,11 @@ function makeHost() {
     router,
     registry,
     store: new InMemoryJobStore() as never,
-    askUser: (async () => ({ confirmed: true })) as AskUserHandler,
+    askUser: (async (request: AskUserRequest) => {
+      asked.push(request)
+      if (askHold) await askHold
+      return { confirmed: true }
+    }) as AskUserHandler,
     onJobCreated: (jobId: string, spec: JobSpec) => {
       if (!current) return
       const run = current
@@ -325,16 +518,30 @@ function makeHost() {
 
   return {
     flaky,
+    strand,
+    afterFailure,
+    gateFails,
+    hatch,
+    poll: (jobId: string) => runtime.pollJob(jobId),
+    /** Every prompt that reached the model, across runs, in call order. */
+    calls: calls as readonly string[],
+    /** Every park the host was asked to answer. */
+    asked: asked as readonly AskUserRequest[],
     /** Prompts that throw MOCK_FAIL, on every call, until cleared. */
     failing,
     /** Hold a prompt's call until `until` settles. */
     hold(prompt: string, until: Promise<void>) {
       holds.set(prompt, until)
     },
+    /** Answer every park only once `until` settles. */
+    holdAsks(until: Promise<void>) {
+      askHold = until
+    },
     /** Every circumstance back to normal: nothing fails, nothing is held. */
     clear() {
       failing.clear()
       holds.clear()
+      askHold = undefined
     },
     /** Resolves when a row matching `match`, inserted from now on, completes. */
     completionOf(match: (spec: JobSpec) => boolean): Promise<void> {
@@ -381,7 +588,9 @@ function doneJob(spec: JobSpec): Job {
   }
 }
 
-function buildCtx(opts: { stepIdNamespace?: string; askUser?: AskUserHandler } = {}) {
+function buildCtx(
+  opts: { stepIdNamespace?: string; askUser?: AskUserHandler; state?: MetaSharedState } = {},
+) {
   const specs: JobSpec[] = []
   const deps: MetaCtxDeps = {
     submitChild: async (spec) => {
@@ -390,7 +599,7 @@ function buildCtx(opts: { stepIdNamespace?: string; askUser?: AskUserHandler } =
     },
     ...(opts.askUser ? { askUser: opts.askUser } : {}),
   }
-  const state: MetaSharedState = { ...makeFreshState(), rootJobId: ROOT }
+  const state: MetaSharedState = opts.state ?? { ...makeFreshState(), rootJobId: ROOT }
   const ctx = buildMetaExecutionContext(
     deps,
     'meta_test' as PatternId,
@@ -401,7 +610,7 @@ function buildCtx(opts: { stepIdNamespace?: string; askUser?: AskUserHandler } =
     state,
     opts.stepIdNamespace,
   )
-  return { ctx, specs }
+  return { ctx, specs, state }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -565,6 +774,56 @@ describe('a step is keyed by its path', () => {
     await expect(ctx.step(gen('p1'))).rejects.toMatchObject({ code: 'DUPLICATE_STEP_ID' })
   })
 
+  it('an explicit step id carrying the path separator is refused before anything is registered', async () => {
+    // `panel-1/x` would read as step `x` under `panel-1`: a retry of a sibling
+    // named `panel-1` would release it, and the same compose could then use it
+    // again unchallenged.
+    const { ctx, specs, state } = buildCtx()
+    await expect(ctx.step(gen('p0'), { stepId: 'panel-1/x' })).rejects.toMatchObject({
+      code: 'STEP_ID_RESERVED_CHARACTER',
+    })
+    expect(specs).toEqual([])
+    expect([...state.stepIds]).toEqual([])
+  })
+
+  it('a default segment escapes a slash in its pattern id, so it never lands under a sibling step path', async () => {
+    const host = makeHost()
+    const run = await host.run('meta_slash_root', {}, 'sess-slash')
+
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'done',
+      code: null,
+    })
+    // Unescaped, the unnamed call's id would be `image-gen/fancy-edit#0`: the
+    // path of the step the child of `image-gen` names `fancy-edit#0`.
+    const keyOf = (prompt: string) => run.rows.find((r) => promptOf(r.spec.input) === prompt)?.spec.stepKey
+    expect(keyOf('sibling')).toBe('image-gen%2Ffancy-edit#0')
+    expect(keyOf('edit')).toBe('image-gen/fancy-edit#0')
+    expect(run.steps.find((s) => s.patternId === SLASHED)?.stepId).toBe('image-gen%2Ffancy-edit#0')
+    // `image-gen` retried and found its child's row; the release under
+    // `image-gen/` left the sibling's id registered.
+    expect(run.dispatched).toEqual(['sibling', 'edit'])
+    expect((run.job.output as { again?: string }).again).toBe('DUPLICATE_STEP_ID')
+  })
+
+  it('a compute id carrying the path separator is refused before the cache is read', async () => {
+    // Unrefused, a root `compute('a/b')` and a `compute('b')` under a step
+    // named `a` share one cache slot, and the second gets the first's value.
+    const state: MetaSharedState = { ...makeFreshState(), rootJobId: ROOT }
+    const root = buildCtx({ state })
+    const nested = buildCtx({ state, stepIdNamespace: 'a' })
+    let rootRan = false
+    await expect(
+      root.ctx.compute('a/b', async () => {
+        rootRan = true
+        return 'root'
+      }),
+    ).rejects.toMatchObject({ code: 'STEP_ID_RESERVED_CHARACTER' })
+    expect(rootRan).toBe(false)
+    expect([...state.stepCache.keys()]).toEqual([])
+    expect(await nested.ctx.compute('b', async () => 'nested')).toBe('nested')
+  })
+
   it('a named step keeps its row when another step is inserted ahead of it', async () => {
     const host = makeHost()
     const session = 'sess-named-insert'
@@ -660,5 +919,161 @@ describe('a step is keyed by its path', () => {
     // The retry released only what the failed attempt registered under the
     // step: the step's own id is still taken, once.
     expect((run.job.output as { again?: string }).again).toBe('DUPLICATE_STEP_ID')
+  })
+})
+
+// A retry releases the ids under its step and finds the rows they keyed. Both
+// halves need the failed attempt's subtree to be quiet first: a branch still
+// running after its compose rejected holds a row the retry would dedupe onto
+// before it is done, or registers an id after the release.
+describe('a failed compose settles the steps it started before its row fails', () => {
+  async function strandRun(input: StrandInput, sessionId: string) {
+    const host = makeHost()
+    host.failing.add('boom')
+    host.hold('slow', host.strand.slow.promise)
+    const run = await host.run('meta_strand_root', input, sessionId)
+    return { host, run }
+  }
+
+  // The first attempt's branch asked for its next step once `slow` settled,
+  // and a probe asked for one once the runtime had seen compose reject: both
+  // were refused, and neither reached the model.
+  async function expectFirstAttemptStartedNothingMore(
+    host: ReturnType<typeof makeHost>,
+    run: Run,
+  ) {
+    expect(await host.strand.straggler.promise).toBe('STEP_AFTER_COMPOSE_FAILED')
+    expect(await host.strand.probe.promise).toBe('STEP_AFTER_COMPOSE_FAILED')
+    expect(run.dispatched).not.toContain('probe')
+    expect(run.dispatched.filter((p) => p === 'slow')).toEqual(['slow'])
+  }
+
+  it('a retried meta step reads the real output of a step its failed attempt left running when the steps are unnamed', async () => {
+    const { host, run } = await strandRun({ named: false, shape: 'read' }, 'sess-strand-read-unnamed')
+
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'done',
+      code: null,
+    })
+    expect(host.strand.composeRuns).toBe(2)
+    // The retry found `slow` finished, not running: its next step carries the
+    // asset `slow` produced, and was asked for once.
+    expect(run.dispatched.filter((p) => p.startsWith('late'))).toEqual(['late-img(slow)'])
+    await expectFirstAttemptStartedNothingMore(host, run)
+  })
+
+  it('a retried meta step reads the real output of a step its failed attempt left running when the steps are named', async () => {
+    const { host, run } = await strandRun({ named: true, shape: 'read' }, 'sess-strand-read-named')
+
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'done',
+      code: null,
+    })
+    expect(host.strand.composeRuns).toBe(2)
+    expect(run.dispatched.filter((p) => p.startsWith('late'))).toEqual(['late-img(slow)'])
+    await expectFirstAttemptStartedNothingMore(host, run)
+  })
+
+  it('a retried meta step meets no DUPLICATE_STEP_ID from a step its failed attempt started late when the steps are unnamed', async () => {
+    const { host, run } = await strandRun({ named: false, shape: 'late' }, 'sess-strand-late-unnamed')
+
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'done',
+      code: null,
+    })
+    expect(host.strand.composeRuns).toBe(2)
+    // Only the retry dispatched `late`: the failed attempt's branch was
+    // refused before it took an id.
+    expect(run.dispatched.filter((p) => p === 'late')).toEqual(['late'])
+    await expectFirstAttemptStartedNothingMore(host, run)
+  })
+
+  it('a retried meta step meets no DUPLICATE_STEP_ID from a step its failed attempt started late when the steps are named', async () => {
+    const { host, run } = await strandRun({ named: true, shape: 'late' }, 'sess-strand-late-named')
+
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'done',
+      code: null,
+    })
+    expect(host.strand.composeRuns).toBe(2)
+    expect(run.dispatched.filter((p) => p === 'late')).toEqual(['late'])
+    await expectFirstAttemptStartedNothingMore(host, run)
+  })
+
+  it('a step or a park a failed compose asks for afterwards is refused and dispatches nothing', async () => {
+    const host = makeHost()
+    host.failing.add('boom')
+    const run = await host.run('meta_after_failure', { park: false }, 'sess-after-failure')
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'error',
+      code: 'MOCK_FAIL',
+    })
+
+    // The row has failed; the branch it left waiting is let go only now.
+    host.afterFailure.gate.resolve()
+    expect(await host.afterFailure.outcome.promise).toEqual({
+      step: 'STEP_AFTER_COMPOSE_FAILED',
+      ask: 'STEP_AFTER_COMPOSE_FAILED',
+    })
+    expect(host.calls).not.toContain('after')
+    expect(host.asked).toEqual([])
+  })
+
+  it('a branch of the failing compose parked on askUser does not hold it open', async () => {
+    const host = makeHost()
+    host.failing.add('boom')
+    const answer = deferred()
+    host.holdAsks(answer.promise)
+    const run = await host.run('meta_after_failure', { park: true }, 'sess-parked-sibling')
+
+    // The park is still open, and the row failed anyway: only steps are
+    // waited for.
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'error',
+      code: 'MOCK_FAIL',
+    })
+    expect(host.asked).toHaveLength(1)
+
+    // Answered late, the branch can start nothing more.
+    answer.resolve()
+    expect(await host.afterFailure.outcome.promise).toEqual({
+      step: 'STEP_AFTER_COMPOSE_FAILED',
+      ask: 'STEP_AFTER_COMPOSE_FAILED',
+    })
+    expect(host.calls).not.toContain('after')
+    expect(host.asked).toHaveLength(1)
+  })
+
+  it('a meta whose output the gate refuses settles the steps it started before its row fails', async () => {
+    const host = makeHost()
+    host.hold('slow', host.gateFails.slow.promise)
+    const run = await host.run('meta_gate', {}, 'sess-gate')
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'error',
+      code: 'OUTPUT_SCHEMA_MISMATCH',
+    })
+
+    // `slow` was still running when compose resolved; the row failed only
+    // after it settled, and its branch could start nothing more.
+    expect((await host.poll(rowOf(run, 'slow') ?? '')).status).toBe('done')
+    expect(await host.gateFails.after.promise).toBe('STEP_AFTER_COMPOSE_FAILED')
+    expect(host.calls.slice(run.dispatched.length)).toEqual([])
+    expect(host.calls).not.toContain('after-gate')
+  })
+
+  it('ctx.submitJob is fenced like ctx.step: one in flight is waited for, and one asked for after is refused', async () => {
+    const host = makeHost()
+    host.failing.add('boom')
+    host.hold('escape-slow', host.hatch.slow.promise)
+    const run = await host.run('meta_escape', {}, 'sess-escape')
+    expect({ status: run.job.status, code: run.job.error?.code ?? null }).toEqual({
+      status: 'error',
+      code: 'MOCK_FAIL',
+    })
+
+    expect((await host.poll(rowOf(run, 'escape-slow') ?? '')).status).toBe('done')
+    expect(await host.hatch.probe.promise).toBe('STEP_AFTER_COMPOSE_FAILED')
+    expect(host.calls).not.toContain('escape-after')
+    host.hatch.slow.resolve()
   })
 })

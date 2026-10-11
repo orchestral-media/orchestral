@@ -1,22 +1,22 @@
-// step-cache namespace isolation across three levels of nested meta — runtime
+// stepId namespace isolation across three levels of nested meta — runtime
 // regression.
 //
 // meta-nested-stepid-namespace.test.ts pins the parent → child pair: when the
-// same child meta runs twice, its fixed explicit stepIds must not collide and
-// its stepCache entries must not cross-contaminate. This file pushes that to a
-// third level (grandchild), because the namespace prefix is assembled
-// RECURSIVELY — a child meta hands its own step's effectiveStepId down as the
-// grandchild's stepIdNamespace (dispatchMeta passes spec.stepIdNamespace into
-// buildMetaExecutionContext, and ctx.step then stamps effectiveStepId onto the
-// child spec). If the prefix only takes effect one level deep, grandchild steps
-// under sibling children hit each other in the grandparent's shared stepCache —
-// silent cross-contamination.
+// same child meta runs twice, its fixed explicit stepIds must not collide.
+// This file pushes that to a third level (grandchild), because the namespace
+// prefix is assembled RECURSIVELY — a child meta hands its own step's
+// effectiveStepId down as the grandchild's stepIdNamespace (dispatchMeta passes
+// spec.stepIdNamespace into buildMetaExecutionContext, and ctx.step then stamps
+// effectiveStepId onto the child spec). If the prefix only took effect one
+// level deep, grandchild steps under sibling children would share one path:
+// one entry in the tree's duplicate-detection set, so DUPLICATE_STEP_ID, and
+// one step key. (`ctx.step` reads no cache; only `ctx.compute` does.)
 //
 // Shape: meta_parent --[child-0, child-1]--> meta_child --[gc-0, gc-1]-->
 //        meta_grandchild --[gc-step]--> fake-image
 // 2×2×1 = 4 image calls in total, each with a unique prompt and a unique
-// assetId. A namespace break at any level short-circuits a later grandchild
-// step onto the previous one's cache entry → fewer than 4 calls.
+// assetId. A namespace break at any level stops a later grandchild step short
+// of its own model call → fewer than 4 calls.
 
 import { describe, expect, it } from 'vitest'
 
@@ -32,9 +32,9 @@ import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
 
-// Fake atomic "image" capability — each call returns a UNIQUE id so a cache hit
-// (cross-contamination) is observable: a reused cached result keeps the serial
-// from advancing.
+// Fake atomic "image" capability — each call returns a UNIQUE id so a step
+// answered with another step's result (cross-contamination) is observable: a
+// result served twice keeps the serial from advancing.
 function makeImageRouter(calls: Array<{ prompt: string }>): CapabilityRouter {
   let serial = 0
   const cap: ModelCapability = {
@@ -159,7 +159,7 @@ function makeRuntime(calls: Array<{ prompt: string }>): InlineRuntime {
   })
 }
 
-describe('meta step-cache — three-level nesting', () => {
+describe('meta stepId namespace — three-level nesting', () => {
   it('does not crash DUPLICATE_STEP_ID with three levels of fixed-id steps', async () => {
     const calls: Array<{ prompt: string }> = []
     const runtime = makeRuntime(calls)
@@ -175,15 +175,16 @@ describe('meta step-cache — three-level nesting', () => {
     expect(job.error).toBeNull()
   })
 
-  it('each grandchild gets its own model call — no cross-level cache sharing', async () => {
+  it('each grandchild gets its own model call — no step is answered with another subtree result', async () => {
     const calls: Array<{ prompt: string }> = []
     const runtime = makeRuntime(calls)
 
     await runtime.submitJob({ patternId: 'meta_parent', input: {} } as never)
 
     // 2 children × 2 grandchildren × 1 image = 4. If the namespace prefix only
-    // applied one level, the second child's grandchildren would hit the first
-    // child's cached 'gc-step' result → fewer than 4 calls.
+    // applied one level, the second child's grandchildren would share the
+    // first child's 'gc-step' path and be refused DUPLICATE_STEP_ID → fewer
+    // than 4 calls.
     expect(calls).toHaveLength(4)
 
     const prompts = calls.map((c) => c.prompt)
@@ -196,7 +197,7 @@ describe('meta step-cache — three-level nesting', () => {
     expect(new Set(prompts).size).toBe(4)
   })
 
-  it('output assetIds are all distinct — no aliasing from a shared cache slot', async () => {
+  it('output assetIds are all distinct — no step is served another step result', async () => {
     const calls: Array<{ prompt: string }> = []
     const runtime = makeRuntime(calls)
 

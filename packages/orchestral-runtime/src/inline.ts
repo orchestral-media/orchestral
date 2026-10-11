@@ -85,6 +85,7 @@ import type {
 import {
   abortableSleep,
   buildMetaExecutionContext,
+  makeComposeFence,
   makeFreshState,
   nextRetryDelayMs,
   type MetaSharedState,
@@ -1617,6 +1618,8 @@ export class InlineRuntime implements Runtime {
           }
         : undefined
 
+    // What this compose's steps have started; closed below if compose fails.
+    const fence = makeComposeFence()
     const ctx = buildMetaExecutionContext(
       {
         submitChild: <TIn2, TOut2>(
@@ -1655,6 +1658,7 @@ export class InlineRuntime implements Runtime {
         // answers). Absent when the runtime was built without one → ctx.askUser
         // throws ASK_USER_NOT_SUPPORTED.
         ...(this.askUser ? { askUser: this.askUser } : {}),
+        fence,
       },
       meta.id,
       jobId,
@@ -1670,16 +1674,37 @@ export class InlineRuntime implements Runtime {
       spec.stepIdNamespace,
     )
 
-    const output = await meta.compose(
-      { input: spec.input },
-      ctx,
-    )
-    // Gated, then returned as compose built it — no projection, no copy. A
-    // parent meta's ctx.step hands the same value, unprojected, to its own
-    // compose: as the child's stored output, after any afterDispatch rewrite.
-    // DESIGN: meta-output-returned-raw
-    this.assertOutputConforms(pattern, output)
-    return output as TOut
+    // A compose that rejects can leave branches running: `parallel` rejects
+    // at the first failure and leaves its siblings to settle — and one that
+    // resolves can too (`Promise.race`, an un-awaited step), which matters
+    // when the gate then refuses its output. Failing the row there would hand
+    // a retry of the step that launched this meta a subtree still moving — a
+    // dedupe onto a row still running, whose null output the retried compose
+    // reads, or an id a straggler registers under this meta's path after the
+    // retry released them, which the retried compose then meets as
+    // DUPLICATE_STEP_ID. So on any throw out of here the ctx is fenced first —
+    // a later ctx.step, ctx.submitJob or ctx.askUser on it is refused before
+    // it claims anything — and the steps and submits it had already started
+    // are waited for, each nested meta among them settling its own subtree
+    // the same way. The row fails once the subtree is quiet, with the original
+    // error. The cost: a failing meta takes as long as its slowest in-flight
+    // step, the trade a plan makes for its independent branches. A park open
+    // at the failure in this compose is not waited for; one inside a step
+    // still in flight is. (An `afterDispatch` failure comes after this
+    // returns, so it is not fenced.)
+    // DESIGN: failed-compose-settles-its-steps
+    try {
+      const output = await meta.compose({ input: spec.input }, ctx)
+      // Gated, then returned as compose built it — no projection, no copy. A
+      // parent meta's ctx.step hands the same value, unprojected, to its own
+      // compose: as the child's stored output, after any afterDispatch rewrite.
+      // DESIGN: meta-output-returned-raw
+      this.assertOutputConforms(pattern, output)
+      return output as TOut
+    } catch (err) {
+      await fence.closeAndSettle()
+      throw err
+    }
   }
 
 

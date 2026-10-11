@@ -7,13 +7,15 @@
 // namespace fix:
 //   • panel-0's child registered `candidate-0` into the shared `stepIds` set;
 //   • panel-1's child tried to register `candidate-0` again → DUPLICATE_STEP_ID.
-// And even if dedup were skipped, the shared `stepCache` (keyed by stepId)
-// would let panel-1's `candidate-0` hit panel-0's cached result — silent
-// cross-contamination, worse than the crash.
+// The tree also shares one `ctx.compute` cache, keyed by compute id, so a
+// fixed compute id in the child let panel-1 be served panel-0's cached value —
+// silent cross-contamination, worse than the crash. (`ctx.step` never reads
+// that cache.)
 //
 // The fix stamps each child meta with the parent step's EFFECTIVE stepId as a
 // stepId namespace, so `candidate-0` becomes `panel-0/candidate-0` vs
-// `panel-1/candidate-0` — distinct dedup keys + distinct cache slots.
+// `panel-1/candidate-0` — distinct duplicate-set entries and step keys — and
+// `concat` becomes `panel-0/concat` vs `panel-1/concat`, distinct cache slots.
 //
 // Built over a real InlineRuntime (mirrors meta-dispatch-e2e.test.ts) so the
 // `submitChild → _submitJobInternal → dispatch → dispatchMeta` namespace
@@ -33,9 +35,9 @@ import { z } from 'zod'
 
 import { InlineRuntime } from '../inline'
 
-// ── Fake atomic "image" capability — each call returns a UNIQUE id so a cache
-//    hit (cross-contamination) is observable: if panel-1's candidate-0 reuses
-//    panel-0's cached result, its serial won't advance.
+// ── Fake atomic "image" capability — each call returns a UNIQUE id so a step
+//    answered with another step's result (cross-contamination) is observable:
+//    if panel-1's candidate-0 got panel-0's result, the serial wouldn't advance.
 function makeImageRouter(calls: Array<{ prompt: string }>): CapabilityRouter {
   let serial = 0
   const cap: ModelCapability = {
@@ -183,7 +185,7 @@ describe('nested same-type meta — explicit stepId namespace', () => {
     expect(job.error).toBeNull()
   })
 
-  it('does not cross-contaminate the stepCache — each panel gets independent candidate outputs', async () => {
+  it('each panel gets independent candidate outputs — no step is answered with another panel result', async () => {
     const calls: Array<{ prompt: string }> = []
     const runtime = makeRuntime(calls)
 
@@ -195,12 +197,12 @@ describe('nested same-type meta — explicit stepId namespace', () => {
     const out = job.output as unknown as { panels: string[][] }
 
     // 4 distinct fake-image calls — panel-0/candidate-0, panel-0/candidate-1,
-    // panel-1/candidate-0, panel-1/candidate-1. If the cache key weren't
-    // namespaced, panel-1's candidate-0 would short-circuit on panel-0's
-    // cached result and this would be 2 (or 3) calls.
+    // panel-1/candidate-0, panel-1/candidate-1. Each is its own step under its
+    // own path, and none is answered with another's result: fewer calls here
+    // would mean a panel-1 step got a panel-0 output.
     expect(calls).toHaveLength(4)
 
-    // Each panel sees its OWN prompts reach the model (no stale cache).
+    // Each panel sees its OWN prompts reach the model.
     expect(calls.map((c) => c.prompt)).toEqual([
       'panel 0 scene #0',
       'panel 0 scene #1',
@@ -209,7 +211,8 @@ describe('nested same-type meta — explicit stepId namespace', () => {
     ])
 
     // Produced assetIds are all distinct — panel-1's candidate-0 is `img-2`,
-    // NOT panel-0's `img-0`. A shared cache slot would alias them.
+    // NOT panel-0's `img-0`. A step served another panel's result would alias
+    // them.
     const allAssets = out.panels.flat()
     expect(allAssets).toEqual(['img-0', 'img-1', 'img-2', 'img-3'])
     expect(new Set(allAssets).size).toBe(4)

@@ -440,7 +440,9 @@ async function designStoryboard(
   } catch (jsonErr) {
     const jsonReason = jsonErr instanceof Error ? jsonErr.message : String(jsonErr)
     // Tier B — prompt-based XML on any text model (no structured cap needed).
-    // Distinct stepId so the stepCache doesn't collapse it onto the json step.
+    // Its own stepId: the json step that just failed already took
+    // `decompose-json` in this compose, so reusing it would throw
+    // DUPLICATE_STEP_ID.
     try {
       const out = await textGeneration(
         ctx,

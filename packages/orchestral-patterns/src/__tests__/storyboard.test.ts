@@ -123,7 +123,7 @@ function makeCtx(
  * nested meta_image-best-of-n with the REAL compose() bodies and reproduce the
  * "same child meta dispatched twice with fixed explicit stepIds" collision.
  *
- * The runtime threads one `MetaSharedState` (stepIds set + stepCache) across
+ * The runtime threads one `MetaSharedState` (the stepIds set with it) across
  * nested metas, and stamps each child meta with the parent step's effective
  * stepId as a namespace prefix. A default id is `${patternId}#${n}`, n counting
  * the unnamed calls to that pattern made from the same ctx — each compose
@@ -138,8 +138,10 @@ function makeCtx(
  * and throw; after, it sees panel-0/candidate-0 and panel-1/candidate-0.
  *
  * The top-level text-generation (storyboard design) step is scripted by
- * `designJson`; nested image steps return unique assets so a stale cache hit
- * (cross-contamination) is observable.
+ * `designJson`; nested image steps return unique assets so a step answered
+ * with another step's result (cross-contamination) is observable. Like the
+ * runtime's, this `ctx.step` has no cache: every call that passes the guard
+ * dispatches.
  */
 function makeRecursiveCtx(designJson: string) {
   const recorded: RecordedStep[] = []
@@ -147,7 +149,6 @@ function makeRecursiveCtx(designJson: string) {
 
   const shared = {
     stepIds: new Set<string>(),
-    stepCache: new Map<string, unknown>(),
   }
 
   const registry = new Map<string, MetaPattern>([
@@ -175,9 +176,6 @@ function makeRecursiveCtx(designJson: string) {
         )
       }
       shared.stepIds.add(effectiveStepId)
-
-      const cached = shared.stepCache.get(effectiveStepId)
-      if (cached !== undefined) return cached as T
 
       recorded.push({
         patternId: ref.patternId,
@@ -214,8 +212,8 @@ function makeRecursiveCtx(designJson: string) {
           provider: 'test',
         }
       } else {
-        // text-to-image / image-to-image — unique asset per call so a stale
-        // cache hit (cross-contamination) would be observable.
+        // text-to-image / image-to-image — unique asset per call so a result
+        // served to the wrong step (cross-contamination) would be observable.
         const id = imageSerial++
         value = {
           modality: 'image',
@@ -227,7 +225,6 @@ function makeRecursiveCtx(designJson: string) {
         }
       }
 
-      shared.stepCache.set(effectiveStepId, value)
       return value as T
     }
 
@@ -390,7 +387,8 @@ describe('meta_storyboard', () => {
       'h-xianji',
     ])
 
-    // Each panel gets a unique stepId so the stepCache doesn't collapse them.
+    // Each panel is its own named step: one name for every panel would throw
+    // DUPLICATE_STEP_ID, and the name keys each panel's row by its panel.
     expect(i2iSteps[0]!.stepOptions?.stepId).toBe('panel-0')
     expect(i2iSteps[1]!.stepOptions?.stepId).toBe('panel-1')
 
@@ -574,8 +572,9 @@ describe('meta_storyboard', () => {
     expect(bestOf[0]!.stepOptions?.stepId).toBe('panel-0')
     expect(bestOf[1]!.stepOptions?.stepId).toBe('panel-1')
 
-    // 2 panels × 2 candidates = 4 inner i2i renders — proves the shared
-    // stepCache didn't collapse panel-1's candidates onto panel-0's.
+    // 2 panels × 2 candidates = 4 inner i2i renders — the namespace keeps
+    // panel-1's candidates (`panel-1/candidate-N`) apart from panel-0's, so
+    // each is its own dispatch rather than a DUPLICATE_STEP_ID.
     const i2i = recorded.filter((r) => r.patternId === 'image-to-image')
     expect(i2i).toHaveLength(4)
 

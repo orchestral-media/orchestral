@@ -332,8 +332,8 @@ row."
 **Why.** A step's identity is a path: the ids of the steps that launched its
 compose, then its own — `panel-0/meta_image-best-of-n#0/text-to-image#1`. A
 segment is the name an author gave (`StepOptions.stepId`) or, unnamed,
-`${patternId}#${n}`, the ordinal of the call among its compose's unnamed calls
-to the same pattern. The path is the step's `stepKey`, and the idempotency key
+`${patternId}#${n}` (a `/` in the pattern id is written `%2F`), the ordinal of
+the call among its compose's unnamed calls to the same pattern. The path is the step's `stepKey`, and the idempotency key
 hashes it. An id derived from content would be worse: the key already hashes
 `patternId` and `input`, so it would add nothing, and `meta_image-best-of-n` —
 which fans out N identical dispatches by design — would collapse its N samples
@@ -341,23 +341,41 @@ into one row. The ordinal is local to its compose because "a counter shared by
 the tree is a function of timing": parallel subtrees interleave on it, and a
 sibling that dedupes skips its compose, so a step that had succeeded drew a new
 number on the resubmit and was paid for again. "Counting only unnamed calls
-means naming or moving a named step never renumbers one; counting per pattern
-means a call to another pattern never does." That is the cost, and where it
-stops: unnamed steps reached from concurrent branches of one compose after an
-`await` — capped `parallel.limit` tasks, `parallel(items.map(async …))` —
+means adding, removing or moving a named step never renumbers one; counting
+per pattern means a call to another pattern never does." That is the cost, and
+where it stops: unnamed steps reached from concurrent branches of one compose
+after an `await` — capped `parallel.limit` tasks, `parallel(items.map(async …))` —
 number in the order they are reached, so a resubmit can pay for them again,
 never with another step's output, since the input is in the key too. Telling
 that a call came from such a branch would take runtime machinery the library
 does not carry. An explicit id that repeats within a compose, or lands on a
 default id the same compose produces, throws `DUPLICATE_STEP_ID` rather than
-silently sharing a row. A retry is not a repeat: it is the same step executing
-again, so the ids its failed attempt's subtree registered are released first,
-and the retried subtree finds the rows that attempt banked. `ctx.askUser` ids
-are counted apart from step ids, so a park moves no step's key.
+silently sharing a row. An explicit id carrying `/`, the separator between a
+path's segments, throws `STEP_ID_RESERVED_CHARACTER`: `panel-1/x` would read as
+a step under a sibling named `panel-1`, released when that sibling retries. A
+`ctx.compute` id carrying one throws the same, because its cache key is built
+like a path — a root `compute('a/b')` would share a slot with `compute('b')`
+under a step named `a` — and a default segment escapes a `/` in its pattern
+id, so every segment, however it is built, follows one rule: it contains no
+`/`. A retry is not a repeat: it is the same step executing again, so the ids its
+failed attempt's subtree registered are released first, and the retried
+subtree finds the rows that attempt banked. That holds because a meta whose
+compose fails, or whose output its gate refuses, settles only once the steps
+and `ctx.submitJob` children it had already started have settled, refusing any
+step, submit or park asked of it after (`STEP_AFTER_COMPOSE_FAILED`), so
+a failing meta takes as long as its slowest in-flight step — the trade a
+failing plan makes for its independent branches. A step still in flight that
+is itself parked on `ctx.askUser`, inside a nested meta, keeps the failing meta
+open until that park is answered or the job is cancelled. An adapter that
+ignores its `AbortSignal` holds a cancelled failing meta open until it returns:
+a deadline is the host's to impose, as "We don't impose concurrency caps,
+timeouts, or TTLs" below says. `ctx.askUser` ids are counted apart from step
+ids, so a park moves no step's key.
 **Instead.** Name a step whose position the code around it does not fix:
 fan-out (`candidate-${i}`), and anything called from concurrent branches. A
-named step survives any edit to the steps around it. One bypass goes further
-and hands the question over entirely: `StepOptions.idempotencyKey` keys the row
+named step survives any edit to the other steps in its compose; it moves only
+if a step that launched its compose is renumbered, so name that one too. One
+bypass goes further and hands the question over entirely: `StepOptions.idempotencyKey` keys the row
 on a string the CALLER derives, skipping `deriveIdempotencyKey` the way
 `JobSpec.idempotencyKey` always has for a host submitting directly. This is not
 the refusal above being reversed — the library still derives no content hash of
@@ -384,12 +402,17 @@ a fan-out onto a row that has not finished — `PLAN_STEP_IN_FLIGHT`).
 `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field),
 `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: ask-id-not-step-identity),
 `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: caller-supplied-step-identity),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-id-reserved-character),
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: failed-compose-settles-its-steps),
 `packages/orchestral-runtime/src/inline.ts` (DESIGN: idempotency-key-cross-pattern);
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-fan-out-note),
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-explicit-step-id);
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a completed step under a resubmitted sibling is not paid again when the other sibling dedupes"),
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a park between two steps moves neither step key"),
 `packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a retried meta step finds the rows its failed attempt banked when the inner step is unnamed"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a retried meta step reads the real output of a step its failed attempt left running when the steps are unnamed"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a retried meta step meets no DUPLICATE_STEP_ID from a step its failed attempt started late when the steps are named"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("an explicit step id carrying the path separator is refused before anything is registered"),
 `packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds"),
 `packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("dedupes across sessions, which the derived key cannot"),
 `packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("refuses a key that collides across two patterns").

@@ -527,8 +527,8 @@ A plan is usually a root compose, so its keys are the bare ids: `describe`,
 resume is entirely `insertIfAbsent`.
 
 What an unnamed step is keyed by matters for the shipped metas a plan calls as
-steps: `${patternId}#${n}`, where n counts the unnamed calls to the same
-pattern earlier in the same compose
+steps: `${patternId}#${n}` (a `/` in the pattern id is written `%2F`), where n
+counts the unnamed calls to the same pattern earlier in the same compose
 (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional)).
 The number is local, so a nested meta's rows do not depend on its siblings — a
 sibling that dedupes, or a capped level that starts it later, takes nothing
@@ -885,9 +885,11 @@ result before `submitChild`, with nothing dispatched.
 **Where it is enforced.** Today a meta dispatched by an agent inherits no
 allowlist at all: `_submitJobInternal` checks only `registry.get`
 (`packages/orchestral-runtime/src/inline.ts` (DESIGN: submit-registry-lookup)), `dispatch()`
-branches on kind, and `ctx.step` adds only `DUPLICATE_STEP_ID` and
-`CIRCULAR_META_STEP` (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: duplicate-step-id),
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: circular-meta-step)) — so any meta
+branches on kind, and none of the refusals `ctx.step` adds asks whether the
+target is allowed: the nearest, `CIRCULAR_META_STEP`
+(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: circular-meta-step)), judges only the ancestor
+chain, and `DUPLICATE_STEP_ID`
+(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: duplicate-step-id)) only the step's id — so any meta
 in `toolPatternIds` can step into `no-tool` patterns and `agent_*` patterns,
 and the guards suite builds its ring through exactly that
 (`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts` ("rejects A → B → A (a pattern already on the ancestor chain)")).
@@ -1100,9 +1102,9 @@ rather than as a map of the tree.
 1. `packages/orchestral-core/src/execution-context.ts` — `StepOptions.identity` (+8; removed since — "Step identity").
    `packages/orchestral-core/src/job.ts` — `JobSpec.stepKey`, the IDENTITY-group doc (`packages/orchestral-core/src/job.ts` (DESIGN: jobspec-identity-vs-routing)), fix the `META_STEP_FAILED` sentence in the `job:step` doc (`packages/orchestral-core/src/job.ts` (DESIGN: job-step-event)) (+12).
    `packages/orchestral-core/src/pattern.ts` — `PatternBase.origin?`, `MetaPattern.plannedDispatches?` (+25).
-2. `packages/orchestral-runtime/src/idempotency.ts` — `DeriveIdempotencyKeyInput.stepKey`, conditional spread, doc (+12).
+2. `packages/orchestral-runtime/src/idempotency.ts` — `DeriveIdempotencyKeyInput.stepKey`, conditional spread, doc (+12; the spread replaced since — `stepKey ?? null` is always hashed).
    `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field) — identity branch, `STEP_IDENTITY_REQUIRES_STEP_ID` (+25; both removed since).
-   Tests: `idempotency-stability.test.ts` unchanged plus a second snapshot for a `stepKey` input; new `meta-step-identity-id.test.ts` (reorder, insert, nested namespace) (~140).
+   Tests: `idempotency-stability.test.ts` unchanged plus a second snapshot for a `stepKey` input; new `meta-step-identity-id.test.ts` (reorder, insert, nested namespace) (~140; replaced since by `meta-step-identity-path.test.ts`).
 3. `packages/orchestral-core/src/plan.ts` — schema, regexes, `PlanDag`, `PlanOutputSchema` types (~150).
    `packages/orchestral-core/src/plan-validate.ts` — `validatePlan`, `assertPlanValid`, `planRefine`, `PlanProblem`, `PlanInvalidError` (~320).
    `packages/orchestral-core/src/registry.ts` — `scope()` (+20). `index.ts` exports (+15).

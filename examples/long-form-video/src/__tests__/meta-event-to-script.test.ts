@@ -162,8 +162,9 @@ describe('meta_event-to-script', () => {
     expect(mergePrompt).toContain('Alice [visible]')
     expect(mergePrompt).toContain('static features: short hair')
 
-    // Polish calls (2) each carry the real enhancement prompt + a unique stepId
-    // so parallel dispatches don't collapse onto a single stepCache entry.
+    // Polish calls (2) each carry the real enhancement prompt + their own
+    // stepId, which keys each scene's polish row by its scene rather than by
+    // its position among this compose's text-generation calls.
     const polishCalls = recorded.filter(
       (r) => String(r.input.system) === SCRIPT_ENHANCEMENT_PROMPT,
     )
