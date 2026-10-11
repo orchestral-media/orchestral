@@ -14,7 +14,7 @@
 import { z, type ZodType } from 'zod'
 
 import type { AssetKind } from './asset-index.types'
-import { toJsonSchema } from './schema'
+import { combinatorBranches, isPlainObject, toJsonSchema } from './schema'
 
 /** Prose / label fields. Pick the smallest honest max. */
 export function boundedText(max: number) {
@@ -120,10 +120,6 @@ export function auditOutputsSchema(schema: ZodType): OutputsSchemaAudit {
   return audit
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 function visit(
   node: Record<string, unknown>,
   path: string,
@@ -177,9 +173,5 @@ function visit(
       prefix.forEach((v, i) => visit(v, `${path}[${i}]`, audit))
     }
   }
-  for (const key of ['anyOf', 'oneOf', 'allOf']) {
-    for (const v of (node[key] as Record<string, unknown>[] | undefined) ?? []) {
-      visit(v, path, audit)
-    }
-  }
+  for (const branch of combinatorBranches(node)) visit(branch, path, audit)
 }

@@ -266,7 +266,8 @@ export { RESERVED_INPUT_KEYS, type ReservedInputKey } from './derived-fields'
 // The reserved `name` field's two reads: the name an input carries, normalised
 // (every reader goes through it, never `input.name`), and whether a Pattern's
 // outputs carry the assets[] that gets it the field.
-export { productNameOf, producesAssets } from './product-name'
+export { producesAssets } from './product-name'
+export { productNameOf } from './product-name-of'
 
 // ── Alternatives (cross-Pattern fallback) ────────────────────────────────
 export type {

@@ -1,23 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import type { Pattern } from '@orchestral/core'
-import {
-  silentDiagnosticsLogger,
-  PatternRegistry,
-  producesAssets,
-} from '@orchestral/core'
+import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
 import { handleFindPattern } from '../find-pattern'
-
 import { PatternSearchIndex } from '../pattern-search-index'
-
-// Pass-through wrapper: every export is core's own, and producesAssets calls
-// through to core's implementation unless a test overrides it. It lets the
-// summary test below prove which function the summary asks.
-vi.mock('@orchestral/core', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@orchestral/core')>()
-  return { ...actual, producesAssets: vi.fn(actual.producesAssets) }
-})
 
 // Lightweight Pattern fixtures — cast through unknown so we only declare the
 // fields find_pattern / the search index actually read (kind, primary/tool,
@@ -390,11 +377,6 @@ describe('handleFindPattern — BM25 regression', () => {
 })
 
 describe('handleFindPattern — outputs summary', () => {
-  afterEach(() => {
-    // Back to the wrapped implementation (core's own).
-    vi.mocked(producesAssets).mockReset()
-  })
-
   function withOutputs(id: string, outputs: unknown): Pattern {
     return { ...atomic(id), outputs } as unknown as Pattern
   }
@@ -406,11 +388,11 @@ describe('handleFindPattern — outputs summary', () => {
     return new Map(res.matches.map((m) => [m.patternId, m.outputs]))
   }
 
-  it('producesAssets in the summary is core producesAssets', () => {
-    // The summary keeps no test of its own for "declares assets"; it carries
-    // core's producesAssets(pattern), the predicate the registry and the
-    // resolver share.
-    const real = summaryOf([
+  it('producesAssets is false for a non-object outputs root and true for an assets field', () => {
+    // The summary carries core's producesAssets(pattern). That it agrees with
+    // the `name` field registration derives, over the whole shipped catalog,
+    // is pinned in @orchestral/patterns (registered-name-field.test.ts).
+    const summary = summaryOf([
       // A non-object outputs root: nothing to read a field from.
       withOutputs('non-object-root', z.boolean()),
       // An `assets` field on the outputs shape.
@@ -419,20 +401,8 @@ describe('handleFindPattern — outputs summary', () => {
         z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
       ),
     ])
-    expect(real.get('non-object-root')?.producesAssets).toBe(false)
-    expect(real.get('with-assets')?.producesAssets).toBe(true)
-
-    // Whatever core answers is what the summary says, in both directions.
-    vi.mocked(producesAssets).mockImplementation((pattern) => pattern.id === 'claimed')
-    const stubbed = summaryOf([
-      withOutputs('claimed', z.object({ modality: z.literal('image') })),
-      withOutputs(
-        'denied',
-        z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
-      ),
-    ])
-    expect(stubbed.get('claimed')?.producesAssets).toBe(true)
-    expect(stubbed.get('denied')?.producesAssets).toBe(false)
+    expect(summary.get('non-object-root')?.producesAssets).toBe(false)
+    expect(summary.get('with-assets')?.producesAssets).toBe(true)
   })
 
   it('modality is still read from pattern.outputs', () => {

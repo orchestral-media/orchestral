@@ -15,6 +15,7 @@ import { isDerived, type ReservedInputKey } from './derived-fields'
 import type { ZodSchema } from './foundational'
 import type { Pattern } from './pattern'
 import { PRODUCT_NAME_FIELD, producesAssets } from './product-name'
+import { combinatorBranches, isPlainObject, toJsonSchema } from './schema'
 
 /**
  * SSOT injection: extend a Pattern's tool input schema with the
@@ -108,6 +109,10 @@ export function completeToolInputs(pattern: Pattern): Pattern {
  * 'undeclared' rather than kept: a field the schema shows but nothing reads is
  * the exact falsehood this rule exists to remove. (It could not be dropped
  * quietly either: zod refuses .omit() on a refined object.)
+ * Inputs that are not a ZodObject have no shape to place into, so what a model
+ * is shown is judged instead — the key at the top level of any branch of the
+ * rendered schema is hand-written — and only then does a field that is due
+ * throw `*_UNSUPPORTED_INPUTS`.
  * Replacing on a refined base is a key overwrite, which only safeExtend allows,
  * and safeExtend drops object-level meta, which is re-attached minus `id`.
  * DESIGN: reserved-input-keys
@@ -119,13 +124,23 @@ function placeReserved(
   fresh: z.ZodType | undefined,
 ): ZodSchema<unknown> {
   if (!(inputs instanceof z.ZodObject)) {
-    // No shape to inspect. Nothing due, nothing to refuse. A field that IS due
-    // fails fast instead of being skipped: dispatch would parse the schema
-    // as-is (.passthrough() is gated on the method existing — unions don't
-    // have it), and the matched member object's default strip mode would drop
-    // the key from parsedInput — for `references` blinding the UNKNOWN_SLOT
-    // resolution net while the frozen catalog copy promises "unknown slot keys
-    // are rejected", for `name` losing the product name without a word.
+    // No shape of its own, but a model is still shown top-level keys — in a
+    // union's members, an intersection's parts, behind whatever wraps them —
+    // and each is read like any other: a `name` there is a product name to
+    // resolveDispatchTarget, which refuses it on a Pattern that produces no
+    // assets, so a branch requiring one could never be dispatched. Judged on
+    // the rendered schema rather than per zod combinator, which would always
+    // be one combinator short; before anything else, whatever is due.
+    if (renderedTopLevelKeys(inputs)?.has(key)) {
+      throw reservedKeyError(patternId, key, 'hand-written')
+    }
+    // Otherwise nothing due, nothing to refuse. A field that IS due fails fast
+    // instead of being skipped: dispatch would parse the schema as-is
+    // (.passthrough() is gated on the method existing — unions don't have it),
+    // and the matched member object's default strip mode would drop the key
+    // from parsedInput — for `references` blinding the UNKNOWN_SLOT resolution
+    // net while the frozen catalog copy promises "unknown slot keys are
+    // rejected", for `name` losing the product name without a word.
     if (fresh === undefined) return inputs
     throw unsupportedInputs(patternId, key)
   }
@@ -140,6 +155,47 @@ function placeReserved(
   // the inputs by reference is what makes completion idempotent by identity.
   if (current === fresh) return inputs
   return withField(inputs, key, fresh)
+}
+
+/**
+ * The top-level keys a model is shown for `inputs`: the rendered root's
+ * `properties`, and those of every branch combinatorBranches finds at the root,
+ * to any depth — following a branch that is a local `$ref` to the definition it
+ * names, since a member carrying `.meta({ id })` renders that way. Never a
+ * nested property's keys: nested keys are not reserved.
+ *
+ * Undefined when the inputs cannot be rendered at all (a transform, a date):
+ * no surface can show such a schema to a model, so there is nothing to judge.
+ */
+function renderedTopLevelKeys(inputs: ZodSchema<unknown>): Set<string> | undefined {
+  let root: Record<string, unknown>
+  try {
+    root = toJsonSchema(inputs) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+  const defs = isPlainObject(root.$defs) ? root.$defs : {}
+  const resolve = (ref: unknown): Record<string, unknown> | undefined => {
+    if (ref === '#') return root
+    if (typeof ref !== 'string' || !ref.startsWith('#/$defs/')) return undefined
+    const name = ref.slice('#/$defs/'.length).replaceAll('~1', '/').replaceAll('~0', '~')
+    const target = defs[name]
+    return isPlainObject(target) ? target : undefined
+  }
+  const keys = new Set<string>()
+  const seen = new Set<Record<string, unknown>>()
+  const visit = (node: Record<string, unknown>): void => {
+    if (seen.has(node)) return
+    seen.add(node)
+    const target = resolve(node.$ref)
+    if (target) visit(target)
+    if (isPlainObject(node.properties)) {
+      for (const key of Object.keys(node.properties)) keys.add(key)
+    }
+    for (const branch of combinatorBranches(node)) visit(branch)
+  }
+  visit(root)
+  return keys
 }
 
 /**

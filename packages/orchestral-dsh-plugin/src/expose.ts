@@ -1,14 +1,18 @@
 // Pattern → dsh tool descriptor projection.
 //
-// Two decisions live here and nowhere else:
+// Three decisions live here and nowhere else:
 //   1. WHICH Patterns a dsh agent may see — `resolveExposure` (core) is the
 //      only legal way to read `Pattern.exposure`; string comparison against
 //      'tool' / 'agent-tool' is a bug (the object form exists).
 //   2. WHAT the model sees for each — the LLM-facing ToolDescriptor lives at a
 //      kind-dependent place on the Pattern (atomic/agent: `primary.tool`,
 //      meta: `tool`), mirroring @orchestral/core's own buildAlwaysLoadDescriptors.
-//      Its JSON Schema is rendered by core's `toJsonSchema`, so a dsh tool and
-//      an always-load catalog entry describe the same Pattern byte-for-byte.
+//      Its JSON Schema is rendered by core's `toJsonSchema`.
+//   3. WHICH FIELD is held back — the derived `name` a Pattern whose outputs
+//      carry assets[] gets at registration is omitted, because this bridge
+//      records no product under any name (see exposedParameters). Apart from
+//      that one property, a dsh tool and an always-load catalog entry describe
+//      the same Pattern byte-for-byte.
 //
 // Nothing here touches dsh types, so the selection rules are unit-testable
 // without a Cordis context.

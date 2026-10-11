@@ -554,8 +554,13 @@ products take `<name>-1` … `<name>-n`, and a `-` suffix can never satisfy the
 `_` mint grammar whatever the name is. A name already in use — exactly, or as a
 `<name>-<n>` — is `HANDLE_TAKEN` before any work is paid for, and a name on a
 Pattern that produces no assets is refused rather than dropped. Nothing is
-reserved ahead of the work: two same-turn calls with one name are caught where
-the binding is written, and the loser keeps a minted handle the host reports.
+reserved ahead of the work: the host runs the same check again just before it
+writes a named call's products, over the context without that call's own
+assets, so of two same-turn calls with one name the later writer finds it
+taken, records its products under minted handles and says so, while a replay
+of the same products (a retry, a dedupe hit) keeps the name. The store's handle
+collision alone would miss the clash, because `hero` and `hero-1`, `hero-2`
+bind no handle twice.
 **Instead.** Name it anything else — `hero-shot`, `封面` — or leave `name` out
 and copy the minted handle from the tool result.
 **Where.** `packages/orchestral-core/src/product-name.ts` (DESIGN: model-named-handle);
@@ -571,10 +576,11 @@ derived from". Derived-wins used to replace what an author wrote without a
 word, and the resolvers read both keys on every Pattern: a hand-written
 `references` is a slot record nobody checks, and a hand-written `name` would be
 read as a product name. So content at either top-level key that a derivation did
-not produce is `INPUT_RESERVED_KEY`, at registration and in
-`extendInputsWithReferences` alike. So is a derived field the Pattern's own
-declaration no longer produces, because "a field the schema shows but nothing
-reads is the exact falsehood this rule exists to remove". A derived field is
+not produce is `INPUT_RESERVED_KEY` at registration;
+`extendInputsWithReferences` applies the same rule to `references` when the
+Pattern declares slots. A derived field the Pattern's own declaration no longer
+produces is refused too, because "a field the schema shows but nothing reads is
+the exact falsehood this rule exists to remove". A derived field is
 known by identity — the derivation records every instance it makes — never by
 its shape, so a host that places `deriveReferencesSchema(...)` itself, unwrapped,
 is recognised and re-derived. Nested keys are not reserved.

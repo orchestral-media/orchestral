@@ -50,9 +50,11 @@ orchestral's own exposure rules admit for the configured surface:
   per-surface object form (which fails closed on unnamed surfaces). A Pattern marked `'no-tool'` is
   host-direct only and never becomes a dsh tool.
 - Each tool's `parameters` is the Pattern's own zod input schema projected to JSON Schema — the same
-  contract `@orchestral/core` hands every other host. The plugin registers a raw dsh `ToolDefinition`
-  rather than going through `defineTool`, because round-tripping through dsh's `ParameterSchemaSpec` DSL
-  would drop constraints the DSL cannot express.
+  contract `@orchestral/core` hands every other host, with one property left out: the `name` field
+  registration adds to every Pattern whose outputs carry `assets[]`. That field names the product in the
+  host's asset ledger, and this bridge records nothing there, so a name could never be honoured. The
+  plugin registers a raw dsh `ToolDefinition` rather than going through `defineTool`, because
+  round-tripping through dsh's `ParameterSchemaSpec` DSL would drop constraints the DSL cannot express.
 - A tool call resolves any declared asset slots, then calls `runtime.submitJob`.
 - A host-supplied `sessionId` (via `resolveJobContext`) rides the spec verbatim. When the host supplies
   none, the spec carries no `sessionId` at all — instead the bridge pre-computes the idempotency key

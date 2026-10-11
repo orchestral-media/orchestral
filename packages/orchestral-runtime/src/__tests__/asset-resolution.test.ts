@@ -1,7 +1,7 @@
 // resolveAssets seam unit tests: pins how buildAssetIndex + resolveAssetReferences are wired together.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import type { AssetEvent, AssetNeed } from '@orchestral/core'
+import type { AssetEvent, AssetNeed, resolveAssetReferences } from '@orchestral/core'
 import { resolveAssets } from '../asset-resolution'
 
 function ev(assetId: string, modality: AssetEvent['annotation']['modality'], orderHint: number): AssetEvent {
@@ -53,6 +53,21 @@ describe('resolveAssets', () => {
     const r = resolveAssets({ references: { source: ['image_1', 'image_2'] } }, [NEED_SRC], events)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.code).toBe('CARDINALITY_VIOLATION')
+    else throw new Error('expected error')
+  })
+
+  it('takes the input core resolves, name included, and refuses a name already held', () => {
+    // The seam forwards its input untouched, so its parameter is core's own:
+    // a narrower type would forbid the `name` it can be refused for.
+    expectTypeOf<Parameters<typeof resolveAssets>[0]>().toEqualTypeOf<
+      Parameters<typeof resolveAssetReferences>[0]
+    >()
+    const events: AssetEvent[] = [
+      { kind: 'asset', orderHint: 1, annotation: { assetId: 'cat1', modality: 'image', handle: 'hero' } },
+    ]
+    const r = resolveAssets({ name: 'hero' }, [], events)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error.code).toBe('HANDLE_TAKEN')
     else throw new Error('expected error')
   })
 })

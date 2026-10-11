@@ -1,14 +1,15 @@
-// The reserved `name` input field of an asset-producing Pattern, and the two
-// reads everything else shares: what name an input carries (productNameOf) and
-// whether a Pattern gets the field at all (producesAssets). The argument for
-// the field is on PRODUCT_NAME_FIELD.
+// The reserved `name` input field of an asset-producing Pattern, and whether a
+// Pattern gets the field at all (producesAssets). The argument for the field is
+// on PRODUCT_NAME_FIELD. What name an input carries is read by productNameOf, in
+// the zod-free leaf product-name-of.ts, so the ledger can read a name without
+// loading this module.
 import { z } from 'zod'
 
 import { parseMintedHandle } from './asset-index'
-import { fromAssetUri } from './asset-uri'
 import { markDerived } from './derived-fields'
 import { ASSET_KINDS } from './output-fields'
 import type { Pattern } from './pattern'
+import { normaliseName } from './product-name-of'
 
 const NAME_MAX_LENGTH = 64
 
@@ -16,12 +17,6 @@ const NAME_MAX_LENGTH = 64
 // Pattern, so an edit invalidates every cached prefix that renders one.
 const NAME_DESCRIBE =
   'Optional handle for what this call produces, bound now rather than assigned on completion — one asset is named exactly this, several are named <name>-1, <name>-2, … in output order — so later references can use it instead of a handle guessed from call order. It must not already be in use in this context and must not look like a generated handle (image_3, video_1).'
-
-/** The trimmed, URI-normalised name, or undefined when blank. Pure. */
-function normaliseName(raw: string): string | undefined {
-  const name = fromAssetUri(raw.trim()).trim()
-  return name === '' ? undefined : name
-}
 
 /** True when `name` is something the ledger could mint for SOME kind. */
 function looksMinted(name: string): boolean {
@@ -68,20 +63,6 @@ export const PRODUCT_NAME_FIELD = markDerived(
     .describe(NAME_DESCRIBE)
     .optional(),
 )
-
-/**
- * The product name a dispatch input carries: `input.name`, trimmed, with the
- * asset-URI writing form normalised (`asset://hero` → `hero`), and blank read
- * as absent — the same rule a blank optional slot gets. Undefined for a
- * non-object input or a non-string `name`. The one reader of the name: the
- * resolver, the runtime and a host's chat path all call this, never
- * `input.name` directly.
- */
-export function productNameOf(input: unknown): string | undefined {
-  if (typeof input !== 'object' || input === null) return undefined
-  const raw = (input as { name?: unknown }).name
-  return typeof raw === 'string' ? normaliseName(raw) : undefined
-}
 
 /**
  * Whether a Pattern's outputs declare an `assets` property — the only place a

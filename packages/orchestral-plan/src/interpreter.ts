@@ -245,9 +245,11 @@ export function planToMeta<I extends Record<string, unknown> = Record<string, un
       //
       // Registration derives again, and appends `name` too: PlanOutputSchema
       // carries assets[]. A name sent here reaches `runPlan` as one more
-      // parameter that nothing reads — `$input.name` is PLAN_PARAM_UNKNOWN,
-      // because registration refuses an `opts.inputs` declaring `name`
-      // (INPUT_RESERVED_KEY).
+      // parameter that nothing reads. A registered plan cannot declare `name`
+      // (registration refuses an `opts.inputs` declaring it,
+      // INPUT_RESERVED_KEY), so `$input.name` never resolves: on a plan with
+      // no parameters it is PLAN_REF_INPUT_NOT_ALLOWED, on one with parameters
+      // PLAN_PARAM_UNKNOWN.
       inputs: extendInputsWithReferences(
         opts.id,
         (inputs ?? z.object({})) as unknown as z.ZodType<I>,

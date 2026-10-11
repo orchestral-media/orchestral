@@ -22,6 +22,7 @@ import {
   PatternRegistry,
   producesAssets,
   resolveDispatchTarget,
+  resolveExposure,
   silentDiagnosticsLogger,
   toJsonSchema,
   type Pattern,
@@ -160,5 +161,35 @@ describe('the registered catalog derives name from assets[]', () => {
     expect(alwaysLoad.properties.name).toEqual(NAME_NODE)
     expect(found.properties.name).toEqual(NAME_NODE)
     expect(JSON.stringify(found)).toBe(JSON.stringify(alwaysLoad))
+  })
+
+  it('every find_pattern match says it produces assets exactly when its input schema offers name', () => {
+    // Two renderings of one fact, read by different readers: the outputs
+    // summary a model selects by, and the field registration derived. Both
+    // come from core's producesAssets; this holds them to agreeing on what a
+    // model is actually shown, match by match.
+    const registry = shippedCatalog()
+    const index = new PatternSearchIndex(registry)
+    const query = `select:${[...registry.values()].map((p) => p.id).join(',')}`
+    const matched = new Set<string>()
+    for (const audience of ['chat-turn', 'agent-loop'] as const) {
+      const { matches } = handleFindPattern(index, { query }, { audience, k: Number.POSITIVE_INFINITY })
+      for (const match of matches) {
+        matched.add(match.patternId)
+        const { properties } = match.primary.inputSchema as { properties: Record<string, unknown> }
+        expect(match.outputs, match.patternId).toBeDefined()
+        expect(match.outputs!.producesAssets, match.patternId).toBe(Object.hasOwn(properties, 'name'))
+      }
+    }
+
+    // Guard the guard: every Pattern either surface can show was looked at,
+    // producers and non-producers both among them.
+    const visible = [...registry.values()].filter((p) => {
+      const exposure = resolveExposure(p.exposure)
+      return toolInputsOf(p) !== undefined && (exposure.chatTurn || exposure.agentLoop)
+    })
+    expect([...matched].sort()).toEqual(visible.map((p) => p.id).sort())
+    expect(matched).toContain('meta_plan')
+    expect(matched).toContain('text-generation')
   })
 })

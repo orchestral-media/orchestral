@@ -10,14 +10,18 @@ import {
   resolveAssetReferences,
   type AssetEvent,
   type AssetNeed,
-  type AssetReferences,
   type AssetResolutionError,
   type ResolvedAssetRef,
 } from '@orchestral/core'
 
-/** @alpha */
+/**
+ * `input` is forwarded to resolveAssetReferences untouched, so it is typed as
+ * that function's own: a dispatch input's `name` reaches the HANDLE_TAKEN
+ * check, and a narrower type here would forbid what the call can refuse.
+ * @alpha
+ */
 export function resolveAssets(
-  input: { references?: AssetReferences } | null | undefined,
+  input: Parameters<typeof resolveAssetReferences>[0],
   assetNeeds: ReadonlyArray<AssetNeed>,
   events: ReadonlyArray<AssetEvent>,
 ):

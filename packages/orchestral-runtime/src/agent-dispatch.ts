@@ -243,14 +243,24 @@ export interface AgentAssetBridge {
    *
    * `name` is the dispatch's product name, normalised by productNameOf. Record
    * `output.assets[i]` with `deriveNamedHandles(name, output.assets.length)[i]`
-   * as its supplied handle. The HANDLE_TAKEN check cannot see a same-turn
-   * parallel call that took the name first, so the write can still refuse
-   * with HANDLE_COLLISION: record that asset without a supplied handle (it gets
-   * a minted one) and SAY SO in the returned output — at the top level, since
+   * as its supplied handle. The dispatch-time HANDLE_TAKEN check cannot see a
+   * same-turn parallel call that took the name first, and the store's own
+   * refusal cannot catch every such call: it refuses one handle bound twice,
+   * so `hero` from a one-asset call and `hero-1`, `hero-2` from a two-asset
+   * call are all written, and one name ends up on two products. So
+   * immediately before writing, re-run
+   * `resolveAssetReferences({ name }, [], index)` over the context as it is
+   * now, minus the assetIds this call is recording: a replay of the call's
+   * own products (a retry after a partial write, a parallel identical call
+   * that dedupe-hit this one's row) holds the name by right and is not a
+   * clash. On HANDLE_TAKEN, record every one of this call's products without
+   * a supplied handle (each gets a minted one). A write that still refuses with
+   * HANDLE_COLLISION falls back the same way, for that asset. Either way SAY
+   * SO in the returned output, in one top-level notice: top level because
    * projectToolOutputForModel keeps top-level fields and rebuilds every
-   * `assets[]` element from a whitelist. Say so too when a record is an
-   * idempotent hit (the assetId is already in the context) and keeps a
-   * different handle.
+   * `assets[]` element from a whitelist. Say so too, in the same notice, when
+   * a record is an idempotent hit (the assetId is already in the context) and
+   * keeps a different handle.
    */
   recordOutput(args: {
     contextId: string

@@ -11,7 +11,6 @@ import type {
   AgentPattern,
   AssetKind,
   AssetNeed,
-  AssetReferences,
   AtomicPattern,
   CapabilityRouter,
   Job,
@@ -22,11 +21,13 @@ import type {
   SystemPromptContext,
 } from '@orchestral/core'
 import {
+  buildAssetIndex,
   deriveNamedHandles,
   silentDiagnosticsLogger,
   mintHandle,
   PatternRegistry,
   productNameOf,
+  resolveAssetReferences,
 } from '@orchestral/core'
 import { InMemoryJobStore as MemoryJobStore } from '@orchestral/core/memory'
 
@@ -165,19 +166,12 @@ function agentTest(
 }
 
 // ── Fake AgentAssetBridge — Map<contextId, ledger entries> + real mintHandle.
-//    resolveForDispatch throws on unknown handle (fail-closed). ─────────────
+//    resolveForDispatch is core's resolution pass over that ledger, thrown
+//    on failure (fail-closed). ──────────────────────────────────────────────
 interface LedgerEntry {
   assetId: string
   modality: AssetKind
   handle: string
-}
-// The ledger entry that already holds `name` — the name itself, else the first
-// `<name>-<n>` an earlier multi-asset call took. Same family rule as core's
-// resolver, so the fake refuses what a real bridge would.
-function holderOf(ledger: readonly LedgerEntry[], name: string): LedgerEntry | undefined {
-  const suffixed = (h: string): boolean =>
-    h.startsWith(`${name}-`) && /^[1-9]\d*$/.test(h.slice(name.length + 1))
-  return ledger.find((e) => e.handle === name) ?? ledger.find((e) => suffixed(e.handle))
 }
 class AssetResolutionError extends Error {
   constructor(public error: { code: string; handle?: string; slot?: string; meta?: unknown }) {
@@ -206,6 +200,22 @@ class FakeBridge implements AgentAssetBridge {
     return l
   }
 
+  /**
+   * The context's ledger as core indexes it: every row replayed under the
+   * handle it was recorded with, less the rows of any assetId in `without`.
+   */
+  private indexOf(contextId: string, without: ReadonlySet<string> = new Set()) {
+    return buildAssetIndex(
+      this.ledger(contextId)
+        .filter((e) => !without.has(e.assetId))
+        .map((e, i) => ({
+          kind: 'asset' as const,
+          orderHint: i,
+          annotation: { assetId: e.assetId, modality: e.modality, handle: e.handle },
+        })),
+    )
+  }
+
   buildSeedAnnouncement(args: {
     contextId: string
     passedIn: readonly ResolvedAssetRef[]
@@ -229,39 +239,16 @@ class FakeBridge implements AgentAssetBridge {
   }): readonly ResolvedAssetRef[] {
     this.resolveArgs.push(args)
     this.resolveCalls.push({ contextId: args.contextId, input: args.input })
-    const l = this.ledger(args.contextId)
-    // A name the context already holds is refused first, before any slot is
-    // looked at — the order resolveAssetReferences checks in.
-    const produces = productNameOf(args.input)
-    const holder = produces === undefined ? undefined : holderOf(l, produces)
-    if (produces !== undefined && holder) {
-      throw new AssetResolutionError({
-        code: 'HANDLE_TAKEN',
-        handle: produces,
-        meta: { boundTo: { handle: holder.handle, modality: holder.modality }, available: [] },
-      })
-    }
-    const refs = (args.input as { references?: AssetReferences } | null)?.references ?? {}
-    const declaredSlots = args.assetNeeds.map((n) => n.slot)
-    // Fail-closed: reject any key in references that isn't a declared slot.
-    for (const key of Object.keys(refs)) {
-      if (!declaredSlots.includes(key)) {
-        throw new AssetResolutionError({
-          code: 'UNKNOWN_SLOT',
-          slot: key,
-          meta: { declaredSlots, available: [] },
-        })
-      }
-    }
-    const out: ResolvedAssetRef[] = []
-    for (const need of args.assetNeeds) {
-      const raw = refs[need.slot]
-      if (raw === undefined) continue // optional slot, omitted
-      const handle = Array.isArray(raw) ? raw[0] : raw
-      const hit = l.find((e) => e.handle === handle)
-      if (!hit) throw new AssetResolutionError({ code: 'HANDLE_NOT_FOUND', handle })
-      out.push({ slot: need.slot, assetId: hit.assetId, modality: hit.modality })
-    }
+    // Core's own pass, not a copy of it, so the fake refuses exactly what a
+    // real bridge would: a taken name (and its `<name>-<n>` family) before any
+    // slot, then undeclared slot keys, then each handle.
+    const result = resolveAssetReferences(
+      args.input as Parameters<typeof resolveAssetReferences>[0],
+      args.assetNeeds,
+      this.indexOf(args.contextId),
+    )
+    if (!result.ok) throw new AssetResolutionError(result.error)
+    const out = [...result.assets]
     this.resolveResults.push(out)
     return out
   }
@@ -291,18 +278,43 @@ class FakeBridge implements AgentAssetBridge {
         ?.assets ?? []
     const stampedAssets: Array<Record<string, unknown>> = []
     // A named dispatch's products take the name (several: <name>-1 …); an
-    // unnamed one's are minted.
-    const named = args.name !== undefined ? deriveNamedHandles(args.name, assets.length) : undefined
+    // unnamed one's are minted. The host obligation recordOutput's JSDoc
+    // states: just before writing, ask core again whether the context holds
+    // the name — a same-turn call may have taken it since resolveForDispatch
+    // cleared it — leaving out the assets this call is recording, whose own
+    // earlier record (a retry, a dedupe hit) holds the name by right. Taken,
+    // every product of this call is minted, and the result says so at the top
+    // level, where the projection keeps it.
+    let named = args.name !== undefined ? deriveNamedHandles(args.name, assets.length) : undefined
+    let takenBy: string | undefined
+    if (args.name !== undefined) {
+      const own = new Set(assets.map((a) => a.assetId))
+      const recheck = resolveAssetReferences({ name: args.name }, [], this.indexOf(args.contextId, own))
+      if (!recheck.ok && recheck.error.code === 'HANDLE_TAKEN') {
+        named = undefined
+        takenBy = recheck.error.meta.boundTo.handle
+      }
+    }
     for (const [i, a] of assets.entries()) {
       const prior = l.filter((e) => e.modality === a.modality).length
       const handle = named?.[i] ?? mintHandle(a.modality, prior)
-      l.push({ assetId: a.assetId, modality: a.modality, handle })
+      // The same asset under the same handle is a replay, as a store treats it:
+      // nothing new to write.
+      if (!l.some((e) => e.handle === handle && e.assetId === a.assetId)) {
+        l.push({ assetId: a.assetId, modality: a.modality, handle })
+      }
       // Mirror the host bridge: stamp the minted handle + origin onto the
       // model-facing output so the downstream projection keeps the asset.
       stampedAssets.push({ ...a, handle, origin: 'generated' })
     }
     if (assets.length === 0) return args.output
-    return { ...(args.output as Record<string, unknown>), assets: stampedAssets }
+    const notice =
+      takenBy === undefined
+        ? {}
+        : {
+            notice: `The name "${args.name}" was taken in this context (by ${takenBy}) before these products were recorded, so they keep generated handles: ${stampedAssets.map((a) => a.handle).join(', ')}.`,
+          }
+    return { ...(args.output as Record<string, unknown>), ...notice, assets: stampedAssets }
   }
 
   resolveHandles(args: {
@@ -425,7 +437,7 @@ describe('P7d dispatchAgent ⋈ AgentAssetBridge', () => {
     expect(bridge.resolveCalls.length).toBe(2)
     expect(bridge.resolveResults[0]).toEqual([])
     expect(bridge.resolveResults[1]).toEqual([
-      { slot: 'source', assetId: 'gen-asset', modality: 'image' },
+      { slot: 'source', assetId: 'gen-asset', modality: 'image', handle: 'image_1' },
     ])
     // Both children succeeded (tool-results are the typed image outputs).
     expect(capture.results.length).toBe(2)
@@ -913,6 +925,147 @@ describe('model-named handles', () => {
     expect(bridge.resolveArgs).toHaveLength(0)
     expect(bridge.recordArgs).toHaveLength(0)
     expect(await store.query({ patternId: 'text-gen' })).toHaveLength(0)
+  })
+
+  // Two named dispatches in one turn, both cleared by resolveForDispatch before
+  // either records: the first dispatch's model call is held until both have
+  // resolved, any other until the first record. Only the check the bridge runs
+  // again just before its write can then see what the other call recorded.
+  async function sameTurn(
+    steps: readonly [ToolStep, ToolStep],
+    assetsFor: (prompt: string | undefined) => Array<{ assetId: string; modality: 'image' }>,
+    store: MemoryJobStore = new MemoryJobStore(),
+  ): Promise<{ gated: FakeBridge; job: Job; results: Array<ModelFacingAssets & { notice?: string }> }> {
+    let bothResolved!: () => void
+    const resolvedGate = new Promise<void>((resolve) => (bothResolved = resolve))
+    let firstRecorded!: () => void
+    const recordedGate = new Promise<void>((resolve) => (firstRecorded = resolve))
+    class GatedBridge extends FakeBridge {
+      override resolveForDispatch(args: Parameters<FakeBridge['resolveForDispatch']>[0]) {
+        const out = super.resolveForDispatch(args)
+        if (this.resolveArgs.length === 2) bothResolved()
+        return out
+      }
+      override recordOutput(args: Parameters<FakeBridge['recordOutput']>[0]) {
+        const out = super.recordOutput(args)
+        firstRecorded()
+        return out
+      }
+    }
+    const gated = new GatedBridge()
+    const firstPrompt = (steps[0].input as { input: { prompt?: string } }).input.prompt
+    const cap = {
+      modelId: 'fake:img',
+      provider: 'fake',
+      tags: [] as never[],
+      capabilities: ['image-gen'] as never[],
+      inputs: ['text'] as Modality[],
+      outputs: ['image'] as Modality[],
+      source: 'user' as const,
+      async call(input: { prompt?: string }) {
+        await (input.prompt === firstPrompt ? resolvedGate : recordedGate)
+        return { output: { modality: 'image', assets: assetsFor(input.prompt) } }
+      },
+    } as unknown as ModelCapability
+    const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
+    registry.register(imageGen())
+    registry.register(agentTest())
+    const results: unknown[] = []
+    const rt = new InlineRuntime({
+      store: store as never,
+      registry,
+      router: { checkSatisfiable: () => ({ ok: true, candidates: [cap] }), resolve: () => cap },
+      agentRunImpl: {
+        async run(args) {
+          results.push(...(await Promise.all(steps.map((step) => args.onToolCall(step)))))
+          await args.onToolCall({
+            name: args.finishToolName,
+            input: { summary: 'done', deliverables: [] },
+            callId: 'finish',
+          })
+          return { text: 'done' }
+        },
+      },
+      assetBridge: gated,
+    })
+    const job = await rt.submitJob({ patternId: 'agent_test', input: { prompt: 'go' } })
+    expect(job.status).toBe('done')
+    expect(gated.resolveArgs.map((a) => productNameOf(a.input))).toEqual(['hero', 'hero'])
+    return { gated, job, results: results as Array<ModelFacingAssets & { notice?: string }> }
+  }
+
+  it('two same-turn calls with one name: the later writer finds it taken, mints every product and says so', async () => {
+    // Without the check before the write the pair would be written as hero-1,
+    // hero-2 beside hero: one name on two products, and no handle bound twice
+    // for a store to refuse.
+    const { gated, job, results } = await sameTurn(
+      [
+        dispatch('image-gen', { prompt: 'one hero', name: 'hero' }, 'tc-1'),
+        dispatch('image-gen', { prompt: 'two heroes', name: 'hero' }, 'tc-2'),
+      ],
+      (prompt) =>
+        prompt === 'one hero'
+          ? [{ assetId: 'single-0', modality: 'image' }]
+          : [
+              { assetId: 'pair-0', modality: 'image' },
+              { assetId: 'pair-1', modality: 'image' },
+            ],
+    )
+
+    expect(gated.recordArgs.map((a) => a.name)).toEqual(['hero', 'hero'])
+    expect(gated.ledgers.get(job.id)!.map((e) => [e.handle, e.assetId])).toEqual([
+      ['hero', 'single-0'],
+      ['image_2', 'pair-0'],
+      ['image_3', 'pair-1'],
+    ])
+    const [single, pair] = results
+    expect(single?.assets?.map((a) => a.handle)).toEqual(['hero'])
+    expect(single?.notice).toBeUndefined()
+    expect(pair?.assets?.map((a) => a.handle)).toEqual(['image_2', 'image_3'])
+    expect(pair?.notice).toBe(
+      'The name "hero" was taken in this context (by hero) before these products were recorded, so they keep generated handles: image_2, image_3.',
+    )
+  })
+
+  it('a same-turn duplicate of a named call records the same products under the name, with no notice', async () => {
+    // The second call is the first one again, and dedupe-hits the first row
+    // once it is done — its insert is held until then, because a hit on a row
+    // still in flight hands back a null output. So the same products are
+    // recorded twice under one name. They already hold it: the check before
+    // the write leaves out the assets the call is recording, since a replay of
+    // a call's own products is not a clash, and minting them would split what
+    // the name refers to.
+    let firstId: string | undefined
+    let firstDone!: () => void
+    const doneGate = new Promise<void>((resolve) => (firstDone = resolve))
+    class AfterFirstDoneStore extends MemoryJobStore {
+      override async insertIfAbsent(job: Job): Promise<Job> {
+        if (job.patternId === 'image-gen') {
+          if (firstId === undefined) firstId = job.id
+          else await doneGate
+        }
+        return super.insertIfAbsent(job)
+      }
+      override async update(id: string, patch: Partial<Job>): Promise<void> {
+        await super.update(id, patch)
+        if (id === firstId && patch.status === 'done') firstDone()
+      }
+    }
+    const store = new AfterFirstDoneStore()
+    const step = (callId: string) => dispatch('image-gen', { prompt: 'one hero', name: 'hero' }, callId)
+    const { gated, job, results } = await sameTurn(
+      [step('tc-1'), step('tc-2')],
+      () => [{ assetId: 'single-0', modality: 'image' }],
+      store,
+    )
+
+    expect(await store.query({ patternId: 'image-gen' })).toHaveLength(1)
+    expect(gated.recordArgs.map((a) => a.name)).toEqual(['hero', 'hero'])
+    expect(gated.ledgers.get(job.id)!.map((e) => [e.handle, e.assetId])).toEqual([['hero', 'single-0']])
+    for (const result of results) {
+      expect(result.assets?.map((a) => a.handle)).toEqual(['hero'])
+      expect(result.notice).toBeUndefined()
+    }
   })
 
   it('a product name is part of the work: the same prompt under two names is two jobs', async () => {

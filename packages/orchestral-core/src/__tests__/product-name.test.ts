@@ -16,7 +16,8 @@ import type { ZodSchema } from '../foundational'
 import { producedAssetShape } from '../output-envelope'
 import { ASSET_KINDS, boundedText } from '../output-fields'
 import type { AgentPattern } from '../pattern'
-import { PRODUCT_NAME_FIELD, productNameOf, producesAssets } from '../product-name'
+import { PRODUCT_NAME_FIELD, producesAssets } from '../product-name'
+import { productNameOf } from '../product-name-of'
 import { toJsonSchema } from '../schema'
 
 // Wrapped so issue paths read ['name'], as they do in a Pattern's input.

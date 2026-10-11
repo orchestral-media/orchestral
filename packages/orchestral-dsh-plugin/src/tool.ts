@@ -209,9 +209,11 @@ export function buildPatternTool(opts: BuildToolOptions): ToolDefinition {
       if (assetNeeds.length > 0) {
         // Fails closed: a missing required slot, an unknown handle, or a
         // modality mismatch is reported to the model instead of being
-        // dispatched with a silently dropped attachment.
+        // dispatched with a silently dropped attachment. The whole input goes
+        // in, typed as core takes it, so a `name` the model sent though none is
+        // offered here still meets the HANDLE_TAKEN check.
         const resolved = resolveAssets(
-          args as { references?: Record<string, string | string[]> } | null,
+          args as Parameters<typeof resolveAssets>[0],
           assetNeeds,
           jobCtx.assetEvents ?? [],
         )

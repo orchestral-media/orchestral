@@ -357,6 +357,89 @@ describe('registration derives the reserved input keys', () => {
     expect(reg.get('acme__caption')!.primary!.tool.inputs).toBe(union)
   })
 
+  it('refuses a union whose object member declares a reserved key, even when nothing is due', () => {
+    // Nothing is derived onto a union, but a member's top-level `name` is
+    // still read as a product name: on a Pattern that produces no assets every
+    // dispatch filling it would be refused ("Omit name"), and a member that
+    // requires it could never be dispatched at all.
+    const named = z.union([
+      z.object({ prompt: z.string(), name: z.string() }),
+      z.object({ text: z.string() }),
+    ])
+    const reg = registry()
+    const error = thrownBy(() => reg.register(nonProducer(named)))
+    expect(error.code).toBe('INPUT_RESERVED_KEY')
+    expect(error.details).toEqual({ patternId: 'acme__caption', key: 'name', reason: 'hand-written' })
+    expect(reg.has('acme__caption')).toBe(false)
+
+    // The other key, and the discriminated form: the members are judged the
+    // same way, ahead of the unsupported-inputs refusal a due field would get.
+    const referenced = z.discriminatedUnion('mode', [
+      z.object({ mode: z.literal('edit'), references: z.record(z.string(), z.string()) }),
+      z.object({ mode: z.literal('new') }),
+    ])
+    expect(thrownBy(() => registry().register(nonProducer(referenced))).details).toEqual({
+      patternId: 'acme__caption',
+      key: 'references',
+      reason: 'hand-written',
+    })
+    expect(thrownBy(() => registry().register(producer(named))).details).toEqual({
+      patternId: 'acme__render',
+      key: 'name',
+      reason: 'hand-written',
+    })
+
+    // A union with no reserved key in any member still registers as given.
+    const plain = z.union([z.object({ prompt: z.string() }), z.object({ text: z.string() }), z.string()])
+    reg.register(nonProducer(plain))
+    expect(reg.get('acme__caption')!.primary!.tool.inputs).toBe(plain)
+  })
+
+  it('judges every branch of the rendered inputs, however the combinators nest', () => {
+    // What a model is shown is the rendered schema, so that is what is judged:
+    // a reserved key at the top level of any branch a model could fill, behind
+    // whichever combinator put it there.
+    const hidden: Record<string, z.ZodType> = {
+      intersection: z.object({ prompt: z.string() }).and(z.object({ name: z.string() })),
+      'optional member': z.union([z.object({ name: z.string() }).optional(), z.object({ text: z.string() })]),
+      'nested union': z.union([
+        z.union([z.object({ name: z.string() }), z.object({ prompt: z.string() })]),
+        z.object({ text: z.string() }),
+      ]),
+      'referenced member': z.union([
+        z.object({ name: z.string() }).meta({ id: 'ReservedKeysTestNamedMember' }),
+        z.object({ text: z.string() }),
+      ]),
+    }
+    for (const [label, inputs] of Object.entries(hidden)) {
+      const error = thrownBy(() => registry().register(nonProducer(inputs)))
+      expect(error.code, label).toBe('INPUT_RESERVED_KEY')
+      expect(error.details, label).toEqual({ patternId: 'acme__caption', key: 'name', reason: 'hand-written' })
+    }
+
+    // Nested keys are the author's, on either path: a plain object, and a
+    // union whose member nests one.
+    const plainNested = z.object({ character: z.object({ name: z.string() }) })
+    const unionNested = z.union([
+      z.object({ character: z.object({ name: z.string() }) }),
+      z.object({ text: z.string() }),
+    ])
+    const reg = registry()
+    reg.register(nonProducer(plainNested))
+    expect(keysOf(reg.get('acme__caption'))).toEqual(['character'])
+    reg.register(atomic({ id: 'acme__describe', inputs: unionNested, outputs: textOutputs() }))
+    expect(reg.get('acme__describe')!.primary!.tool.inputs).toBe(unionNested)
+
+    // Inputs no surface can render (a transform) show a model nothing, so
+    // there is nothing to judge and they register as before.
+    const unrenderable = z.union([
+      z.object({ name: z.string() }).transform((v) => v),
+      z.object({ text: z.string() }),
+    ])
+    reg.register(atomic({ id: 'acme__tag', inputs: unrenderable, outputs: textOutputs() }))
+    expect(reg.get('acme__tag')!.primary!.tool.inputs).toBe(unrenderable)
+  })
+
   it('does not reserve nested name keys', () => {
     const nested = z.object({ items: z.array(z.object({ name: z.string() })) })
     const reg = registry()

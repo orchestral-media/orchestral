@@ -25,7 +25,8 @@ import { z, type ZodType } from 'zod'
 
 import type { Pattern, PatternExposure } from './pattern'
 import { resolveExposure } from './pattern'
-import { productNameOf, producesAssets } from './product-name'
+import { producesAssets } from './product-name'
+import { productNameOf } from './product-name-of'
 import type { PatternRegistry } from './registry'
 
 // ── Model-visible strings come in two spellings ─────────────────────────

@@ -13,10 +13,7 @@ import type {
   ResolvedAssetRef,
 } from './asset-index.types'
 import { fromAssetUri, toAssetUri } from './asset-uri'
-// A cycle: product-name asks parseMintedHandle (below) for the name field's
-// refusal, and resolveAssetReferences reads the name through productNameOf.
-// Both reads happen at call time, never while either module loads.
-import { productNameOf } from './product-name'
+import { productNameOf } from './product-name-of'
 
 /** Mints a 1-based, per-context, per-kind handle. Pure and replayable. */
 export function mintHandle(modality: AssetKind, priorCountOfModality: number): string {

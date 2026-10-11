@@ -15,8 +15,8 @@
 //   id / kind / purpose  — the Pattern instance returned by its factory
 //   input slots          — Pattern.assetNeeds
 //   output               — the outputs ZodObject's `modality` literal and
-//                          whether it declares an `assets` field (the same two
-//                          signals core's find_pattern projects for the LLM)
+//                          core's producesAssets (the same two signals
+//                          find_pattern projects for the LLM)
 //   host prerequisites   — `Pick<MetaCommonDeps, ...>` on the factory's deps
 //                          parameter, read out of dist/index.d.ts. The op names
 //                          exist only in the type system, so there is no
@@ -78,7 +78,7 @@ export async function resolve(specifier, context, nextResolve) {
 `
 register(`data:text/javascript,${encodeURIComponent(hookSource)}`, import.meta.url)
 
-const { PatternRegistry } = await import(distUrl('orchestral-core').href)
+const { PatternRegistry, producesAssets } = await import(distUrl('orchestral-core').href)
 const patterns = await import(distUrl('orchestral-patterns').href)
 
 // ── host-op prerequisites, read off the emitted .d.ts ──────────────────────
@@ -233,8 +233,9 @@ function slotsOf(pattern) {
 }
 
 /**
- * Same two signals core's find_pattern projects for the LLM: the `modality`
- * literal, and whether the shape declares an `assets` field.
+ * Same two signals find_pattern projects for the LLM: the `modality` literal,
+ * and core's producesAssets — the call find_pattern, registration and
+ * resolveDispatchTarget make, not a copy of its test.
  */
 function outputOf(pattern) {
   const shape = pattern.outputs?.shape
@@ -242,7 +243,7 @@ function outputOf(pattern) {
   const def = shape.modality?._def
   const modality =
     def?.type === 'literal' && Array.isArray(def.values) ? def.values[0] : undefined
-  const parts = [modality, shape.assets !== undefined ? 'assets[]' : undefined].filter(
+  const parts = [modality, producesAssets(pattern) ? 'assets[]' : undefined].filter(
     (p) => p !== undefined,
   )
   return parts.length === 0 ? '—' : parts.join(', ')

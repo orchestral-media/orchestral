@@ -9,7 +9,6 @@ import type { AgentToolDescriptor as AgentToolDescriptor_2 } from '@orchestral/c
 import type { AskUserHandler } from '@orchestral/core';
 import { AssetEvent } from '@orchestral/core';
 import { AssetNeed } from '@orchestral/core';
-import { AssetReferences } from '@orchestral/core';
 import { AssetResolutionError } from '@orchestral/core';
 import { AvailableAlternative } from '@orchestral/core';
 import type { BuildCatalogDescriptorsOptions } from '@orchestral/core';
@@ -26,6 +25,7 @@ import type { ModelTag } from '@orchestral/core';
 import type { PatternId } from '@orchestral/core';
 import type { PatternRegistry } from '@orchestral/core';
 import type { PatternSearch } from '@orchestral/core';
+import { resolveAssetReferences } from '@orchestral/core';
 import type { ResolveContext } from '@orchestral/core';
 import type { ResolveCtxProvider } from '@orchestral/core';
 import { ResolvedAssetRef } from '@orchestral/core';
@@ -201,10 +201,8 @@ export interface InlineRuntimeInit {
     transientRetry?: TransientRetryConfig;
 }
 
-// @alpha (undocumented)
-export function resolveAssets(input: {
-    references?: AssetReferences;
-} | null | undefined, assetNeeds: ReadonlyArray<AssetNeed>, events: ReadonlyArray<AssetEvent>): {
+// @alpha
+export function resolveAssets(input: Parameters<typeof resolveAssetReferences>[0], assetNeeds: ReadonlyArray<AssetNeed>, events: ReadonlyArray<AssetEvent>): {
     ok: true;
     assets: ReadonlyArray<ResolvedAssetRef>;
 } | {
