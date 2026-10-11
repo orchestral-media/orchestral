@@ -18,6 +18,7 @@ import {
   FindPatternInputSchema,
   isDispatchError,
   matchSubagentBlocklist,
+  productNameOf,
   projectToolOutputForModel,
   resolveDispatchTarget,
   sanitizeToolOutput,
@@ -175,6 +176,8 @@ export function buildAgentInlineCore(
  *   • **No partial-result salvage.** A failed run reports no produced-so-far
  *     assetIds (`recordedAssetIds`), and a failed child dispatch tells the loop
  *     only how many assets survived, never their handles (`handlesFor`).
+ *   • **No named handles.** An input's `name` is accepted and ignored —
+ *     nothing records it, and the loop sees no handles at all.
  *
  * Substrate-only tests and hosts whose agents never touch assets can leave it
  * out; anything that expects an agent to hand assets between its own tool
@@ -204,6 +207,13 @@ export interface AgentAssetBridge {
    * Resolves the subagent's `input.references` handles against its context's
    * ledger. Throws `AssetResolutionError` (fail-closed) — dispatchAgent maps it
    * to an `ASSET_RESOLUTION_FAILED` tool-result so the loop self-corrects.
+   *
+   * `input` may carry the dispatch's product name (`input.name`). Pass `input`
+   * to resolveAssetReferences, which reads it through productNameOf and refuses
+   * a name the context already holds — or any `<name>-<n>` — with HANDLE_TAKEN
+   * before anything else, so nothing is paid for. The runtime calls this
+   * method whenever the input carries a name, even for a Pattern with no
+   * assetNeeds.
    */
   resolveForDispatch(args: {
     contextId: string
@@ -230,6 +240,17 @@ export interface AgentAssetBridge {
    * contextId is its runId, not a session id). Returns `output` unchanged when
    * there is no store / no session (host-only agents with no session can't
    * record session assets) so the caller degrades rather than failing.
+   *
+   * `name` is the dispatch's product name, normalised by productNameOf. Record
+   * `output.assets[i]` with `deriveNamedHandles(name, output.assets.length)[i]`
+   * as its supplied handle. The HANDLE_TAKEN check cannot see a same-turn
+   * parallel call that took the name first, so the write can still refuse
+   * with HANDLE_COLLISION: record that asset without a supplied handle (it gets
+   * a minted one) and SAY SO in the returned output — at the top level, since
+   * projectToolOutputForModel keeps top-level fields and rebuilds every
+   * `assets[]` element from a whitelist. Say so too when a record is an
+   * idempotent hit (the assetId is already in the context) and keeps a
+   * different handle.
    */
   recordOutput(args: {
     contextId: string
@@ -238,6 +259,7 @@ export interface AgentAssetBridge {
     patternId: PatternId
     resolvedInputs: readonly ResolvedAssetRef[]
     output: unknown
+    name?: string
   }): unknown
   /**
    * Resolves a flat list of deliverable handles against a context's ledger.
@@ -1245,12 +1267,27 @@ deps: AgentDispatchDeps,
             }
           }
           // Inner resolution — resolve the child's `input.references`
-          // handles against THIS agent's context ledger before dispatch.
+          // handles against THIS agent's context ledger before dispatch, and
+          // refuse a product name the context already holds.
           // resolveForDispatch is fail-closed (throws on any resolution
           // failure); a broad catch maps it to an ASSET_RESOLUTION_FAILED
           // tool-result so the loop self-corrects rather than dying.
+          //
+          // The pass runs when the Pattern has slots OR the input carries a
+          // name. Slots alone was the gate before names existed, and it never
+          // asked about a producer that declares none — `text-to-audio` makes
+          // assets from text alone — so a taken name there would go unchecked
+          // until the write, after the work was paid for. An unnamed call to a
+          // slotless Pattern still skips the bridge: nothing to resolve, and
+          // nothing to check.
+          //
+          // `productName`, not `name`: in this closure `name` is the tool name.
+          const productName = productNameOf(target.parsedInput)
           let childAssets: readonly ResolvedAssetRef[] = []
-          if (deps.agentAssetBridge && (target.pattern.assetNeeds?.length ?? 0) > 0) {
+          if (
+            deps.agentAssetBridge &&
+            ((target.pattern.assetNeeds?.length ?? 0) > 0 || productName !== undefined)
+          ) {
             try {
               childAssets = deps.agentAssetBridge.resolveForDispatch({
                 contextId: agentContextId,
@@ -1269,7 +1306,9 @@ deps: AgentDispatchDeps,
                 hint:
                   innerCode === 'UNKNOWN_SLOT'
                     ? "Unknown references key — use only the pattern's declared slots (see error.meta.declaredSlots)."
-                    : 'Reference an asset handle in your inventory, or generate the source first.',
+                    : innerCode === 'HANDLE_TAKEN'
+                      ? 'That name is already in use in this context (error.meta.boundTo holds it). Reference that asset if it is the one you meant; otherwise dispatch again with a different name, or without one.'
+                      : 'Reference an asset handle in your inventory, or generate the source first.',
               }
             }
           }
@@ -1463,7 +1502,9 @@ deps: AgentDispatchDeps,
           // (+ origin/from lineage); we forward THAT to the loop — not the raw
           // child.output (assetId+url, no handle), which the projection below
           // drops for lacking a handle. Mirrors what the host's chat path does
-          // to job.output: stamp handles, attach lineage.
+          // to job.output: stamp handles, attach lineage. A named dispatch
+          // hands over its normalised name, which the products are recorded
+          // under instead of a mint; an unnamed one passes no `name` key.
           const stamped = deps.agentAssetBridge?.recordOutput({
             contextId: agentContextId,
             ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
@@ -1471,6 +1512,7 @@ deps: AgentDispatchDeps,
             patternId: fullId,
             resolvedInputs: childAssets,
             output: child.output,
+            ...(productName !== undefined ? { name: productName } : {}),
           })
           // Whoever owns the model call owns the projection. This tool-result
           // goes straight into the loop's model context, so it is projected

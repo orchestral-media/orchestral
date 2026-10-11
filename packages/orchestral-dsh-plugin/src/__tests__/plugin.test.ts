@@ -8,6 +8,7 @@ import {
   silentDiagnosticsLogger,
   PatternRegistry,
   defineAtomicPattern,
+  toJsonSchema,
   type Job,
   type JobSpec,
   type Pattern,
@@ -356,6 +357,65 @@ describe('tool registration', () => {
       }),
     )
     expect(registered.map((t) => t.name)).toEqual(['always', 'deferred-atomic'])
+  })
+})
+
+// ── the reserved `name` field: offered nowhere on this bridge ─────────────
+
+describe('the reserved name field', () => {
+  function exposedParameters(registry: PatternRegistry, id: string) {
+    const { ctx, registered } = fakeCtx()
+    apply(ctx, config({ runtime: fakeRuntime(null), registry }))
+    const tool = registered.find((t) => t.name === id)
+    if (!tool) throw new Error(`${id} was not registered`)
+    return tool.parameters as {
+      properties: Record<string, unknown>
+      required?: string[]
+    }
+  }
+
+  it('omits name from the tool schema of a Pattern that produces assets', () => {
+    const registry = registryOf(createTextToImagePattern())
+    const registered = registry.get('text-to-image')
+    if (registered?.kind !== 'atomic') throw new Error('expected an atomic Pattern')
+
+    // Registration gave the Pattern's own tool a `name`; the bridge records
+    // nothing, so it must not advertise one.
+    expect(Object.keys(toJsonSchema(registered.primary.tool.inputs).properties as object)).toContain('name')
+
+    const params = exposedParameters(registry, 'text-to-image')
+    expect(params.properties).not.toHaveProperty('name')
+    expect(params.properties).toHaveProperty('prompt')
+    expect(params.required ?? []).not.toContain('name')
+  })
+
+  it('leaves every other byte equal to toJsonSchema minus name', () => {
+    const registry = registryOf(createTextToImagePattern())
+    const registered = registry.get('text-to-image')
+    if (registered?.kind !== 'atomic') throw new Error('expected an atomic Pattern')
+
+    const expected = structuredClone(
+      toJsonSchema(registered.primary.tool.inputs),
+    ) as { properties: Record<string, unknown>; required?: string[] }
+    delete expected.properties.name
+    if (expected.required) {
+      expected.required = expected.required.filter((key) => key !== 'name')
+    }
+
+    expect(exposedParameters(registry, 'text-to-image')).toEqual(expected)
+    expect(JSON.stringify(exposedParameters(registry, 'text-to-image'))).toBe(
+      JSON.stringify(expected),
+    )
+  })
+
+  it('leaves a Pattern that produces no assets untouched', () => {
+    const registry = registryOf(atomic('p', 'tool'))
+    const registered = registry.get('p')
+    if (registered?.kind !== 'atomic') throw new Error('expected an atomic Pattern')
+
+    expect(exposedParameters(registry, 'p')).toEqual(
+      toJsonSchema(registered.primary.tool.inputs),
+    )
   })
 })
 

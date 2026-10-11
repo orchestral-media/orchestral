@@ -36,6 +36,7 @@ import {
   assetKindField,
   extendInputsWithReferences,
   parallel,
+  RESERVED_INPUT_KEYS,
   sumCosts,
   type AssetKind,
   type AssetNeed,
@@ -236,10 +237,17 @@ export function planToMeta<I extends Record<string, unknown> = Record<string, un
       //
       // `extendInputsWithReferences` rather than the raw derivation: it is the
       // path every other MetaPattern factory takes, and it carries the rules a
-      // hand-rolled `.extend()` here would get wrong — derived-wins over a
-      // hand-written `references`, key position preserved, object-level meta
-      // re-attached minus the registry id. With no `assetNeeds` it returns the
-      // schema unchanged, by reference.
+      // hand-rolled `.extend()` here would get wrong — a hand-written
+      // `references` in `opts.inputs` throws INPUT_RESERVED_KEY instead of
+      // being overwritten, a derived one is replaced keeping its key position,
+      // object-level meta is re-attached minus the registry id. With no
+      // `assetNeeds` it returns the schema unchanged, by reference.
+      //
+      // Registration derives again, and appends `name` too: PlanOutputSchema
+      // carries assets[]. A name sent here reaches `runPlan` as one more
+      // parameter that nothing reads — `$input.name` is PLAN_PARAM_UNKNOWN,
+      // because registration refuses an `opts.inputs` declaring `name`
+      // (INPUT_RESERVED_KEY).
       inputs: extendInputsWithReferences(
         opts.id,
         (inputs ?? z.object({})) as unknown as z.ZodType<I>,
@@ -295,6 +303,7 @@ export function createPlanMeta(
 ): MetaPattern<PlanDag, PlanOutput> {
   const lookup = lookupFromGetPattern(ops)
   const audience = init.audience ?? 'agent-loop'
+  const refine = planRefine(lookup, { selfId: PLAN_PATTERN_ID, audience })
   return {
     id: PLAN_PATTERN_ID,
     kind: 'meta',
@@ -324,9 +333,10 @@ export function createPlanMeta(
       // the model through the INPUT_VALIDATION_FAILED tool result the dispatch
       // path already produces. Invisible to `toJsonSchema` — which is why the
       // rules it enforces are also spelled out in the schema's `.describe()`
-      // copy and in the tool description above.
-      inputs: planDagSchema({ inputAssets: false }).superRefine(
-        planRefine(lookup, { selfId: PLAN_PATTERN_ID, audience }),
+      // copy and in the tool description above. It walks the DAG without the
+      // reserved keys, as compose does; see withoutReservedKeys.
+      inputs: planDagSchema({ inputAssets: false }).superRefine((value, ctx) =>
+        refine(withoutReservedKeys(value), ctx),
       ) as unknown as z.ZodType<PlanDag>,
     },
     outputs: PlanOutputSchema as unknown as z.ZodType<PlanOutput>,
@@ -338,7 +348,7 @@ export function createPlanMeta(
         .filter((p): p is PatternId => typeof p === 'string'),
     compose: ({ input }, ctx) =>
       runPlan(
-        input,
+        withoutReservedKeys(input),
         lookup,
         {
           selfId: PLAN_PATTERN_ID,
@@ -353,6 +363,28 @@ export function createPlanMeta(
         ctx,
       ),
   }
+}
+
+/**
+ * The one-shot's input minus {@link RESERVED_INPUT_KEYS}: the DAG it carries.
+ *
+ * Registration appends the derived `name` to `meta_plan`'s inputs, because
+ * PlanOutputSchema carries assets[]; the dispatch parse's top-level passthrough
+ * lets a `references` through as it does any undeclared key. The DAG schema is
+ * strict, and it is read twice — the refine on `tool.inputs` and `runPlan` in
+ * compose — so either key reaching it is PLAN_SCHEMA `unrecognized_keys`, and
+ * every named dispatch would be refused. Both reads go through here, so the two
+ * cannot disagree about what the DAG is. A shallow omit over the reserved list,
+ * never a mutation: the input the caller sent — the one the dispatch hashed —
+ * keeps its keys. A non-object comes back as given, for the walk to refuse.
+ */
+function withoutReservedKeys<T>(input: T): T {
+  if (!isRecord(input)) return input
+  const dag: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (!(RESERVED_INPUT_KEYS as readonly string[]).includes(key)) dag[key] = value
+  }
+  return dag as T
 }
 
 /** The `{ get, getEntry }` pair a `requiredOps: ['getPattern']` host supplies. */

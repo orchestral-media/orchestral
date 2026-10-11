@@ -67,7 +67,11 @@ export interface JobContext {
    */
   sessionId?: string
   assetContextId?: string
-  /** The host-owned asset ledger this call's `input.references` resolve against. */
+  /**
+   * The host-owned asset ledger this call's `input.references` resolve against.
+   * Names are not offered here, because nothing in this bridge records a
+   * product: the reserved `name` field is omitted from every tool schema.
+   */
   assetEvents?: readonly AssetEvent[]
 }
 

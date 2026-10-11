@@ -261,7 +261,7 @@ Core, pure, synchronous, returns and never throws. `lookup` is
 `Pick<PatternRegistry, 'get' | 'getEntry'>`; `opts` is `{ audience?:
 DispatchAudience; allow?: readonly PatternId[]; selfId?: PatternId; inputs?:
 ZodObject; assetNeeds?: readonly AssetNeed[] }`. Every rule runs; problems
-accumulate. Twenty-seven rules below, thirty codes: one code per remedy, so a
+accumulate. Twenty-eight rules below, thirty-one codes: one code per remedy, so a
 rule that can go wrong two distinct ways (5, 8, 15) reports two codes rather
 than blur them into one — a model reading a refusal should be able to tell
 what to edit from the code alone.
@@ -307,6 +307,7 @@ export class PlanInvalidError extends Error {
 24. `PLAN_INPUT_NOT_SERIALISABLE` — the input fails `canonicalise`'s rules (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: canonicalise-refuses-non-json)); `{ stepId, path }`. The engine would throw `IDEMPOTENCY_NOT_SERIALISABLE` at dispatch; the plan is JSON already, so this only fires on a host-constructed DAG.
 25. `PLAN_INPUT_ASSET_NOT_ALLOWED` — a `$input.assets[slot=…]` ref on a plan that declares no `assetNeeds` at all; `{ stepId, ref, available: [] }`. The twin of rule 8's `PLAN_REF_INPUT_NOT_ALLOWED`, which says the same thing about `$input.<field>` on a plan with no parameters. The one-shot is permanently in this case, which is why `createPlanMeta` renders the producer-only grammar and never advertises the form.
 26. `PLAN_INPUT_SLOT_UNKNOWN` — the slot name is not one this plan declares; `{ stepId, ref, slot, available: string[] }`. The twin of `PLAN_PARAM_UNKNOWN`, and it lists what IS declared for the same reason: the author cannot otherwise see the vocabulary from the refusal. Where the caller slot and the child slot disagree it is rules 17/18/20's codes that fire, not a new one — both sides are declared, so modality, cardinality and required-ness are knowable statically and get the code the reader already knows. In particular an *optional* caller slot feeding a *required* child slot reports `PLAN_SLOT_REQUIRED_UNBOUND`: it is rule 20's failure mode reached one step further out.
+28. `PLAN_STEP_NAME_NOT_ALLOWED` — a step's `input` carries a `name`, read as `productNameOf` reads one: any non-blank string, a `$ref` included, while a blank one is absent; `{ stepId }`, at `['steps', i, 'input', 'name']`. A step's products are never recorded under a name, yet registration derives `name` onto every asset producer's inputs, so rule 21 alone would accept a name nothing honours. The plan names its own product instead, and lists in `output.assets` what should be addressable. It reads the step alone, so it fires at construction too, before any registry exists; rule 21 drops its own issues at `name` when this rule has fired, so one name is one problem. `input.references` is not refused: rules 19 and 20 read it as a binding channel.
 
 Where it runs, one function, three sites:
 
@@ -317,7 +318,10 @@ Where it runs, one function, three sites:
   'meta_plan', audience }))` — the producer-only variant, because a one-shot
   declares no asset slots and rule 25 would refuse every `$input.assets[slot=…]`
   it could be sent,
-  emitting one zod issue per problem (`params: { code, details }`).
+  emitting one zod issue per problem (`params: { code, details }`). The refine
+  walks the input minus `RESERVED_INPUT_KEYS`, and `compose` hands `runPlan` the
+  same: registration appends the derived `name` to these inputs, as to every
+  asset producer's, and the strict DAG schema would refuse it at both reads.
   `resolveDispatchTarget` applies top-level `.passthrough()` and `safeParse`
   (`packages/orchestral-core/src/dispatch-pattern.ts` (DESIGN: dispatch-parse-passthrough)); on zod 4.4.3 (the pinned instance under
   `packages/orchestral-core/node_modules/zod`) `.passthrough()` preserves the
@@ -680,6 +684,10 @@ export const PLAN_PATTERN_ID = 'meta_plan' as const
 export function createPlanMeta(ops: { getPattern: (id: PatternId) => Pattern | undefined },
                                init: { audience?: DispatchAudience; concurrency?: number } = {}): MetaPattern<PlanDag, PlanOutput> {
   const lookup = { get: ops.getPattern, getEntry: (id) => { const p = ops.getPattern(id); return p && { pattern: p, alternatives: [] } } }
+  const refine = planRefine(lookup, { selfId: PLAN_PATTERN_ID, audience: init.audience ?? 'agent-loop' })
+  // Both DAG reads go through withoutReservedKeys (module-private): the input minus
+  // RESERVED_INPUT_KEYS, a shallow omit that never mutates. Registration appends `name`
+  // (PlanOutputSchema carries assets[]), and PlanDagSchema is strict at both reads.
   return {
     id: PLAN_PATTERN_ID, kind: 'meta', origin: 'plan', namespace: 'meta-pipelines',
     exposure: 'tool', exposureMode: 'deferred',
@@ -687,13 +695,13 @@ export function createPlanMeta(ops: { getPattern: (id: PatternId) => Pattern | u
     searchHint: 'pipeline; multi-step; chain several patterns; fan out then judge; workflow as data',
     tool: { description: PLAN_TOOL_DESCRIPTION,
             inputs: planDagSchema({ inputAssets: false })
-                      .superRefine(planRefine(lookup, { selfId: PLAN_PATTERN_ID, audience: init.audience ?? 'agent-loop' })) },
+                      .superRefine((dag, ctx) => refine(withoutReservedKeys(dag), ctx)) },
     outputs: PlanOutputSchema,
     plannedDispatches: (dag) => dag.steps.map((s) => s.pattern),
     // A width cap is offered; the identity seam is not. A one-shot's step ids
     // are invented by the model on the turn it submits, so there is nothing
     // stable for a host to key a durable row on.
-    compose: ({ input }, ctx) => runPlan(input, lookup, { selfId: PLAN_PATTERN_ID, ...(init.concurrency !== undefined ? { concurrency: init.concurrency } : {}) }, {}, ctx),
+    compose: ({ input }, ctx) => runPlan(withoutReservedKeys(input), lookup, { selfId: PLAN_PATTERN_ID, ...(init.concurrency !== undefined ? { concurrency: init.concurrency } : {}) }, {}, ctx),
   }
 }
 ```
