@@ -541,6 +541,52 @@ composes the same two calls in the same order (the dsh plugin does).
 `packages/orchestral-core/src/asset-index.ts` (DESIGN: project-tool-output-hard-projection);
 `packages/orchestral-runtime/src/__tests__/agent-tool-output-projection.test.ts` ("no bridge: the raw child output is projected — no assetId key and no signed URL reach the loop").
 
+### We don't let a model-chosen name look like a minted handle
+**Why.** A Pattern that produces assets takes an `input.name` its products are
+recorded under, because "A minted handle is dense and guessable: `image_N` is
+assigned in completion order, so a model that writes `image_4` from its own
+call order lands on a real image — the wrong one — and nothing fails." The two
+vocabularies are kept disjoint because "The ledger reads a supplied `image_3` as
+a replay of its own mint and pulls its counter up to it (see mintNext), so a
+chosen one would steer every later mint in the context, and one in another
+kind's grammar would collide with a mint that has not happened yet." Several
+products take `<name>-1` … `<name>-n`, and a `-` suffix can never satisfy the
+`_` mint grammar whatever the name is. A name already in use — exactly, or as a
+`<name>-<n>` — is `HANDLE_TAKEN` before any work is paid for, and a name on a
+Pattern that produces no assets is refused rather than dropped. Nothing is
+reserved ahead of the work: two same-turn calls with one name are caught where
+the binding is written, and the loser keeps a minted handle the host reports.
+**Instead.** Name it anything else — `hero-shot`, `封面` — or leave `name` out
+and copy the minted handle from the tool result.
+**Where.** `packages/orchestral-core/src/product-name.ts` (DESIGN: model-named-handle);
+`packages/orchestral-core/src/__tests__/product-name.test.ts` ("refuses a name in the mint grammar of every asset kind"),
+`packages/orchestral-core/src/__tests__/asset-index.test.ts` ("HANDLE_TAKEN: a name the context already holds is refused before any need is evaluated"),
+`packages/orchestral-runtime/src/__tests__/agent-asset-flow.test.ts` ("a name the context already holds comes back as ASSET_RESOLUTION_FAILED with the HANDLE_TAKEN hint, and nothing is dispatched").
+
+### We don't let an author hand-write `references` or `name`
+**Why.** Both keys are derived when a Pattern is registered — `references` from
+its `assetNeeds`, `name` when its outputs carry `assets[]` — so "the stored
+schema always matches the Pattern's own declaration, whatever list a factory
+derived from". Derived-wins used to replace what an author wrote without a
+word, and the resolvers read both keys on every Pattern: a hand-written
+`references` is a slot record nobody checks, and a hand-written `name` would be
+read as a product name. So content at either top-level key that a derivation did
+not produce is `INPUT_RESERVED_KEY`, at registration and in
+`extendInputsWithReferences` alike. So is a derived field the Pattern's own
+declaration no longer produces, because "a field the schema shows but nothing
+reads is the exact falsehood this rule exists to remove". A derived field is
+known by identity — the derivation records every instance it makes — never by
+its shape, so a host that places `deriveReferencesSchema(...)` itself, unwrapped,
+is recognised and re-derived. Nested keys are not reserved.
+**Instead.** Declare `assetNeeds`, or an `assets` output, and leave the keys
+out. Use `extendInputsWithReferences` only where something reads a factory's
+inputs before registration. A host that saves user-authored schemas checks
+`RESERVED_INPUT_KEYS` first.
+**Where.** `packages/orchestral-core/src/extend-inputs-with-references.ts` (DESIGN: reserved-input-keys);
+`packages/orchestral-core/src/__tests__/reserved-input-keys.test.ts` ("refuses a hand-written top-level references at registration"),
+`packages/orchestral-core/src/__tests__/reserved-input-keys.test.ts` ("refuses a hand-written top-level name at registration"),
+`packages/orchestral-patterns/src/__tests__/registered-name-field.test.ts` ("every registered Pattern whose outputs carry assets exposes name, and no other Pattern does").
+
 ## Packaging & release
 
 ### We don't let core know about dsh — or any particular host

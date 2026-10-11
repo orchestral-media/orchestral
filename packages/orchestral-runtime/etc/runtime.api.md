@@ -54,6 +54,7 @@ export interface AgentAssetBridge {
         patternId: PatternId;
         resolvedInputs: readonly ResolvedAssetRef[];
         output: unknown;
+        name?: string;
     }): unknown;
     resolveForDispatch(args: {
         contextId: string;

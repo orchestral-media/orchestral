@@ -33,7 +33,6 @@ export type OrchestratorInput = z.infer<typeof OrchestratorInputSchema>;
 export const OrchestratorInputSchema: z.ZodObject<{
     description: z.ZodString;
     prompt: z.ZodString;
-    references: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
     style: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 

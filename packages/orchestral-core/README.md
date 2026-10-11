@@ -249,6 +249,15 @@ Media inputs never travel as raw ids through the LLM. The chain is four steps:
 Handles are per-context and per-`assetId`; they are not global names, so never
 persist one as an identifier.
 
+A Pattern that produces assets also takes an optional `input.name`, which the
+registry adds to its tool schema. The host records the product under that name
+instead of a mint — `deriveNamedHandles` spells it for one asset or several — so
+a reference the model did not copy misses instead of landing on a neighbour. A
+name the context already holds is refused up front (`HANDLE_TAKEN`), and one
+shaped like a minted handle (`image_3`) never gets that far. `references` and
+`name` are reserved: the registry derives both, and refuses either if an author
+writes it.
+
 ## Semantic fallback (`Alternative`)
 
 The capability-level fallback in the tagline is declarative data on a pattern:
