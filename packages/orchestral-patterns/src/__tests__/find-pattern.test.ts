@@ -474,10 +474,11 @@ describe('handleFindPattern', () => {
       const schema = match!.primary.inputSchema as {
         properties: Record<string, unknown>
       }
-      // The static base is exactly { prompt, references }.
+      // The static base is exactly { prompt, references, name } — `name`
+      // derived at registration, because text-to-image's outputs carry assets[].
       // Without a host closure, no ai-sdk param (n / size / …) is lifted, so the
-      // standalone schema shows only the two base fields.
-      expect(Object.keys(schema.properties).sort()).toEqual(['prompt', 'references'])
+      // standalone schema shows only the three base fields.
+      expect(Object.keys(schema.properties).sort()).toEqual(['name', 'prompt', 'references'])
       expect(schema.properties.n).toBeUndefined()
       expect(schema.properties.size).toBeUndefined()
     })

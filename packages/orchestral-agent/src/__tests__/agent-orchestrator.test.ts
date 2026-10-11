@@ -7,6 +7,7 @@ import {
   PatternRegistry,
   DEFAULT_AGENT_FINISH_SPEC,
   defaultAgentFinishOutputs,
+  toJsonSchema,
   type AgentPattern,
 } from '@orchestral/core'
 
@@ -323,6 +324,44 @@ describe('agent_orchestrator', () => {
     // not a per-pattern copy.
     expect(stored.outputs).toBe(defaultAgentFinishOutputs)
     expect(stored.finish).toBe(DEFAULT_AGENT_FINISH_SPEC)
+  })
+
+  it('the registered orchestrator carries the derived references and name', () => {
+    // As constructed: the base no longer hand-writes `references`, so the
+    // derived one lands after the typed extra rather than in the base's slot.
+    const agent = createOrchestratorAgent()
+    const built = agent.primary!.tool.inputs as unknown as z.ZodObject<z.ZodRawShape>
+    expect(Object.keys(built.shape)).toEqual(['description', 'prompt', 'style', 'references'])
+
+    // As registered: the default finish outputs carry assets[], so the
+    // registry appends `name` after the derived `references`.
+    const reg = new PatternRegistry({ logger: silentDiagnosticsLogger })
+    reg.register(agent)
+    const stored = reg.get(AGENT_ORCHESTRATOR_PATTERN_ID) as AgentPattern
+    const inputs = stored.primary!.tool.inputs as unknown as z.ZodObject<z.ZodRawShape>
+    expect(Object.keys(inputs.shape)).toEqual([
+      'description',
+      'prompt',
+      'style',
+      'references',
+      'name',
+    ])
+
+    const js = toJsonSchema(inputs) as {
+      properties: Record<string, { type?: string; maxLength?: number; properties?: Record<string, unknown> }>
+      required: string[]
+    }
+    expect(Object.keys(js.properties.references?.properties ?? {})).toEqual([
+      'images',
+      'videos',
+      'audios',
+    ])
+    expect(js.properties.name).toMatchObject({ type: 'string', maxLength: 64 })
+    expect(js.required).toEqual(['description', 'prompt'])
+
+    const brief = { description: 'promo', prompt: 'Produce a promo.' }
+    expect(inputs.safeParse({ ...brief, name: 'launch-promo' }).success).toBe(true)
+    expect(inputs.safeParse({ ...brief, name: 'video_2' }).success).toBe(false)
   })
 
   describe('orchestrator asset slots (P2)', () => {

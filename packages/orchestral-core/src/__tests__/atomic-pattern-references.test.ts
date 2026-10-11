@@ -1,12 +1,14 @@
 // Ctor-time injection: the derived references field lands in the BASE input
 // schema, so dispatch validation (resolveDispatchTarget parses the base) and
-// find_pattern rendering share one source. Injection REPLACES any hand-written
-// `references` field (derived wins).
+// find_pattern rendering share one source. `references` is a reserved key: a
+// hand-written one is refused (INPUT_RESERVED_KEY), and only a derived one is
+// replaced — the same rule registration applies (reserved-input-keys.test.ts).
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { defineAtomicPattern } from '../atomic-pattern'
 import type { AssetNeed } from '../asset-index.types'
+import { deriveReferencesSchema } from '../derive-references-schema'
 import type { ZodSchema } from '../foundational'
 
 const NEEDS: AssetNeed[] = [
@@ -33,32 +35,38 @@ describe('AtomicPattern references injection', () => {
     expect(schema.safeParse({ prompt: 'x', references: { mask: ['image_2'] } }).success).toBe(false)
   })
 
-  it('replaces a hand-written references field (derived wins)', () => {
+  it('refuses a hand-written references field', () => {
     const handwritten = z.object({
       prompt: z.string(),
       references: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
     })
-    const p = makePattern(handwritten, NEEDS)
-    const schema = p.primary.tool.inputs as unknown as z.ZodObject<z.ZodRawShape>
-    // The loose record would have accepted this unknown key; derived strict must not.
-    expect(schema.safeParse({ prompt: 'x', references: { bogus: 'h' } }).success).toBe(false)
+    // The loose record would have accepted any slot key; it is refused rather
+    // than silently replaced, so the author learns the key is not theirs.
+    expect(() => makePattern(handwritten, NEEDS)).toThrow(
+      expect.objectContaining({
+        code: 'INPUT_RESERVED_KEY',
+        details: { patternId: 'test-pattern', key: 'references', reason: 'hand-written' },
+      }),
+    )
   })
 
-  it('derived wins on a refined base that hand-writes references (no throw, checks kept)', () => {
+  it('replaces a derived references on a refined base, keeping its checks', () => {
     // zod's .extend() throws on refined-object key overwrite — the helper
-    // must take the safeExtend path so the derived-wins contract holds.
+    // must take the safeExtend path to replace a derived field there.
     const refined = z
       .object({
         prompt: z.string(),
-        references: z.record(z.string(), z.string()).optional(),
+        // Derived from a stale list: only `mask`, while the Pattern declares both.
+        references: deriveReferencesSchema([NEEDS[1]!])!,
       })
       .refine((v) => v.prompt.length > 0, 'prompt must be non-empty')
     const p = makePattern(refined, NEEDS)
     const schema = p.primary.tool.inputs as unknown as z.ZodObject<z.ZodRawShape>
-    // derived strict schema replaced the loose hand-written record
+    // the derivation from the Pattern's own list replaced the stale one, in place
+    expect(Object.keys(schema.shape)).toEqual(['prompt', 'references'])
+    expect(schema.safeParse({ prompt: 'x', references: { source: ['image_1'] } }).success).toBe(true)
     expect(schema.safeParse({ prompt: 'x', references: { bogus: 'h' } }).success).toBe(false)
-    expect(schema.safeParse({ prompt: 'x', references: { mask: 'image_2' } }).success).toBe(true)
-    // the object-level refinement survives the extension
+    // the object-level refinement survives the replacement
     expect(schema.safeParse({ prompt: '', references: { mask: 'image_2' } }).success).toBe(false)
   })
 

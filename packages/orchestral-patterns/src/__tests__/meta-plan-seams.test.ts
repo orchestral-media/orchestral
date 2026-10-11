@@ -105,7 +105,8 @@ describe('a plan that takes media from its caller', () => {
     const pattern = h.registry.get('meta_animate-still' as PatternId)
     const shape = (pattern as unknown as { tool: { inputs: z.ZodObject } }).tool.inputs
       .shape
-    expect(Object.keys(shape).sort()).toEqual(['motion', 'references'])
+    // `name` too: a plan's outputs carry assets[], so registration derives it.
+    expect(Object.keys(shape).sort()).toEqual(['motion', 'name', 'references'])
   })
 
   it('a parameterless plan still gets references when it declares slots', () => {
@@ -113,7 +114,7 @@ describe('a plan that takes media from its caller', () => {
     const pattern = h.registry.get('meta_read-frames' as PatternId)
     const shape = (pattern as unknown as { tool: { inputs: z.ZodObject } }).tool.inputs
       .shape
-    expect(Object.keys(shape)).toEqual(['references'])
+    expect(Object.keys(shape)).toEqual(['references', 'name'])
   })
 
   it('threads the caller’s asset into the step’s slot, source handle and all', async () => {

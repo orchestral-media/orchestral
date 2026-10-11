@@ -12,6 +12,8 @@
 //     it carries LIFT_MARKER, regardless of name (negativePrompt etc.)
 //   • LLM sees constraint via parse() — Suno z.literal(2) rejects n=3
 //   • providerOptions field overrides base default (n: 1 → n: 2)
+//   • a marked field under a reserved input key stays under providerOptions —
+//     the reserved keys are derived at registration, never lifted over
 
 import { describe, expect, it } from 'vitest'
 import { z, type ZodRawShape, type ZodTypeAny } from 'zod'
@@ -21,6 +23,7 @@ import {
   LIFT_MARKER,
   ASSET_MARKER,
 } from '../derive-pattern-input'
+import { PRODUCT_NAME_FIELD } from '../product-name'
 
 /**
  * Mirror the host `_liftable.ts` `markLiftable()` helper — these tests can't
@@ -463,6 +466,34 @@ describe('deriveLlmFacingInputSchema', () => {
       ).unwrap().shape
       expect(Object.keys(poShape)).toContain('mode')
       expect(Object.keys(poShape)).not.toContain('imageTail')
+    })
+  })
+
+  // ── Reserved input keys ──────────────────────────────────────────────────
+  // `references` and `name` are derived at registration. A provider field the
+  // host marked for lifting under either key would otherwise replace the
+  // derived field in the find_pattern and always-load rendering while
+  // dispatch validates the derived one — the model reads one schema and is
+  // judged by another.
+  describe('reserved input keys', () => {
+    it('keeps a lifted provider field with a reserved key under providerOptions', () => {
+      const base = z.object({ prompt: z.string(), name: PRODUCT_NAME_FIELD })
+      const po = z.object({
+        n: markField(z.number().int().min(1).max(4)),
+        name: markField(z.string()),
+        references: markField(z.string().optional()),
+      })
+      const derived = deriveLlmFacingInputSchema(base, po)
+      // The derived name is still the one at the top level, and nothing named
+      // `references` was lifted beside it.
+      expect(derived.shape.name).toBe(PRODUCT_NAME_FIELD)
+      expect(derived.shape).not.toHaveProperty('references')
+      // An unreserved marked field still lifts.
+      expect(derived.shape).toHaveProperty('n')
+      const poShape = (
+        derived.shape.providerOptions as z.ZodOptional<z.ZodObject<z.ZodRawShape>>
+      ).unwrap().shape
+      expect(Object.keys(poShape)).toEqual(['name', 'references'])
     })
   })
 })
