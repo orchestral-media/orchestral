@@ -252,10 +252,21 @@ export {
   LIFT_MARKER,
   ASSET_MARKER,
 } from './derive-pattern-input'
-// Raw references derivation — @alpha test seam; production code goes
-// through extendInputsWithReferences (semantics on its JSDoc).
+// Registration derives both reserved keys itself — `references` when a Pattern
+// declares assetNeeds, `name` when its outputs carry assets[] — on every
+// Pattern it stores. These two helpers remain for code that reads tool inputs
+// off a Pattern that was never registered (a factory's return value, a test);
+// deriveReferencesSchema is the raw, @alpha form.
 export { deriveReferencesSchema } from './derive-references-schema'
 export { extendInputsWithReferences } from './extend-inputs-with-references'
+// The top-level input keys only a derivation writes. A host that saves
+// user-authored input schemas checks against them at save time, instead of
+// learning at registration.
+export { RESERVED_INPUT_KEYS, type ReservedInputKey } from './derived-fields'
+// The reserved `name` field's two reads: the name an input carries, normalised
+// (every reader goes through it, never `input.name`), and whether a Pattern's
+// outputs carry the assets[] that gets it the field.
+export { productNameOf, producesAssets } from './product-name'
 
 // ── Alternatives (cross-Pattern fallback) ────────────────────────────────
 export type {
@@ -414,8 +425,14 @@ export {
 } from './logger'
 
 // ── AssetLedger primitives ───────────────────────────────────────────────
+// The minting rule (mintNext) and its inverse (parseMintedHandle) are public so
+// a durable AssetStore applies them instead of copying them; deriveNamedHandles
+// spells the handles a named dispatch's products are recorded under.
 export {
   mintHandle,
+  mintNext,
+  parseMintedHandle,
+  deriveNamedHandles,
   buildAssetIndex,
   resolveAssetReferences,
   projectAssetsForModel,

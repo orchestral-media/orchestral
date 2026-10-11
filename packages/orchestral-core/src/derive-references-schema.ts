@@ -26,6 +26,7 @@
 // to the single/array value mapping here must be reflected there.
 import { z } from 'zod'
 import type { AssetNeed } from './asset-index.types'
+import { markDerived } from './derived-fields'
 
 // The field's own copy, frozen as above: handles, keyed by slot, picked from
 // the context's asset list. What each slot says is below.
@@ -78,5 +79,7 @@ export function deriveReferencesSchema(
         : z.union([z.string(), z.array(z.string())])
     shape[need.slot] = value.optional().describe(slotDescribe(need))
   }
-  return z.strictObject(shape).describe(REFERENCES_DESCRIBE).optional()
+  // Marked at the lowest producer, so registration recognises this instance as
+  // derived however it reached a Pattern's inputs (see derived-fields.ts).
+  return markDerived(z.strictObject(shape).describe(REFERENCES_DESCRIBE).optional())
 }
