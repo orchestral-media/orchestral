@@ -48,10 +48,13 @@ export interface ParallelFn {
    *
    * @param concurrency Maximum simultaneous tasks; `Infinity` for no cap, in
    * which case every task is invoked SYNCHRONOUSLY and in list order, exactly
-   * as a bare `Promise.all` over eagerly-built promises would have. Callers
-   * whose tasks advance a shared counter at call time depend on that (see the
-   * plan interpreter's level loop); a finite cap necessarily gives it up,
-   * because a capped task starts when an earlier one settles.
+   * as a bare `Promise.all` over eagerly-built promises would have. That is
+   * what keeps an unnamed `ctx.step` called at the top of a task numbered in
+   * list order (`StepOptions.stepId`). A finite cap gives that up by
+   * construction: a capped task starts when an earlier one settles, so unnamed
+   * steps called from capped tasks take their numbers in completion order and
+   * can trade keys between runs — a resubmit then pays for them again. Name a
+   * step called from inside a capped task. (A plan's steps are always named.)
    */
   limit<T>(
     tasks: readonly (() => Promise<T>)[],

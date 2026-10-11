@@ -49,7 +49,7 @@ export type JobKind = 'pattern' | 'agent'
 /**
  * Runtime promotes a JobSpec to a Job by adding id / status / output / error /
  * timestamps and (if omitted) deriving a deterministic idempotencyKey from
- * a canonical hash of (patternId, input, sessionId, stepIndex).
+ * a canonical hash of (patternId, input, assets, sessionId, stepKey).
  */
 export interface Job<TInput = unknown, TOutput = unknown> {
   id: string
@@ -85,8 +85,8 @@ export interface Job<TInput = unknown, TOutput = unknown> {
  *   IDENTITY — folded into the derived idempotency key, so changing one makes
  *   this a different job: `patternId`, `input`, `assets` (the resolution-pass
  *   output — the same literal input over different resolved source assets is
- *   different work), `sessionId`, `stepIndex`, and `stepKey` (present only when
- *   a meta step opted out of positional identity — see its own doc below).
+ *   different work), `sessionId`, and `stepKey` (the step's path in its
+ *   dispatch tree, which `ctx.step` sets — see its own doc below).
  *   (`idempotencyKey` itself, when supplied, replaces the derivation.)
  *
  *   ROUTING METADATA — tells the runtime and adapters *how* to execute this
@@ -142,41 +142,41 @@ export interface JobSpec<TInput = unknown> {
   resolveHints?: { excludeModel?: readonly string[] }
   /** Omit to let the runtime derive via canonical JSON hash. */
   idempotencyKey?: string
-  /** Position in a MetaPattern step list — folded into idempotency hash. */
-  stepIndex?: number
   /**
-   * Set by `ctx.step` under `identity: 'id'`: the namespaced effective step id.
-   * Replaces `stepIndex` in the idempotency derivation when present — the step
-   * is then keyed by what it is called rather than by where it sits, so
-   * inserting a step ahead of it does not re-key it.
+   * Where this dispatch sits in its tree, set by `ctx.step` on every child it
+   * submits: the ids of the steps that launched its compose, then its own,
+   * joined by `/` — `panel-0/meta_image-best-of-n#0/text-to-image#1`. Each
+   * segment is the name its author gave (`StepOptions.stepId`) or, unnamed,
+   * `${patternId}#${n}` with n counted within that one compose.
    *
-   * IDENTITY, not routing: unlike `stepIdNamespace` (a prefix the child meta
-   * uses to keep its own stepId space distinct, deliberately unhashed), this
-   * field exists *to be* hashed. It carries the namespaced form for the same
-   * reason `stepIdNamespace` exists at all — two subtrees running the same
-   * inner meta must not collide on `candidate-0`.
+   * IDENTITY, not routing: `deriveIdempotencyKey` hashes it, so a step finds
+   * its row run after run whatever else ran around it, and two places in one
+   * tree never share a row even when their pattern and input agree.
+   * `stepIdNamespace` carries the same string to a child meta, which prefixes
+   * its own steps with it; that field is the routing half and is not hashed.
    *
-   * Absent on every spec whose step did not opt in, which is every spec the
-   * shipped metas produce. `deriveIdempotencyKey` spreads it in conditionally
-   * so absence is byte-identical to how the key was derived before the field
-   * existed, and no stored row moves.
+   * Absent on a host's direct `submitJob`, an agent loop's tool call, and a
+   * `ctx.submitJob` spec its author built without one; the derivation hashes
+   * absence as `null`.
    */
   stepKey?: string
   /**
-   * stepId namespace prefix a parent meta stamps onto a child
-   * meta's spec. The child meta uses it to namespace its OWN internal stepId
-   * space (stepCache key + duplicate-detection set), so the SAME meta type
-   * dispatched multiple times in one tree (e.g. meta_storyboard rendering
-   * panel-0 and panel-1, each running meta_image-best-of-n with fixed explicit
-   * stepIds `candidate-0`…) doesn't collide on those explicit ids or
-   * cross-contaminate the shared stepCache. The parent sets it to the
-   * EFFECTIVE stepId of the step launching the child (e.g. `panel-0`), so the
-   * child's `candidate-0` becomes `panel-0/candidate-0` — deterministically
-   * unique at any nesting depth. Top-level meta dispatches leave it absent,
-   * so no prefix is applied.
+   * stepId namespace prefix a parent meta stamps onto a child meta's spec. The
+   * child meta uses it to namespace its OWN internal stepId space (stepCache
+   * key, duplicate-detection set, and the `stepKey` of each of its steps), so
+   * the SAME meta type dispatched multiple times in one tree (e.g.
+   * meta_storyboard rendering panel-0 and panel-1, each running
+   * meta_image-best-of-n with fixed explicit stepIds `candidate-0`…) doesn't
+   * collide on those ids — explicit ones like `candidate-0`, and default ones,
+   * which are numbered per compose — or cross-contaminate the shared
+   * stepCache. The parent sets it to the EFFECTIVE stepId of the step
+   * launching the child (e.g. `panel-0`), so the child's `candidate-0` becomes
+   * `panel-0/candidate-0` — deterministically unique at any nesting depth.
+   * Top-level meta dispatches leave it absent, so no prefix is applied.
    *
-   * Routing metadata only — NEVER hashed into the idempotency key
-   * (deriveIdempotencyKey hand-picks fields; this one is excluded by design).
+   * Routing metadata: this field is never hashed. Its value is — once, as this
+   * spec's `stepKey` (`ctx.step` sets both to the same path), and as the head
+   * of every `stepKey` the child meta's own steps send.
    */
   stepIdNamespace?: string
   /**
@@ -287,7 +287,13 @@ export type JobEvent<TInput = unknown, TOutput = unknown> =
        */
       type: 'job:step'
       job: Job<TInput, TOutput>
-      /** Author-facing step id, as passed to `ctx.step` (unnamespaced). */
+      /**
+       * Author-facing step id, as passed to `ctx.step` (unnamespaced). It names
+       * the step within its own compose only: a default id (`text-to-image#0`)
+       * recurs in every compose that makes one unnamed call to that pattern,
+       * as an explicit `candidate-0` recurs under every best-of-n. Correlate
+       * on `childJobId`.
+       */
       stepId: string
       /** The Pattern the step dispatched. */
       patternId: PatternId

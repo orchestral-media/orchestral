@@ -138,7 +138,6 @@ export interface DeriveIdempotencyKeyInput {
     patternId: PatternId;
     // (undocumented)
     sessionId?: string;
-    stepIndex?: number;
     stepKey?: string;
 }
 

@@ -56,19 +56,23 @@ const MAX_STEP_CACHE = 512
  *     down instead, by `deriveIdempotencyKey` + `JobStore.insertIfAbsent`,
  *     which is where the durable half of the idempotency contract actually
  *     lives.
- *   • stepCounter — boxed mutable counter for default stepId generation
- *     (`${patternId}#${counter}`); a box rather than a number primitive so
- *     nested ctx instances share the same monotonic sequence.
- *   • stepIds — set of every stepId seen (default + explicit override) for
- *     duplicate detection — an explicit override and an auto-generated id
- *     cannot collide silently; the framework throws on conflict.
+ *   • askCounter — boxed counter for `ctx.askUser` correlation ids
+ *     (`${rootJobId}:ask:${n}`); a box so nested ctx instances share one
+ *     sequence. Ask ids only: a step's position is local to its compose (see
+ *     ctx.step), so no park, and nothing a sibling does, moves a step's key.
+ *   • stepIds — every effective (namespace-prefixed) stepId seen in the tree,
+ *     default and explicit alike, for duplicate detection. Default ids repeat
+ *     across composes, as explicit ones always could; the namespace is what
+ *     makes an effective id tree-unique, so a collision this set catches is
+ *     one inside a single compose — an explicit id that repeats, or one
+ *     spelled like a default id the same compose produces.
  */
 export interface MetaSharedState {
   stepCache: Map<
     string,
     { value: unknown; attempts: number; durationMs: number }
   >
-  stepCounter: { value: number }
+  askCounter: { value: number }
   stepIds: Set<string>
   /**
    * jobId of the dispatch-tree ROOT — the top-level meta the LLM tool-called.
@@ -79,7 +83,8 @@ export interface MetaSharedState {
    * the same rootJobId. The ctx.askUser correlation id is prefixed with it so a
    * nested park still addresses the root, and the host can sweep every park
    * under one `${rootJobId}:` prefix. Uniqueness holds because rootJobId resets
-   * exactly when the shared stepCounter does (both live here).
+   * exactly when the shared askCounter does: both live here, and a fresh state
+   * claims a fresh root.
    */
   rootJobId?: string
 }
@@ -114,7 +119,8 @@ export interface MetaCtxDeps {
   /**
    * Dispatch a child Pattern. Maps to `InlineRuntime._submitJobInternal`
    * with the ancestor chain + meta shared state threaded through so nested
-   * meta dispatches can inherit the parent's stepCache / counter / stepIds.
+   * meta dispatches can inherit the parent's stepCache / askCounter / stepIds /
+   * rootJobId.
    */
   submitChild: <TIn = unknown, TOut = unknown>(
     spec: JobSpec<TIn>,
@@ -267,16 +273,16 @@ function assertNoDualSourcedSingleSlot(
 /**
  * ExecutionContext construction for MetaPattern.compose().
  *
- * ctx.step / ctx.compute both achieve idempotency via an in-memory per-run
- * cache. Persisting step runs across process restarts is a host concern; this
- * layer provides only the in-memory version, and a host can swap in its own
- * store backend on top.
+ * ctx.compute is idempotent within a run through an in-memory cache; ctx.step
+ * through the JobStore, keyed by the step's path (see `stepKey` below).
+ * Persisting either across a process restart is the host's concern.
  *
- * `sharedState` carries `{stepCache, stepCounter, stepIds}`
- * from a parent meta when this ctx is being built for a nested dispatchMeta.
+ * `sharedState` carries `{stepCache, askCounter, stepIds, rootJobId}` from a
+ * parent meta when this ctx is being built for a nested dispatchMeta.
  * Top-level meta dispatches construct a fresh state in `dispatchMeta` itself
  * and pass it in — this function never owns the lifecycle, only reads/mutates
- * through the provided handle.
+ * through the provided handle. What is local to ONE compose — the ordinals of
+ * its unnamed steps — lives in this closure instead.
  */
 export function buildMetaExecutionContext(
   deps: MetaCtxDeps,
@@ -291,12 +297,16 @@ export function buildMetaExecutionContext(
   // When this ctx is built for a nested meta, the parent stamps
   // its launching step's effective stepId here (e.g. `panel-0`). Every stepId
   // this ctx mints — cache key + duplicate-detection set — gets prefixed with
-  // it, so a child meta's fixed explicit stepIds (best-of-n's `candidate-N`)
-  // don't collide / cross-contaminate when the same meta runs more than once
-  // in one dispatch tree. Absent (top-level meta) = no prefix.
+  // it, so a child meta's ids — fixed explicit ones (best-of-n's `candidate-N`)
+  // and default ones, which are numbered per compose — don't collide or
+  // cross-contaminate when the same meta runs more than once in one dispatch
+  // tree. The prefixed id is also each step's `stepKey`. Absent (top-level
+  // meta) = no prefix.
   stepIdNamespace?: string,
 ): ExecutionContext {
-  const { stepCache, stepCounter, stepIds, rootJobId } = sharedState
+  const { stepCache, askCounter, stepIds, rootJobId } = sharedState
+  // Unnamed steps' ordinals, per pattern, for THIS compose only — see ctx.step.
+  const ordinals = new Map<PatternId, number>()
 
   const runWithRetry = async <T,>(
     id: string,
@@ -357,7 +367,7 @@ export function buildMetaExecutionContext(
 
   // ctx.step: one sub-Pattern dispatch per call, and everything with an effect
   // a meta can ask of one — a PatternRef (id, input, internal assets) plus
-  // StepOptions (retry, id, identity, key). Everything else a step gets — the
+  // StepOptions (retry, name, key). Everything else a step gets — the
   // dedup, the duplicate-id and cycle guards, the job:step event, the abort
   // cascade — the runtime supplies, whoever wrote the call.
   // DESIGN: ctx-step
@@ -371,50 +381,34 @@ export function buildMetaExecutionContext(
         ref: PatternRef,
         options?: StepOptions,
       ): Promise<StepResult<T>> => {
-        // Identity mode, checked before the shared counter is touched: this is
-        // a malformed call, not a failed step. `identity: 'id'` asks for the
-        // row to be keyed by the step's NAME instead of its position, which
-        // only means something if the author supplied the name — the default
-        // id is `${patternId}#${idx}`, so deriving one here would smuggle the
-        // counter straight back into the key and silently deliver the opposite
-        // of what was asked for. Refuse instead.
-        // DESIGN: step-identity-requires-step-id
-        const byId = options?.identity === 'id'
-        if (byId && options?.stepId === undefined) {
-          throw Object.assign(
-            new Error(
-              `STEP_IDENTITY_REQUIRES_STEP_ID: ${metaId} called ctx.step with ` +
-                `identity:'id' and no options.stepId — the auto-generated id ` +
-                `embeds the step counter, so keying on it would reintroduce ` +
-                `the positional identity this option exists to escape. Pass an ` +
-                `explicit stepId that is stable across runs.`,
-            ),
-            { code: 'STEP_IDENTITY_REQUIRES_STEP_ID' },
-          )
-        }
-        // Default stepId is a sequential counter — a deliberately simple form:
-        // production Patterns are write-once, so the author owns the fact that
-        // reordering code invalidates resume. Both default-generated and
-        // explicit `options.stepId` go through the same stepIds set so the
-        // framework can flag collisions — defence-in-depth against author typo.
-        //
-        // Compute the index once so stepId / stepIndex / counter advance
-        // atomically. Counter is shared across nested metas via sharedState
-        // — siblings of meta-A and meta-B see one monotonic sequence.
+        // A step's id is its name, or — unnamed — its position: the ordinal of
+        // this call among this compose's unnamed calls to the same pattern.
+        // The ordinal lives in this closure, not in the shared state, because
+        // a counter shared by the tree is a function of timing: parallel
+        // subtrees interleave on it, and a sibling that dedupes skips its
+        // compose and the numbers it would have taken, so a step that had
+        // succeeded drew a new number on the resubmit and was paid for again.
+        // Counting only unnamed calls means naming or moving a named step never
+        // renumbers one; counting per pattern means a call to another pattern
+        // never does. Claimed here, at the call, before anything is awaited —
+        // `parallel([...])` and an uncapped `parallel.limit` rely on that to
+        // number in list order. Unnamed calls reached from concurrent branches
+        // after an await take theirs in the order they are reached: name those.
         // DESIGN: default-step-id-is-positional
-        const idx = stepCounter.value++
-        // stepId differentiates on patternId only.
-        const stepId = options?.stepId ?? `${ref.patternId}#${idx}`
-        // Namespace the stepId by the parent's launching step.
-        // The shared stepCounter already keeps DEFAULT ids (`patternId#idx`)
-        // tree-unique, so only EXPLICIT ids (best-of-n's `candidate-N`) can
-        // collide when the same meta runs twice in one tree. Prefixing both the
-        // dedup set and the cache key with the parent step's effective id makes
-        // `candidate-0` under `panel-0` distinct from the one under `panel-1`,
-        // and the child stamps `effectiveStepId` onto its OWN children so the
-        // namespace nests deterministically at any depth. Top-level meta:
-        // stepIdNamespace is undefined → effectiveStepId === stepId, so no
-        // prefix is applied.
+        let stepId: string
+        if (options?.stepId !== undefined) {
+          stepId = options.stepId
+        } else {
+          const n = ordinals.get(ref.patternId) ?? 0
+          ordinals.set(ref.patternId, n + 1)
+          stepId = `${ref.patternId}#${n}`
+        }
+        // Prefix with the launching step's effective id. Default ids are
+        // numbered per compose, so they repeat across composes exactly as an
+        // explicit `candidate-0` does; the prefix is what keeps every effective
+        // id unique in the tree — and, since the effective id is the step's
+        // durable key, what keeps two subtrees off each other's rows. Top-level
+        // meta: no namespace, so effectiveStepId === stepId.
         const effectiveStepId = stepIdNamespace
           ? `${stepIdNamespace}/${stepId}`
           : stepId
@@ -451,7 +445,21 @@ export function buildMetaExecutionContext(
           )
         }
 
+        // A retry is this same step executing again, not an author reusing an
+        // id: it re-dispatches the same path, and a meta child composes again
+        // under the same namespace. The ids its failed attempt registered all
+        // start with `${effectiveStepId}/`, so release them before the next
+        // attempt — otherwise the retried compose trips DUPLICATE_STEP_ID on
+        // its own first step instead of finding the rows that attempt banked.
+        // This step's own id is not under the prefix and stays registered
+        // once. The compute cache is left alone: computes the failed attempt
+        // settled are reused, as the rows it banked are.
+        let attempt = 0
         const run = async (): Promise<T> => {
+          if (attempt++ > 0) {
+            const prefix = `${effectiveStepId}/`
+            for (const id of stepIds) if (id.startsWith(prefix)) stepIds.delete(id)
+          }
           // Resolve the sub-step's LLM-facing `input.references` handles
           // against the meta's asset context (host seam). A meta forwarding a
           // caller handle to a sub-step (best-of-n's inner i2i references.source,
@@ -497,7 +505,7 @@ export function buildMetaExecutionContext(
             ...internalAssets,
           ]
           // Pass sharedState into the child dispatch so a
-          // nested meta inherits this run's stepCache / counter / stepIds.
+          // nested meta inherits this run's stepCache / askCounter / stepIds.
           // Atomic / agent children ignore the param (it bottoms out in
           // dispatch.kind === 'meta' branch only).
           const child = await deps.submitChild<unknown, T>(
@@ -530,35 +538,22 @@ export function buildMetaExecutionContext(
               // deterministic), and never collides with a sibling subtree.
               // DESIGN: step-id-namespace-nesting
               stepIdNamespace: effectiveStepId,
-              // Exactly one identity field reaches the child. By default it is
-              // the counter position, which is why inserting a step ahead of
-              // this one re-keys it. Under `identity: 'id'` it is the
-              // NAMESPACED effective id instead, and `stepIndex` is omitted so
-              // the position cannot qualify the name — a step keyed by name
-              // then survives an edit anywhere else in the list.
-              //
-              // Namespaced rather than the author-facing id for the same
-              // reason `stepIdNamespace` exists: two subtrees running the same
-              // inner meta both call their step `candidate-0`, and if that
-              // meta ever opts in they must not collide. (The stated rationale
-              // for keeping the namespace OUT of the hash — that an identical
-              // sub-step in two subtrees would fail to dedupe — is already
-              // moot here: the tree-shared counter makes their stepIndex
-              // differ today, so they never deduped onto each other anyway.)
+              // One identity field reaches the child, always: the step's path,
+              // the same string as `stepIdNamespace` above. `deriveIdempotencyKey`
+              // hashes it, so a step finds its row run after run whatever ran
+              // around it, and two subtrees running the same inner meta never
+              // share one (`a/candidate-0` vs `b/candidate-0`).
               // DESIGN: step-identity-field
-              ...(byId
-                ? { stepKey: effectiveStepId }
-                : { stepIndex: idx }),
+              stepKey: effectiveStepId,
               // The caller's own answer to "what is the same work", which
               // `_submitJobInternal` prefers over the derivation
               // DESIGN: caller-supplied-step-identity
               // (`spec.idempotencyKey ?? deriveIdempotencyKey(…)`). Spread
-              // conditionally: absent, the child spec is byte-identical to one
-              // built before this option existed, so no stored key moves.
+              // conditionally, so a step without one carries no
+              // `idempotencyKey` field at all.
               //
-              // The identity fields above are still sent. They are dead for
-              // keying once this is present — but they are not only keying
-              // fields, and stripping them here would make the two options
+              // `stepKey` above is still sent. With a caller key present it
+              // keys nothing, but stripping it here would make the two options
               // interact when they are meant to be independent.
               ...(options?.idempotencyKey !== undefined
                 ? { idempotencyKey: options.idempotencyKey }
@@ -658,18 +653,17 @@ export function buildMetaExecutionContext(
     // Prefix the correlation id with the dispatch-tree ROOT jobId (not this
     // meta's own), so a park from a NESTED meta still addresses the root and
     // the host can sweep every park under one `${rootJobId}:` prefix. The
-    // shared stepCounter (same one ctx.step uses for default stepIds) keeps ids
-    // unique within the tree; a fresh escape-hatch subtree gets its own root +
-    // counter, so no cross-tree collision. `request.jobId` is the root too — the
-    // host routes/cleans by it, unchanged. (`?? jobId`: dispatchMeta always
+    // number comes from the tree's ask counter, which nothing else reads: an
+    // ask id has to be unique in the tree, and it is not work identity, so it
+    // may depend on timing where a step's position may not. A park therefore
+    // moves no step's key. A fresh escape-hatch subtree gets its own root and
+    // counter, so ids never collide across trees. `request.jobId` is the root
+    // too — the host routes/cleans by it. (`?? jobId`: dispatchMeta always
     // claims rootJobId before this runs; the fallback is belt-and-suspenders.)
-    //
-    // Minting the id advances that counter, so a park moves the position — and
-    // with it the positional key — of every ctx.step after it.
-    // DESIGN: ask-user-consumes-step-counter
+    // DESIGN: ask-id-not-step-identity
     const root = rootJobId ?? jobId
     const request: AskUserRequest = {
-      id: `${root}:ask:${stepCounter.value++}`,
+      id: `${root}:ask:${askCounter.value++}`,
       kind: opts.kind,
       payload: opts.payload,
       ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
@@ -725,7 +719,6 @@ export function buildMetaExecutionContext(
     // spec.assets; meta.compose reads it via ctx.assets.
     assets: spec.assets ?? [],
     ...(spec.sessionId ? { sessionId: spec.sessionId } : {}),
-    stepIndex: 0,
   }
 }
 
@@ -737,7 +730,7 @@ export function buildMetaExecutionContext(
 export function makeFreshState(): MetaSharedState {
   return {
     stepCache: new Map(),
-    stepCounter: { value: 0 },
+    askCounter: { value: 0 },
     stepIds: new Set(),
   }
 }

@@ -8,14 +8,14 @@ import { deriveIdempotencyKey, type DeriveIdempotencyKeyInput } from '../idempot
 // hashed field set, or the digest algorithm flips the pinned hash below and
 // trips this test — a deliberate decision is then required to re-pin it.
 describe('deriveIdempotencyKey stability', () => {
+  // A host's direct submit: no step made it, so it carries no stepKey.
   it('hash is stable for a fixed input', () => {
     const key = deriveIdempotencyKey({
       patternId: 'text-to-image',
       input: { prompt: 'a red bicycle' },
       sessionId: 'sess-1',
-      stepIndex: 0,
     })
-    expect(key).toMatchInlineSnapshot(`"4aaca9602308759a19fa826fc60c3488830dd2ab6269833f2095b52042fb788a"`)
+    expect(key).toMatchInlineSnapshot(`"648e63fee82ac1151e79d7bfd55c71616862cc59516aca1cb9e7e1d376d14431"`)
   })
 
   // The Variant axis was removed. `variantId` is no longer part of
@@ -28,7 +28,6 @@ describe('deriveIdempotencyKey stability', () => {
       patternId: 'text-to-image',
       input: { prompt: 'a red bicycle' },
       sessionId: 'sess-1',
-      stepIndex: 0,
       // @ts-expect-error — variantId is not a member of DeriveIdempotencyKeyInput.
       variantId: 'fast',
     }
@@ -37,7 +36,6 @@ describe('deriveIdempotencyKey stability', () => {
       patternId: 'text-to-image',
       input: { prompt: 'a red bicycle' },
       sessionId: 'sess-1',
-      stepIndex: 0,
     }
 
     // The canonicaliser only walks the declared fields, so the stray
@@ -47,30 +45,37 @@ describe('deriveIdempotencyKey stability', () => {
     )
   })
 
-  // The second pinned hash. `stepKey` is the name-based identity a step opts
-  // into with StepOptions.identity:'id'; it is spread in conditionally, so it
-  // gets its own freeze gate rather than perturbing the one above.
+  // A root step named `render`: the step's path is its name.
   it('hash is stable for a fixed input carrying a stepKey', () => {
     const key = deriveIdempotencyKey({
       patternId: 'text-to-image',
       input: { prompt: 'a red bicycle' },
       sessionId: 'sess-1',
-      stepIndex: 0,
       stepKey: 'render',
     })
-    expect(key).toMatchInlineSnapshot(`"8996641afd40ff90e2b4f05d73cda57370225e1435d658df532e471fb35bb4bd"`)
+    expect(key).toMatchInlineSnapshot(`"de7c3d6e46c94a897624f1dbb6c8467b7e7f04c90494dfab3e3c174464039a93"`)
   })
 
-  // The whole point of the conditional spread. An explicit `undefined` must be
-  // indistinguishable from the field never having been written, or every
-  // caller that threads `spec.stepKey` straight through — which is what the
-  // runtime does — would move every key it touches.
+  // An unnamed step one level down: the launching step's id, then the
+  // pattern and its ordinal among that compose's unnamed calls to it.
+  it('hash is stable for a nested step path', () => {
+    const key = deriveIdempotencyKey({
+      patternId: 'text-to-image',
+      input: { prompt: 'a red bicycle' },
+      sessionId: 'sess-1',
+      stepKey: 'panel-0/text-to-image#0',
+    })
+    expect(key).toMatchInlineSnapshot(`"1226ffe090a5d5283bf5565bc3ddb688ccaf475f58b55135a7a5fc0f623f3d44"`)
+  })
+
+  // An explicit `undefined` must be indistinguishable from the field never
+  // having been written: the runtime threads `spec.stepKey` straight through,
+  // and a host's direct submit has none.
   it('an absent stepKey and an explicit undefined hash identically', () => {
     const absent: DeriveIdempotencyKeyInput = {
       patternId: 'text-to-image',
       input: { prompt: 'a red bicycle' },
       sessionId: 'sess-1',
-      stepIndex: 0,
     }
     const explicitUndefined: DeriveIdempotencyKeyInput = {
       ...absent,
@@ -79,9 +84,9 @@ describe('deriveIdempotencyKey stability', () => {
     expect(deriveIdempotencyKey(explicitUndefined)).toBe(
       deriveIdempotencyKey(absent),
     )
-    // And it is still the pre-stepKey digest — no stored row moved.
+    // An absent stepKey hashes as null: it is the host-direct pin above.
     expect(deriveIdempotencyKey(absent)).toBe(
-      '4aaca9602308759a19fa826fc60c3488830dd2ab6269833f2095b52042fb788a',
+      '648e63fee82ac1151e79d7bfd55c71616862cc59516aca1cb9e7e1d376d14431',
     )
   })
 
@@ -90,34 +95,38 @@ describe('deriveIdempotencyKey stability', () => {
       patternId: 'text-to-image',
       input: { prompt: 'a red bicycle' },
       sessionId: 'sess-1',
-      stepIndex: 0,
     }
     const withoutKey = deriveIdempotencyKey(base)
     const render = deriveIdempotencyKey({ ...base, stepKey: 'render' })
     const upscale = deriveIdempotencyKey({ ...base, stepKey: 'upscale' })
 
-    // Opting in is itself a different unit of work: a positional row and a
-    // name-keyed row for the same call must not dedupe onto each other.
+    // A host-direct row and a step's row never dedupe onto each other.
     expect(render).not.toBe(withoutKey)
     // Two named steps with identical inputs are two steps — which is exactly
     // what lets a plan write three identical `take-*` steps.
     expect(render).not.toBe(upscale)
   })
 
-  // The insert-a-step property, at the level of the hash: a name-keyed step
-  // does not move when the positional index around it does. `stepIndex` is
-  // still in the payload (as the constant 0) — the two must never both vary.
-  it('a stepKey-carrying input is unaffected by the step index it replaced', () => {
-    const named = (stepIndex: number | undefined) =>
-      deriveIdempotencyKey({
-        patternId: 'text-to-image',
-        input: { prompt: 'a red bicycle' },
-        sessionId: 'sess-1',
-        stepIndex,
-        stepKey: 'render',
-      })
-    // ctx.step omits stepIndex under identity:'id', so this is the real call;
-    // the derivation's `?? 0` makes it the same key as an explicit 0.
-    expect(named(undefined)).toBe(named(0))
+  // A step is keyed by where it sits, never by when it was called: the field
+  // that carried the call-time position is gone from the input, and a stray
+  // one is not hashed.
+  it('stepIndex is not part of the key and is not a member of the input', () => {
+    const withStrayIndex: DeriveIdempotencyKeyInput = {
+      patternId: 'text-to-image',
+      input: { prompt: 'a red bicycle' },
+      sessionId: 'sess-1',
+      stepKey: 'render',
+      // @ts-expect-error — a step is keyed by its path (stepKey), never by a position
+      stepIndex: 0,
+    }
+    const keyed: DeriveIdempotencyKeyInput = {
+      patternId: 'text-to-image',
+      input: { prompt: 'a red bicycle' },
+      sessionId: 'sess-1',
+      stepKey: 'render',
+    }
+    expect(deriveIdempotencyKey(withStrayIndex)).toBe(
+      deriveIdempotencyKey(keyed),
+    )
   })
 })

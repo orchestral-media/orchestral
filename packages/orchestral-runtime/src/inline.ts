@@ -684,8 +684,8 @@ export class InlineRuntime implements Runtime {
    * Internal submitJob with ancestor chain — recursion bookkeeping kept
    * off the public surface (JobSpec stays caller-clean).
    *
-   * `metaSharedState` threads the idempotency cache + step counter + stepId-
-   * uniqueness set from a parent meta into a nested meta dispatch.
+   * `metaSharedState` threads the compute cache, the ask counter and the
+   * stepId-uniqueness set from a parent meta into a nested meta dispatch.
    * `undefined` (the default) means "start a fresh state" — used by public
    * `submitJob`, by `ctx.submitJob` escape hatch, and by alternative dispatch.
    *
@@ -748,10 +748,8 @@ export class InlineRuntime implements Runtime {
         input: spec.input,
         assets: spec.assets,
         sessionId: spec.sessionId,
-        stepIndex: spec.stepIndex,
-        // Absent on every spec whose step did not opt out of positional
-        // identity, and conditionally spread inside the derivation, so this
-        // forwarding leaves existing keys untouched.
+        // The step's path: set on every ctx.step child, absent on a direct
+        // submit, which the derivation hashes as null.
         stepKey: spec.stepKey,
       })
 

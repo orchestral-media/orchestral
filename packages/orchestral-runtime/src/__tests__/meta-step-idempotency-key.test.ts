@@ -7,7 +7,7 @@
 // `compose` were the two the derivation offers — position, or name-within-this
 // -session. The asymmetry is what this option removes.
 //
-// What it buys that `identity: 'id'` does not: the derived key hashes
+// What it buys that naming the step does not: the derived key hashes
 // `sessionId` ("dedup never crosses a session boundary" — idempotency.ts), so
 // name-keying survives an edit to the step list but not a new session. A caller
 // whose notion of "the same work" outlives a session — anything keyed on the
@@ -97,11 +97,11 @@ function createCrossPatternMeta(): MetaPattern<KeyedInput, unknown> {
         input.key === undefined ? {} : { idempotencyKey: input.key }
       await ctx.step(
         { patternId: 'fake-gen', input: { prompt: input.prompt } },
-        { stepId: 'a', identity: 'id', ...keyed },
+        { stepId: 'a', ...keyed },
       )
       return await ctx.step(
         { patternId: 'fake-gen-b', input: { prompt: input.prompt } },
-        { stepId: 'b', identity: 'id', ...keyed },
+        { stepId: 'b', ...keyed },
       )
     },
   }
@@ -119,7 +119,6 @@ function createKeyedMeta(): MetaPattern<KeyedInput, unknown> {
         { patternId: 'fake-gen', input: { prompt: input.prompt } },
         {
           stepId: 'x',
-          identity: 'id',
           ...(input.key !== undefined ? { idempotencyKey: input.key } : {}),
         },
       )

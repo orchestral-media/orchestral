@@ -15,11 +15,9 @@ export interface DeriveIdempotencyKeyInput {
    *  resolved assets dedupes apart. */
   assets?: readonly ResolvedAssetRef[]
   sessionId?: string
-  /** Position in a MetaPattern step list — disambiguates same input across steps. */
-  stepIndex?: number
-  /** The namespaced stepId, set only by a `ctx.step` that opted out of
-   *  positional identity (`identity: 'id'`). Present ⇒ the step is keyed by
-   *  its name; absent ⇒ the payload is byte-identical to a pre-stepKey one. */
+  /** The step's path in its dispatch tree (`JobSpec.stepKey`), which
+   *  `ctx.step` sets on every child. Absent — a host's direct submit — hashes
+   *  as `null`. */
   stepKey?: string
 }
 
@@ -41,11 +39,11 @@ export interface DeriveIdempotencyKeyInput {
  *   • `assets` — the resolution pass output, so the same literal input over
  *     different resolved assets dedupes apart
  *   • `sessionId` — dedup never crosses a session boundary
- *   • `stepIndex` — the same input at two positions of a MetaPattern step
- *     list is two units of work, not one
- *   • `stepKey` — the same identity question answered by NAME instead of by
- *     position, for a step that asked for it (`StepOptions.identity: 'id'`).
- *     Only ever present on such a step; see the spread below
+ *   • `stepKey` — where the dispatch sits in its tree: the ids of the steps
+ *     that launched its compose, then its own name or, unnamed, its position
+ *     among that compose's unnamed calls to the same pattern. The same input
+ *     at two places is two units of work, and the same step finds its row run
+ *     after run whatever ran around it. `null` for a dispatch no step made
  *
  * Everything else on JobSpec is **routing metadata** and is excluded on
  * purpose. An alternative Runtime implementation must keep it excluded:
@@ -56,8 +54,8 @@ export interface DeriveIdempotencyKeyInput {
  *     resolution result is already covered by `assets`
  *   • `resolveHints` — a retry with a different model-exclusion set is the
  *     same work, routed elsewhere (and failed rows never dedupe anyway)
- *   • `stepIdNamespace` — a nesting-path prefix for stepIds; hashing it would
- *     make an identical sub-step in two subtrees fail to dedupe
+ *   • `stepIdNamespace` — the prefix a child meta puts on its own steps' ids.
+ *     The field is not hashed; the path it carries is, once, as `stepKey`
  *   • `resumeFromRunId`, `jobKind` — execution-mode markers, not work identity
  *   • `idempotencyKey` — the caller-supplied override; when present the caller
  *     bypasses this function entirely. One consequence of the allowlist above
@@ -68,12 +66,10 @@ export interface DeriveIdempotencyKeyInput {
  *     up — whether the input changed, whether the session is the same — is the
  *     caller's to answer
  *
- * Adding a field here changes dedup behaviour for every existing job row:
- * previously-deduping dispatches start executing twice. A field spread in
- * CONDITIONALLY does not, and that is the point of writing one that way: when
- * no caller sets it, the stringified payload has the same keys in the same
- * order with the same values as before it existed, so every stored key is
- * still derivable. Only callers that opt in move, and they have no rows yet.
+ * Adding a field here changes dedup behaviour for every existing job row: a
+ * dispatch that would have deduped runs once more and writes a new row.
+ * Removing one does too. A field with no value is written as `null` rather
+ * than left out, so the payload has one shape for every caller.
  * DESIGN: idempotency-identity-allowlist
  */
 export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string {
@@ -82,15 +78,7 @@ export function deriveIdempotencyKey(args: DeriveIdempotencyKeyInput): string {
     input: canonicalise(args.input),
     assets: args.assets !== undefined ? canonicalise(args.assets) : null,
     sessionId: args.sessionId ?? null,
-    // stepIndex keeps its `?? 0` default rather than becoming conditional
-    // too, so the absent case stays byte-identical to the pre-stepKey payload.
-    // The consequence is that an identity:'id' step — which sends stepKey and
-    // no stepIndex — still hashes `stepIndex: 0`. That is harmless precisely
-    // BECAUSE it is constant: the two fields must never both vary, or the name
-    // would be qualified by the position it was meant to replace and the step
-    // would re-key on exactly the insert it opted in to survive.
-    stepIndex: args.stepIndex ?? 0,
-    ...(args.stepKey !== undefined ? { stepKey: args.stepKey } : {}),
+    stepKey: args.stepKey ?? null,
   })
   return createHash('sha256').update(canonical).digest('hex')
 }

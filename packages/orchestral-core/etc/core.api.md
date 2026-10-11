@@ -743,7 +743,6 @@ export interface ExecutionContext<S = unknown, P = unknown, W = unknown> extends
     // (undocumented)
     session?: S;
     step: CtxStepFn;
-    stepIndex: number;
     submitJob<TIn = unknown, TOut = unknown>(spec: JobSpec<TIn>): Promise<Job<TIn, TOut>>;
     // (undocumented)
     workflow?: W;
@@ -943,7 +942,6 @@ export interface JobSpec<TInput = unknown> {
     // (undocumented)
     sessionId?: string;
     stepIdNamespace?: string;
-    stepIndex?: number;
     stepKey?: string;
 }
 
@@ -1674,8 +1672,6 @@ export interface StepMeta {
 // @public (undocumented)
 export interface StepOptions {
     idempotencyKey?: string;
-    identity?: 'index' | 'id';
-    metadata?: Record<string, unknown>;
     retry?: RetryPolicy;
     stepId?: string;
 }

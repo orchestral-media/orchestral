@@ -182,7 +182,7 @@ const contactSheet: MetaPattern<Input, Output> = {
   async compose({ input }, ctx) {
     const startedAt = Date.now()
     const outs = await parallel(
-      // stepId keeps the fan-out from collapsing into one cached step.
+      // Named, so each render keeps its row whatever else this compose dispatches.
       input.prompts.map((prompt, i) => textToImage(ctx, { prompt }, { stepId: `render-${i}` })),
     )
     return {
