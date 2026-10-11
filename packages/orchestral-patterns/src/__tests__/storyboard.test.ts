@@ -123,9 +123,12 @@ function makeCtx(
  * nested meta_image-best-of-n with the REAL compose() bodies and reproduce the
  * "same child meta dispatched twice with fixed explicit stepIds" collision.
  *
- * The runtime threads one `MetaSharedState` (stepIds set + stepCache + default
- * counter) across nested metas, and stamps each child meta with the parent
- * step's effective stepId as a namespace prefix. We re-create exactly that here:
+ * The runtime threads one `MetaSharedState` (stepIds set + stepCache) across
+ * nested metas, and stamps each child meta with the parent step's effective
+ * stepId as a namespace prefix. A default id is `${patternId}#${n}`, n counting
+ * the unnamed calls to that pattern made from the same ctx — each compose
+ * numbers its own, and a named step takes no number. We re-create exactly that
+ * here:
  *   • dispatching meta_image-best-of-n recurses into its compose() with a child
  *     ctx whose namespace = the parent step's effective stepId (panel-N);
  *   • the shared stepIds set throws DUPLICATE_STEP_ID on collision, just like
@@ -145,7 +148,6 @@ function makeRecursiveCtx(designJson: string) {
   const shared = {
     stepIds: new Set<string>(),
     stepCache: new Map<string, unknown>(),
-    counter: { value: 0 },
   }
 
   const registry = new Map<string, MetaPattern>([
@@ -153,12 +155,18 @@ function makeRecursiveCtx(designJson: string) {
   ])
 
   function buildCtx(namespace: string | undefined): ExecutionContext {
+    // Unnamed calls per pattern, for this ctx only.
+    const ordinals = new Map<string, number>()
     const step = async <T>(
       ref: PatternRef,
       options?: StepOptions,
     ): Promise<T> => {
-      const idx = shared.counter.value++
-      const stepId = options?.stepId ?? `${ref.patternId}#${idx}`
+      let stepId = options?.stepId
+      if (stepId === undefined) {
+        const n = ordinals.get(ref.patternId) ?? 0
+        ordinals.set(ref.patternId, n + 1)
+        stepId = `${ref.patternId}#${n}`
+      }
       const effectiveStepId = namespace ? `${namespace}/${stepId}` : stepId
 
       if (shared.stepIds.has(effectiveStepId)) {

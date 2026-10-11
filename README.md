@@ -73,8 +73,8 @@ Six runnable hosts live in this repo:
 - [`examples/plan-short-clip`](examples/plan-short-clip) — the same three-step
   pipeline written as JSON instead of as a `compose()`, loaded by `planToMeta`
   as an ordinary meta. Re-submit with a step *inserted* and the untouched steps
-  still come back from the `JobStore`: a plan keys its rows by step name
-  (`identity: 'id'`), not by position. Mock models, no key.
+  still come back from the `JobStore`: a plan keys its rows by step name, not
+  by position. Mock models, no key.
 - [`examples/long-form-video`](examples/long-form-video) — the reference
   novel → multi-event video pipeline (five planning metas and a director
   agent), kept as source in the example rather than shipped as API, registered

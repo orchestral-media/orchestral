@@ -1,14 +1,13 @@
 // The same plan, revised — one step inserted, nothing else touched.
 //
 // This is the edit a model makes when the user asks for one more thing, and it
-// is the whole reason a plan opts into `identity: 'id'`. `caption` is listed
-// SECOND and reads only `$input.prompt`; it is an independent branch that
-// nothing downstream consumes. Under the positional identity every shipped meta
-// uses, inserting it would move `render` from step 1 to step 2 and `animate`
-// from 2 to 3 — a new idempotency key for each, and two paid re-runs of work
-// whose inputs did not change. Under `identity: 'id'` the key is the step's
-// name, so `describe`, `render` and `animate` all still hit run 1's rows and
-// exactly one model call is made for exactly one new step.
+// is why a plan keys every step by its name. `caption` is listed SECOND and
+// reads only `$input.prompt`; it is an independent branch that nothing
+// downstream consumes. Keyed by position, inserting it would move `render` from
+// step 1 to step 2 and `animate` from 2 to 3 — a new idempotency key for each,
+// and two paid re-runs of work whose inputs did not change. Keyed by name,
+// `describe`, `render` and `animate` all still hit run 1's rows and exactly one
+// model call is made for exactly one new step.
 //
 // The plan pattern's own id is not in a child step's key (the key is
 // `{ patternId, input, assets, sessionId, stepKey }`), so registering the

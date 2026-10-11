@@ -46,7 +46,6 @@ function makeCtx(opts: {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
     askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     signal: new AbortController().signal,
-    stepIndex: 0,
     step: async <T>(ref: PatternRef): Promise<T> => {
       calls.push({ patternId: ref.patternId, input: ref.input as Record<string, unknown> })
       if (ref.patternId === 'text-generation')
@@ -117,7 +116,6 @@ describe('meta_product-photo-pack', () => {
       compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
       askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
       signal: new AbortController().signal,
-      stepIndex: 0,
       step: async <T>(ref: { patternId: string; input: Record<string, unknown> }): Promise<T> => {
         calls.push({ patternId: ref.patternId })
         if (ref.patternId === 'text-generation')
@@ -154,7 +152,6 @@ describe('meta_product-photo-pack', () => {
       compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
       askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
       signal: new AbortController().signal,
-      stepIndex: 0,
       step: async <T>(ref: { patternId: string; input: Record<string, unknown> }): Promise<T> => {
         calls.push({ patternId: ref.patternId })
         if (ref.patternId === 'text-generation')

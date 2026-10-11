@@ -10,7 +10,6 @@ describe('script-planning wiring', () => {
     const captured: Array<{ system?: string }> = []
     const meta = createScriptPlanningMeta()
     const fakeCtx = {
-      stepIndex: 0,
       signal: new AbortController().signal,
       async compute<T>(_id: string, fn: () => Promise<T>): Promise<T> {
         return fn()

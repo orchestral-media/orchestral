@@ -9,8 +9,8 @@
 // top of any image-gen.
 //
 // Design notes:
-//  - Each fan-out call passes `stepOptions.stepId` so stepCache does not
-//    collapse N "identical" dispatches into one.
+//  - Each fan-out call passes `stepOptions.stepId` (`candidate-N`): the N
+//    dispatches share patternId and input, and the names key N rows.
 //  - Judge call uses `image-to-text` multi-image input (the worker supports
 //    multi-image + structured output).
 //  - The judge prompt is inlined as a string constant in ./prompts. This meta
@@ -182,14 +182,14 @@ export function createImageBestOfNMeta(
 
       // Stage 1 — fan-out N independent samples.
       //
-      // An explicit stepId per sample (`candidate-${idx}`) is essential. Step
-      // identity is positional, not content-addressed — the runtime keys a step
-      // by its stepId, and the default id is a sequential counter — precisely
-      // so that N dispatches of the SAME patternId + SAME input stay N distinct
-      // samples. A content key would collapse them into one; the positional
-      // key is the correct semantics for sampling, and the explicit override
-      // is what keeps the N ids stable across a resume (a counter-minted id
-      // would shift if anything before the fan-out changed).
+      // An explicit stepId per sample (`candidate-${idx}`). The N dispatches
+      // share patternId and input by design, so their ids are all that keeps
+      // them N rows rather than one — a content-derived id would collapse them,
+      // which is why step ids are never content-hashed. Unnamed they would
+      // still be N rows (`text-to-image#0..N-1`), numbered among this
+      // compose's unnamed calls to the inner pattern, so one added ahead of the
+      // fan-out would renumber them; the names keep each sample's row stable
+      // across a resume.
       // DESIGN: best-of-n-explicit-step-id
       const candidateOutputs = await parallel(
         Array.from({ length: input.n }, (_, idx) =>

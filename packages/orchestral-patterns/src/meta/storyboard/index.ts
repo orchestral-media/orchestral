@@ -372,10 +372,11 @@ export function createStoryboardMeta(
       }
 
       // Stage 4 — render each panel. Panels are independent, so fan them out
-      // in parallel; the runtime caps actual concurrency. Each dispatch gets a
-      // unique stepId — without it the stepCache would collapse panels that
-      // happen to share a patternId+input into one (same reason best-of-n
-      // sets candidate-${idx}).
+      // in parallel; the runtime caps actual concurrency. Each dispatch is named
+      // `panel-${idx}`, so each panel's row is keyed by its panel rather than by
+      // its position among this compose's calls (same reason best-of-n names
+      // candidate-${idx}); the name is also the namespace a nested best-of-n
+      // prefixes its own steps with.
       const rendered = await parallel(
         plans.map((plan) => renderPanel(ctx, plan, input.bestOfN)),
       )

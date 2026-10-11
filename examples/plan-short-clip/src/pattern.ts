@@ -13,10 +13,10 @@
 // hand-written one. `origin: 'plan'` records where it came from; nothing gates
 // on it.
 //
-// The one thing a plan does that the hand-written meta does not: every step
-// dispatches with `identity: 'id'`, so its durable JobStore row is keyed by the
-// step's NAME rather than by its position in the compose run. That is what
-// `plan-captioned.ts`'s inserted step leans on.
+// Every step dispatches under its DAG id, so its durable JobStore row is keyed
+// by the step's NAME rather than by its position in the compose run — as the
+// hand-written twin's named steps are. That is what `plan-captioned.ts`'s
+// inserted step leans on.
 
 import type { Pattern, PatternId } from '@orchestral/core'
 import { planToMeta, type PlanDag, type PlanMetaPattern } from '@orchestral/plan'

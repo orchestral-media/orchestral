@@ -6,9 +6,9 @@
 // changed, in the same session, returns `describe` and `render` under their
 // ORIGINAL child job ids and calls their models zero more times, while
 // `animate` re-runs. A plan is a meta; it gets the meta engine's dedup
-// unchanged. The difference is underneath — the keys are now `stepKey:
-// describe` / `render` / `animate` rather than `stepIndex: 0 / 1 / 2` — and the
-// second test is what that buys: insert a step and the untouched ones still hit.
+// unchanged. Underneath, the keys are `stepKey: describe` / `render` /
+// `animate` — the step names — and the second test is what that buys: insert
+// a step and the untouched ones still hit.
 //
 // The evidence is the runtime's, not the mocks': `job:step.childJobId` equality
 // across runs, the rows `onJobCreated` reports as inserted, and `vi.spyOn` on
@@ -170,9 +170,9 @@ describe('incremental re-run — the same trace the hand-written twin pins', () 
     const session = 'session-insert'
     const run1 = await host.run(RED_BIKE, session)
 
-    // The revised plan: `caption` listed SECOND, an independent branch. Under
-    // positional identity this would move `render` to index 2 and `animate` to
-    // index 3 and re-run both; under identity:'id' all three still hit.
+    // The revised plan: `caption` listed SECOND, an independent branch. Keyed
+    // by position, this would move `render` to index 2 and `animate` to index
+    // 3 and re-run both; keyed by name, all three still hit.
     const run3 = await host.run(RED_BIKE, session, CAPTIONED_PATTERN_ID)
     expect(run3.job.status).toBe('done')
     const idOf = (trace: typeof run1, stepId: string) =>
@@ -201,9 +201,9 @@ describe('incremental re-run — the same trace the hand-written twin pins', () 
       run.steps.map((s) => host.runtime.pollJob(s.childJobId)),
     )
 
-    // `stepKey` replaces `stepIndex` in the derivation, and the input is what
-    // the DAG says after substitution — no zod defaults, so a plan's
-    // text-generation step keys identically to a hand-written meta's.
+    // `stepKey` is the step's name, and the input is what the DAG says after
+    // substitution — no zod defaults, so a plan's text-generation step keys
+    // identically to a hand-written meta's.
     expect(describeRow!.idempotencyKey).toBe(
       deriveIdempotencyKey({
         patternId: 'text-generation',

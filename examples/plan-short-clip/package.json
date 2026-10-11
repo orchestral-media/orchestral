@@ -2,7 +2,7 @@
   "name": "plan-short-clip",
   "private": true,
   "type": "module",
-  "description": "Minimal host: a three-step pipeline authored as JSON, loaded by planToMeta as an ordinary meta pattern. Re-submit with one input changed, then with a step inserted, and watch identity:'id' keep the untouched steps on their original JobStore rows — mock models only.",
+  "description": "Minimal host: a three-step pipeline authored as JSON, loaded by planToMeta as an ordinary meta pattern. Re-submit with one input changed, then with a step inserted, and watch the untouched steps keep their original JobStore rows, because every plan step is keyed by its name — mock models only.",
   "orchestral": {
     "patterns": [
       {

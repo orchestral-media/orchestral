@@ -107,7 +107,6 @@ function makeCtx(opts: {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
     askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     signal: new AbortController().signal,
-    stepIndex: 0,
     step: async <T>(ref: PatternRef): Promise<T> => {
       calls.push({
         patternId: ref.patternId,
@@ -289,7 +288,6 @@ describe('meta_ugc-testimonial', () => {
       compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
       askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
       signal: new AbortController().signal,
-      stepIndex: 0,
       step: async <T>(ref: PatternRef): Promise<T> => {
         calls.push({ patternId: ref.patternId, input: ref.input as Record<string, unknown> })
         if (ref.patternId === 'text-generation')
