@@ -288,9 +288,9 @@ describe('planToMeta — three takes, a judge, and a winner', () => {
       'session-fanout',
     )
     const takes = run.steps.filter((s) => s.stepId.startsWith('take-'))
-    // take-0..2 have byte-identical patternId and input; under positional
-    // identity they would still differ, but under `identity: 'id'` it is the
-    // stepKey that separates them — and that is what survives an edit.
+    // take-0..2 have byte-identical patternId and input; keyed by position
+    // they would still differ, but a plan keys every step by its name, so it
+    // is the stepKey that separates them — and that is what survives an edit.
     expect(takes).toHaveLength(3)
     expect(new Set(takes.map((s) => s.childJobId)).size).toBe(3)
   })
@@ -307,7 +307,7 @@ describe('planToMeta — three takes, a judge, and a winner', () => {
   })
 })
 
-// ── identity: 'id' — the payoff ─────────────────────────────────────────
+// ── a step keyed by its name — the payoff ───────────────────────────────
 
 describe('meta_plan — re-run after inserting an independent step', () => {
   it('keeps the child job ids of every step whose input did not change', async () => {
@@ -321,7 +321,7 @@ describe('meta_plan — re-run after inserting an independent step', () => {
     expect(host.calls.imageToVideo).toHaveBeenCalledTimes(1)
 
     // Run 2 inserts `caption` SECOND — an independent branch read only by
-    // `output.values`. Under positional identity this would move `render` from
+    // `output.values`. Keyed by position, this would move `render` from
     // index 1 to 2 and `animate` from 2 to 3, re-running both for nothing.
     const edited = bicycle()
     edited.steps.splice(1, 0, {
