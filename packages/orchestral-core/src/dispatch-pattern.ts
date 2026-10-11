@@ -25,6 +25,7 @@ import { z, type ZodType } from 'zod'
 
 import type { Pattern, PatternExposure } from './pattern'
 import { resolveExposure } from './pattern'
+import { productNameOf, producesAssets } from './product-name'
 import type { PatternRegistry } from './registry'
 
 // ── Model-visible strings come in two spellings ─────────────────────────
@@ -326,18 +327,38 @@ export function resolveDispatchTarget(
       ? ((schema as unknown as { passthrough: () => ZodType<unknown> }).passthrough() as ZodType<unknown>)
       : schema
   const parseResult = parseSchema.safeParse(input.input)
-  if (!parseResult.success) {
+  // A name on a Pattern whose outputs carry no assets[]. Registration gives
+  // only an asset-producing Pattern the `name` field, so on any other the
+  // passthrough above lets a name through untouched — and nothing would ever be
+  // recorded under it. Refused here rather than dropped, as an input issue
+  // beside the parse's own: the model fixes both in one turn. A blank name is
+  // absent (productNameOf), so it is never refused; on a producer the field
+  // itself already judged the name during the parse.
+  const productName = productNameOf(input.input)
+  const nameIssues: z.core.$ZodIssue[] =
+    productName !== undefined && !producesAssets(pattern)
+      ? [
+          {
+            code: 'custom',
+            path: ['name'],
+            input: (input.input as { name?: unknown }).name,
+            message: `Pattern "${input.pattern_id}" produces no assets, so nothing would be recorded under name "${productName}". Omit name for this Pattern.`,
+          },
+        ]
+      : []
+  if (!parseResult.success || nameIssues.length > 0) {
+    const issues = [...(parseResult.success ? [] : parseResult.error.issues), ...nameIssues]
     // When the LLM guessed a reference slot name (e.g. `reference` instead of
     // `source`/`mask`), zod reports `unrecognized_keys` under path ['references']
     // but the default hint says nothing about which slots exist — the model then
     // burns turns guessing synonyms. Mirror HANDLE_NOT_FOUND's meta.available
     // self-correction design: list the pattern's declared reference slots so the
     // model can pick a real one on the next call.
-    const refSlotHint = buildReferenceSlotHint(parseResult.error.issues, pattern)
+    const refSlotHint = buildReferenceSlotHint(issues, pattern)
     return {
       code: 'INPUT_VALIDATION_FAILED',
       pattern_id: input.pattern_id,
-      issues: parseResult.error.issues,
+      issues,
       message: `Input validation failed for "${input.pattern_id}". See issues[] for field-level errors.`,
       hint:
         (refSlotHint ? `${refSlotHint} ` : '') +

@@ -125,6 +125,30 @@ describe('resolveDispatchTarget', () => {
     // fixture that makes safeParse() actually throw — zod v4's safeParse is
     // contractually never-throw, so that catch is purely defensive.
 
+    // text-generation's outputs carry no assets[], so registration gives it no
+    // `name` field and the passthrough parse would let one through untouched.
+    // Nothing would ever be recorded under it, so the resolver refuses it.
+    it('refuses a name on text-generation, whose outputs declare no assets', () => {
+      const registry = freshRegistry([createTextGenerationPattern() as never as Pattern])
+      const result = resolveDispatchTarget(
+        registry,
+        { pattern_id: 'text-generation', input: { prompt: 'summarize this', name: 'summary' } },
+        'chat-turn',
+      )
+      if (!isDispatchError(result) || result.code !== 'INPUT_VALIDATION_FAILED') {
+        throw new Error('expected INPUT_VALIDATION_FAILED')
+      }
+      expect(result.issues).toEqual([
+        {
+          code: 'custom',
+          path: ['name'],
+          input: 'summary',
+          message:
+            'Pattern "text-generation" produces no assets, so nothing would be recorded under name "summary". Omit name for this Pattern.',
+        },
+      ])
+    })
+
     it("returns AGENT_HOST_ONLY when agent Pattern has no primary tool (host-only)", () => {
       // Construct an agent-like Pattern without a primary tool. Today's
       // first-party Pattern factories all have primary, so we mock the

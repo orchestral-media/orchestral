@@ -1,10 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import type { Pattern } from '@orchestral/core'
-import { silentDiagnosticsLogger, PatternRegistry } from '@orchestral/core'
+import {
+  silentDiagnosticsLogger,
+  PatternRegistry,
+  producesAssets,
+} from '@orchestral/core'
 import { handleFindPattern } from '../find-pattern'
+
 import { PatternSearchIndex } from '../pattern-search-index'
+
+// Pass-through wrapper: every export is core's own, and producesAssets calls
+// through to core's implementation unless a test overrides it. It lets the
+// summary test below prove which function the summary asks.
+vi.mock('@orchestral/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@orchestral/core')>()
+  return { ...actual, producesAssets: vi.fn(actual.producesAssets) }
+})
 
 // Lightweight Pattern fixtures — cast through unknown so we only declare the
 // fields find_pattern / the search index actually read (kind, primary/tool,
@@ -373,5 +386,62 @@ describe('handleFindPattern — BM25 regression', () => {
     const res = handleFindPattern(index, { query: 'to the and of' })
     expect(res.matches).toHaveLength(0)
     expect(res.diagnostic?.suggestion).toContain('No Patterns matched')
+  })
+})
+
+describe('handleFindPattern — outputs summary', () => {
+  afterEach(() => {
+    // Back to the wrapped implementation (core's own).
+    vi.mocked(producesAssets).mockReset()
+  })
+
+  function withOutputs(id: string, outputs: unknown): Pattern {
+    return { ...atomic(id), outputs } as unknown as Pattern
+  }
+
+  function summaryOf(patterns: Pattern[]) {
+    const res = handleFindPattern(buildIndex(patterns), {
+      query: `select:${patterns.map((p) => p.id).join(',')}`,
+    })
+    return new Map(res.matches.map((m) => [m.patternId, m.outputs]))
+  }
+
+  it('producesAssets in the summary is core producesAssets', () => {
+    // The summary keeps no test of its own for "declares assets"; it carries
+    // core's producesAssets(pattern), the predicate the registry and the
+    // resolver share.
+    const real = summaryOf([
+      // A non-object outputs root: nothing to read a field from.
+      withOutputs('non-object-root', z.boolean()),
+      // An `assets` field on the outputs shape.
+      withOutputs(
+        'with-assets',
+        z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
+      ),
+    ])
+    expect(real.get('non-object-root')?.producesAssets).toBe(false)
+    expect(real.get('with-assets')?.producesAssets).toBe(true)
+
+    // Whatever core answers is what the summary says, in both directions.
+    vi.mocked(producesAssets).mockImplementation((pattern) => pattern.id === 'claimed')
+    const stubbed = summaryOf([
+      withOutputs('claimed', z.object({ modality: z.literal('image') })),
+      withOutputs(
+        'denied',
+        z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
+      ),
+    ])
+    expect(stubbed.get('claimed')?.producesAssets).toBe(true)
+    expect(stubbed.get('denied')?.producesAssets).toBe(false)
+  })
+
+  it('modality is still read from pattern.outputs', () => {
+    const summary = summaryOf([
+      withOutputs(
+        'img-assets',
+        z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
+      ),
+    ])
+    expect(summary.get('img-assets')).toEqual({ modality: 'image', producesAssets: true })
   })
 })

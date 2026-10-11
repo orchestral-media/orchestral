@@ -160,6 +160,22 @@ export type AssetResolutionError =
       slot: string
       meta: { declaredSlots: string[]; available: HandleSnapshot[] }
     }
+  | {
+      /**
+       * The name a dispatch asked its product to have (`input.name`, read by
+       * productNameOf) is already in use in this context — exactly, or as a
+       * `<name>-<n>` product of an earlier call. Checked first: nothing else
+       * about the call was evaluated.
+       */
+      code: 'HANDLE_TAKEN'
+      /** The requested name, normalised. */
+      handle: string
+      meta: {
+        /** The asset that holds it: the exact match if there is one, else the first `<name>-<n>` in ledger order. */
+        boundTo: HandleSnapshot
+        available: HandleSnapshot[]
+      }
+    }
 
 /** Model-visible asset projection (hard projection): structurally contains no assetId. The element type returned by projectAssetsForModel. */
 export interface ModelFacingAsset {
