@@ -13,6 +13,7 @@ import type {
   ResolvedAssetRef,
 } from './asset-index.types'
 import { fromAssetUri, toAssetUri } from './asset-uri'
+import { productNameOf } from './product-name-of'
 
 /** Mints a 1-based, per-context, per-kind handle. Pure and replayable. */
 export function mintHandle(modality: AssetKind, priorCountOfModality: number): string {
@@ -33,8 +34,10 @@ export function mintHandle(modality: AssetKind, priorCountOfModality: number): s
  * rather than the AssetKind set, so no kind name is spelled out here and a
  * new kind needs no edit.
  *
- * Module-level export for its own unit tests; the ledgers reach this rule
- * through mintNext. Not re-exported from index.ts.
+ * Exported so code outside the ledger asks the ledger's own question — is this
+ * one of our mints, and which? — instead of re-deriving the grammar: the `name`
+ * field's refusal asks it over every AssetKind, and a durable AssetStore
+ * reaches it through mintNext.
  */
 export function parseMintedHandle(handle: string, modality: AssetKind): number | undefined {
   const prefix = `${modality}_`
@@ -106,7 +109,9 @@ export function handleCollisionError(
  * owns where that number lives (a Map keyed by modality, or by context and
  * modality), which is the only thing left that differs between the two.
  *
- * Module-level export for asset-store.ts; not re-exported from index.ts.
+ * Exported from the package barrel for the third caller: a host's durable
+ * AssetStore. Its write path calls this rather than a copy of it, for the same
+ * reason the two ledgers here do — one rule cannot disagree with itself.
  */
 export function mintNext(args: {
   priorCount: number
@@ -125,6 +130,36 @@ export function mintNext(args: {
     throw handleCollisionError(handle, modality, bound, assetId)
   }
   return { handle, seq, nextCount: Math.max(priorCount, seq) }
+}
+
+/**
+ * The handles a named dispatch's products take, in output order: one asset is
+ * the name itself, several are `<name>-1` … `<name>-<count>`, none is none.
+ *
+ * `-` and not `_` because the suffixed form must never be in a mint grammar:
+ * `<kind>_<n>` requires everything after the `_` to be digits, and a `-`
+ * suffix puts a non-digit there whatever the name is — so a derived handle can
+ * neither collide with a mint nor be read by mintNext as a replay. The name
+ * itself is not validated here; PRODUCT_NAME_FIELD does that.
+ *
+ * Pure. Throws RangeError for a count that is not a non-negative safe integer.
+ */
+export function deriveNamedHandles(name: string, count: number): string[] {
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new RangeError(`deriveNamedHandles: count must be a non-negative safe integer, got ${count}`)
+  }
+  if (count === 1) return [name]
+  return Array.from({ length: count }, (_, i) => `${name}-${i + 1}`)
+}
+
+/**
+ * True when `handle` is `<name>-<n>` for a positive integer `n` written the
+ * way deriveNamedHandles writes it — the products of an earlier call that
+ * asked for `name`. `hero-01`, `hero-x` and `hero-1-a` are not.
+ */
+function isSuffixOf(name: string, handle: string): boolean {
+  const prefix = `${name}-`
+  return handle.startsWith(prefix) && /^[1-9]\d*$/.test(handle.slice(prefix.length))
 }
 
 /**
@@ -213,6 +248,12 @@ function toSnapshot(e: AssetLedgerEntry): HandleSnapshot {
  * Omitting a slot → falls back to the default rule (cardinality-coupled).
  * Any failing need → immediately returns a structured error, no further work.
  *
+ * A dispatch input's `name` (via productNameOf) is checked first: if the
+ * context already holds it, or any `<name>-<n>`, the result is HANDLE_TAKEN and
+ * nothing else is evaluated. The meta sub-step path runs this check too when
+ * its pass runs, but sub-step products are never recorded under a name (they
+ * are not referenceable), so a name there is not honoured.
+ *
  * LOAD-BEARING ORDER INVARIANT: within a slot, the output order equals the
  * INPUT handle order (we iterate `handles` as given and never sort). Downstream
  * consumers rely on this positional contract — meta_image-best-of-n's judge
@@ -223,7 +264,7 @@ function toSnapshot(e: AssetLedgerEntry): HandleSnapshot {
 // inputs uses an inline type (not a generic <I>) and references is a slot-keyed
 // map (not a flat Handle[]) — multiple slots must be mapped per slot.
 export function resolveAssetReferences(
-  inputs: { references?: AssetReferences } | null | undefined,
+  inputs: { references?: AssetReferences; name?: string } | null | undefined,
   assetNeeds: ReadonlyArray<AssetNeed>,
   index: AssetIndex,
 ): { ok: true; assets: ReadonlyArray<ResolvedAssetRef> } | { ok: false; error: AssetResolutionError } {
@@ -231,6 +272,23 @@ export function resolveAssetReferences(
   const all = index.all()
   const snapshots = all.map(toSnapshot)
   const sameModality = (m: string): HandleSnapshot[] => snapshots.filter((s) => s.modality === m)
+
+  // The name this call's product is to be recorded under, judged before
+  // anything else so a taken one is refused while nothing has been paid for.
+  // An earlier multi-asset product holds `<name>-1` … rather than `<name>`, so
+  // the whole family counts; the exact holder is the one reported when there is
+  // one, since it is the asset the model most likely meant.
+  const produces = productNameOf(inputs)
+  if (produces !== undefined) {
+    const family = all.filter((e) => e.handle === produces || isSuffixOf(produces, e.handle))
+    const holder = family.find((e) => e.handle === produces) ?? family[0]
+    if (holder) {
+      return {
+        ok: false,
+        error: { code: 'HANDLE_TAKEN', handle: produces, meta: { boundTo: toSnapshot(holder), available: snapshots } },
+      }
+    }
+  }
 
   // Fail-closed on undeclared slot keys (typo / hallucinated slot). The strict
   // derived schema already rejects these on the chat/agent dispatch path; this

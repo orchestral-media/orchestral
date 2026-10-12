@@ -1,9 +1,18 @@
-// AssetLedger primitive unit tests (mintHandle / buildAssetIndex / query / resolveAssetReferences / projectAssetsForModel).
-import { describe, expect, it } from 'vitest'
+// AssetLedger primitive unit tests (mintHandle / buildAssetIndex / query / resolveAssetReferences / projectAssetsForModel / deriveNamedHandles).
+import { describe, expect, it, vi } from 'vitest'
 
-import { buildAssetIndex, mintHandle, parseMintedHandle, projectAssetsForModel, projectToolOutputForModel, resolveAssetReferences } from '../asset-index'
-import type { AssetEvent, AssetLedgerEntry, AssetNeed } from '../asset-index.types'
+import {
+  buildAssetIndex,
+  deriveNamedHandles,
+  mintHandle,
+  parseMintedHandle,
+  projectAssetsForModel,
+  projectToolOutputForModel,
+  resolveAssetReferences,
+} from '../asset-index'
+import type { AssetEvent, AssetIndex, AssetLedgerEntry, AssetNeed, AssetReferences } from '../asset-index.types'
 import { setAssetUriScheme } from '../asset-uri'
+import { ASSET_KINDS } from '../output-fields'
 
 describe('mintHandle', () => {
   it('1-based per modality: priorCount 0 -> _1', () => {
@@ -629,5 +638,142 @@ describe('buildAssetIndex — replayed handles and HANDLE_COLLISION', () => {
       ['image_2', 2],
       ['video_1', 1],
     ])
+  })
+})
+
+// The name a dispatch asks its product to have is judged against the context
+// before anything else: a name already held there, exactly or as the
+// `<name>-<n>` of an earlier multi-asset product, is refused while nothing has
+// been paid for. A name the context does not hold changes nothing.
+describe('HANDLE_TAKEN (a dispatch name the context already holds)', () => {
+  const idx = buildAssetIndex([ev('a1', 'image', 1), ev('h1', 'image', 2, { handle: 'hero', label: 'hero shot' })])
+  const SNAPSHOTS = [
+    { handle: 'image_1', modality: 'image', sequence: 1 },
+    { handle: 'hero', modality: 'image', sequence: 2, label: 'hero shot' },
+  ]
+
+  function takenOf(r: ReturnType<typeof resolveAssetReferences>) {
+    if (r.ok || r.error.code !== 'HANDLE_TAKEN') throw new Error(`expected HANDLE_TAKEN, got ${JSON.stringify(r)}`)
+    return r.error
+  }
+
+  it('HANDLE_TAKEN: a name the context already holds is refused before any need is evaluated', () => {
+    const query = vi.fn(idx.query)
+    const resolve = vi.fn(idx.resolve)
+    const spied: AssetIndex = { all: idx.all, query, resolve }
+    // Either of these alone would refuse the call if it were looked at: `nope`
+    // is no declared slot (UNKNOWN_SLOT), and nothing can fill the required
+    // video slot (REQUIRED_ASSET_MISSING, after a query).
+    const clip: AssetNeed = { slot: 'clip', modality: 'video', cardinality: 'single', required: true }
+    const r = resolveAssetReferences({ name: 'hero', references: { nope: 'image_1' } }, [clip], spied)
+    expect(r).toEqual({
+      ok: false,
+      error: {
+        code: 'HANDLE_TAKEN',
+        handle: 'hero',
+        meta: {
+          boundTo: { handle: 'hero', modality: 'image', sequence: 2, label: 'hero shot' },
+          available: SNAPSHOTS,
+        },
+      },
+    })
+    expect(query).not.toHaveBeenCalled()
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
+  it('HANDLE_TAKEN covers the name-n products of an earlier call', () => {
+    const family = buildAssetIndex([
+      ev('a1', 'image', 1),
+      ev('h1', 'image', 2, { handle: 'hero-1' }),
+      ev('h2', 'image', 3, { handle: 'hero-2' }),
+    ])
+    const err = takenOf(resolveAssetReferences({ name: 'hero' }, [], family))
+    expect(err.handle).toBe('hero')
+    expect(err.meta.boundTo).toEqual({ handle: 'hero-1', modality: 'image', sequence: 2 })
+    expect(err.meta.available.map((s) => s.handle)).toEqual(['image_1', 'hero-1', 'hero-2'])
+  })
+
+  it('prefers the exact holder over a suffixed one', () => {
+    const both = buildAssetIndex([ev('h1', 'image', 1, { handle: 'hero-1' }), ev('h', 'video', 2, { handle: 'hero' })])
+    expect(takenOf(resolveAssetReferences({ name: 'hero' }, [], both)).meta.boundTo).toEqual({
+      handle: 'hero',
+      modality: 'video',
+      sequence: 1,
+    })
+  })
+
+  it('does not count hero-01, hero-x or hero-1-a as part of the family', () => {
+    const lookalikes = buildAssetIndex([
+      ev('a', 'image', 1, { handle: 'hero-01' }),
+      ev('b', 'image', 2, { handle: 'hero-x' }),
+      ev('c', 'image', 3, { handle: 'hero-1-a' }),
+    ])
+    expect(resolveAssetReferences({ name: 'hero' }, [], lookalikes)).toEqual({ ok: true, assets: [] })
+  })
+
+  it('reads the name through productNameOf', () => {
+    // Trimmed and URI-normalised before it is looked up, and reported that way.
+    expect(takenOf(resolveAssetReferences({ name: ' asset://hero ' }, [], idx)).handle).toBe('hero')
+    // Blank is absent: the call resolves exactly as it would with no name.
+    const refs = { source: 'image_1' }
+    const blank = resolveAssetReferences({ name: '', references: refs }, [NEED_SRC_SINGLE], idx)
+    expect(blank).toEqual(resolveAssetReferences({ references: refs }, [NEED_SRC_SINGLE], idx))
+    expect(blank.ok).toBe(true)
+  })
+
+  it('a free name changes nothing: the result equals the call without it', () => {
+    const cases: ReadonlyArray<[AssetReferences, AssetNeed[]]> = [
+      [{ source: 'hero' }, [NEED_SRC_SINGLE]], // resolves, through the named asset
+      [{}, [NEED_SRC_SINGLE]], // resolves, through the default rule
+      [{ source: 'image_9' }, [NEED_SRC_SINGLE]], // HANDLE_NOT_FOUND
+      [{ nope: 'image_1' }, [NEED_SRC_SINGLE]], // UNKNOWN_SLOT
+    ]
+    for (const [references, needs] of cases) {
+      const named = resolveAssetReferences({ name: 'villain', references }, needs, idx)
+      expect(named, JSON.stringify(references)).toEqual(resolveAssetReferences({ references }, needs, idx))
+    }
+  })
+
+  it('checks a name even with no asset needs', () => {
+    expect(takenOf(resolveAssetReferences({ name: 'hero' }, [], idx)).handle).toBe('hero')
+    expect(resolveAssetReferences({ name: 'villain' }, [], idx)).toEqual({ ok: true, assets: [] })
+  })
+})
+
+describe('deriveNamedHandles', () => {
+  it('one asset takes the name, several take name-1 to name-n, none takes none', () => {
+    const table: ReadonlyArray<[string, number, string[]]> = [
+      ['hero', 0, []],
+      ['hero', 1, ['hero']],
+      ['hero', 3, ['hero-1', 'hero-2', 'hero-3']],
+      ['封面', 1, ['封面']],
+      ['封面', 2, ['封面-1', '封面-2']],
+      ['tiptoe-1', 1, ['tiptoe-1']],
+      ['tiptoe-1', 2, ['tiptoe-1-1', 'tiptoe-1-2']],
+    ]
+    for (const [name, count, expected] of table) {
+      expect(deriveNamedHandles(name, count), `${name} x ${count}`).toEqual(expected)
+    }
+  })
+
+  it('never derives a handle in a mint grammar for two or more assets', () => {
+    // deriveNamedHandles does not judge the name, so the sweep includes one the
+    // field refuses (`image_1`) and one that is a kind's own prefix (`image`):
+    // the `-` suffix keeps every derived handle out of the grammar regardless.
+    for (const name of ['hero', 'image_1', 'image', '封面']) {
+      for (let count = 2; count <= 12; count++) {
+        for (const handle of deriveNamedHandles(name, count)) {
+          for (const kind of ASSET_KINDS) {
+            expect(parseMintedHandle(handle, kind), `${handle} as ${kind}`).toBeUndefined()
+          }
+        }
+      }
+    }
+  })
+
+  it('throws RangeError for a count that is not a non-negative safe integer', () => {
+    for (const count of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+      expect(() => deriveNamedHandles('hero', count), String(count)).toThrow(RangeError)
+    }
   })
 })

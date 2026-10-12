@@ -41,3 +41,26 @@ import type { JsonSchema } from './capability-model'
 export function toJsonSchema<T>(zodSchema: ZodType<T>): JsonSchema {
   return z.toJSONSchema(zodSchema, { target: 'draft-2020-12' }) as JsonSchema
 }
+
+/** Internal. True for a JSON object, which every schema node toJsonSchema emits is. */
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/**
+ * Internal. The `anyOf` / `oneOf` / `allOf` branches directly under a rendered
+ * node — a union's members, an intersection's parts. Each constrains the same
+ * value the node does, so a walk over what a value may hold visits them at the
+ * node's own position, and recurses for a combinator nested inside one. The
+ * one reading of combinators, shared by the outputs audit (auditOutputsSchema)
+ * and the reserved-input-key check (placeReserved), so the two cannot disagree
+ * about what counts as a branch.
+ */
+export function combinatorBranches(node: Record<string, unknown>): Record<string, unknown>[] {
+  const branches: Record<string, unknown>[] = []
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    const listed = node[key]
+    if (Array.isArray(listed)) branches.push(...listed.filter(isPlainObject))
+  }
+  return branches
+}

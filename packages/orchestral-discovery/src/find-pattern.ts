@@ -28,7 +28,7 @@ import type {
   PatternBase,
   ResolveContext,
 } from '@orchestral/core'
-import { resolveExposure, toJsonSchema } from '@orchestral/core'
+import { producesAssets, resolveExposure, toJsonSchema } from '@orchestral/core'
 import type { PatternSearchIndex, PatternSearchFilter } from './pattern-search-index'
 import { DEFAULT_SEARCH_K } from './pattern-search-index'
 
@@ -569,19 +569,23 @@ function isPrimarySatisfiable(
  * Strategy: walk the ZodObject shape directly (cheaper + more reliable than
  * round-tripping through z.toJSONSchema). `modality` is recognised when the
  * schema has a `modality` field whose value is a `ZodLiteral` over a known
- * Modality string. `producesAssets` triggers when the shape declares an
- * `assets` field of any kind (typically `z.array(z.object({handle, assetId, ...}))`).
+ * Modality string. `producesAssets` is core's `producesAssets(pattern)` — the
+ * one test, shared with the registry and the resolver, for whether the outputs
+ * declare an `assets` field (typically `z.array(z.object({handle, assetId, ...}))`);
+ * this module keeps no copy of it.
  *
  * Non-ZodObject outputs (rare; legacy / hand-rolled Patterns) return
  * `{producesAssets: false}` with no modality — the LLM falls back to selecting
  * via `primary.toolDescription` alone.
  * DESIGN: summarise-outputs
  */
-function summariseOutputs(outputs: unknown): FindPatternOutputsSummary {
-  const summary: FindPatternOutputsSummary = { producesAssets: false }
+function summariseOutputs(pattern: Pattern): FindPatternOutputsSummary {
+  const summary: FindPatternOutputsSummary = {
+    producesAssets: producesAssets(pattern),
+  }
   // ZodObject exposes its fields via `.shape` (also `.def.shape` in zod v4).
   // Both are read-only views over the same map.
-  const shape = (outputs as { shape?: Record<string, unknown> } | undefined)
+  const shape = (pattern.outputs as { shape?: Record<string, unknown> } | undefined)
     ?.shape
   if (!shape || typeof shape !== 'object') return summary
 
@@ -597,10 +601,6 @@ function summariseOutputs(outputs: unknown): FindPatternOutputsSummary {
         summary.modality = v
       }
     }
-  }
-
-  if (shape['assets'] !== undefined) {
-    summary.producesAssets = true
   }
   return summary
 }
@@ -658,7 +658,7 @@ function buildMatchDescriptor(
           : pattern.primary?.tool.description ?? '',
       inputSchema: getPrimaryInputSchema(),
     },
-    ...(pattern.outputs ? { outputs: summariseOutputs(pattern.outputs) } : {}),
+    ...(pattern.outputs ? { outputs: summariseOutputs(pattern) } : {}),
   }
 }
 

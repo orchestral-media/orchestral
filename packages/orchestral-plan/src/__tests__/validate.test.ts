@@ -27,6 +27,7 @@ import {
   type PlanProblemCode,
   type PlanValidateOptions,
 } from '../validate'
+import { planToMeta } from '../interpreter'
 import { PlanDagSchema, PlanOutputSchema, type PlanDag } from '../plan'
 
 // ── Stub patterns ───────────────────────────────────────────────────────
@@ -1495,5 +1496,102 @@ describe('$input.assets[slot=…] against the plan\'s own assetNeeds', () => {
     expect(codesOf(validatePlan(dag, lookup, withNeeds))).toContain(
       'PLAN_STEP_ID_RESERVED',
     )
+  })
+})
+
+// ── Rule 28: a step may not carry a name ────────────────────────────────────
+//
+// Registration derives `name` onto every asset producer's inputs, so rule 21
+// alone would pass a step's name against the target's schema — and then
+// nothing would honour it: a step's products are never recorded under a name.
+// The refusal is registry-free; the registered half below is where rule 21
+// would otherwise report the same name a second time.
+
+/** The bicycle's three targets, registered: their inputs carry the derived keys. */
+function registeredLookup(): PatternRegistry {
+  const registry = new PatternRegistry({ logger: silentDiagnosticsLogger })
+  for (const pattern of [
+    textGenerationStub,
+    textToImageStub,
+    imageToVideoStub,
+  ] as unknown as Pattern[]) {
+    registry.register(pattern)
+  }
+  return registry
+}
+
+describe('validatePlan — rule 28, PLAN_STEP_NAME_NOT_ALLOWED', () => {
+  it('PLAN_STEP_NAME_NOT_ALLOWED when a step input carries a name', () => {
+    const problem = flip('PLAN_STEP_NAME_NOT_ALLOWED', (dag) => {
+      dag.steps[1].input.name = 'hero'
+    })
+    expect(problem.path).toEqual(['steps', 1, 'input', 'name'])
+    expect(problem.stepId).toBe('render')
+    expect(problem.details).toEqual({ stepId: 'render' })
+    expect(problem.message).toBe(
+      'Step "render": a name inside a plan step is never recorded — a step\'s products are not addressable by name. Remove it; name the plan\'s own product instead, and list what should be addressable in output.assets.',
+    )
+  })
+
+  it('PLAN_STEP_NAME_NOT_ALLOWED also for a ref-valued name', () => {
+    const problem = flip('PLAN_STEP_NAME_NOT_ALLOWED', (dag) => {
+      dag.steps[1].input.name = '$describe.text'
+    })
+    expect(problem.path).toEqual(['steps', 1, 'input', 'name'])
+    expect(problem.details).toEqual({ stepId: 'render' })
+  })
+
+  it('a blank step name is absent, not refused', () => {
+    const dag = bicycle()
+    dag.steps[1].input.name = '   '
+    expect(validatePlan(dag, lookup, {})).toEqual([])
+    expect(validatePlan(dag, registeredLookup(), {})).toEqual([])
+  })
+
+  it('fires at construction, without a registry', () => {
+    const dag = bicycle()
+    dag.steps[1].input.name = 'hero'
+    try {
+      planToMeta(dag, { id: 'meta_bicycle' as PatternId, lookup: makeLookup([]) })
+      expect.unreachable('should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlanInvalidError)
+      const problems = (err as PlanInvalidError).details.problems
+      expect(codesOf(problems)).toEqual(['PLAN_STEP_NAME_NOT_ALLOWED'])
+      expect(problems[0]!.path).toEqual(['steps', 1, 'input', 'name'])
+    }
+  })
+
+  it('a step name is reported once, not also as PLAN_STEP_INPUT_INVALID', () => {
+    const registry = registeredLookup()
+    expect(validatePlan(bicycle(), registry, {})).toEqual([])
+    const dag = bicycle()
+    // A mint-grammar name: the derived field on text-to-image refuses it too.
+    dag.steps[1].input.name = 'image_3'
+    expect(codesOf(validatePlan(dag, registry, {}))).toEqual([
+      'PLAN_STEP_NAME_NOT_ALLOWED',
+    ])
+  })
+
+  it('a non-string step name is left to rule 21, which reports it', () => {
+    // productNameOf reads no name off a number, so rule 28 does not fire, and
+    // rule 21 keeps its issue: dropping it would pass layer 1 with an input
+    // layer 2 refuses after the upstream steps have spent.
+    const dag = bicycle()
+    dag.steps[1].input.name = 42
+    const problems = validatePlan(dag, registeredLookup(), {})
+    expect(codesOf(problems)).toEqual(['PLAN_STEP_INPUT_INVALID'])
+    const issues = problems[0]!.details?.issues as readonly z.core.$ZodIssue[]
+    expect(issues.map((i) => i.path)).toEqual([['name']])
+  })
+
+  it('input.references in a step is still allowed', () => {
+    const registry = registeredLookup()
+    const dag = bicycle()
+    dag.steps[1].input.references = { control: 'image_1' }
+    expect(validatePlan(dag, registry, {})).toEqual([])
+    // Only `name` is taken off rule 21: a bad references value is still its.
+    dag.steps[1].input.references = { nosuch: 'image_1' }
+    expect(codesOf(validatePlan(dag, registry, {}))).toEqual(['PLAN_STEP_INPUT_INVALID'])
   })
 })

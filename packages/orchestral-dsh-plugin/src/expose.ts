@@ -1,19 +1,24 @@
 // Pattern → dsh tool descriptor projection.
 //
-// Two decisions live here and nowhere else:
+// Three decisions live here and nowhere else:
 //   1. WHICH Patterns a dsh agent may see — `resolveExposure` (core) is the
 //      only legal way to read `Pattern.exposure`; string comparison against
 //      'tool' / 'agent-tool' is a bug (the object form exists).
 //   2. WHAT the model sees for each — the LLM-facing ToolDescriptor lives at a
 //      kind-dependent place on the Pattern (atomic/agent: `primary.tool`,
 //      meta: `tool`), mirroring @orchestral/core's own buildAlwaysLoadDescriptors.
-//      Its JSON Schema is rendered by core's `toJsonSchema`, so a dsh tool and
-//      an always-load catalog entry describe the same Pattern byte-for-byte.
+//      Its JSON Schema is rendered by core's `toJsonSchema`.
+//   3. WHICH FIELD is held back — the derived `name` a Pattern whose outputs
+//      carry assets[] gets at registration is omitted, because this bridge
+//      records no product under any name (see exposedParameters). Apart from
+//      that one property, a dsh tool and an always-load catalog entry describe
+//      the same Pattern byte-for-byte.
 //
 // Nothing here touches dsh types, so the selection rules are unit-testable
 // without a Cordis context.
 import {
   matchSubagentBlocklist,
+  producesAssets,
   resolveExposure,
   toJsonSchema,
   type Pattern,
@@ -82,6 +87,40 @@ function toToolName(prefix: string, patternId: string): string {
 }
 
 /**
+ * The tool's JSON Schema as this bridge offers it.
+ *
+ * Registration appends the reserved, derived `name` field to the inputs of
+ * every Pattern whose outputs carry `assets[]`, so that a caller can choose
+ * what a product is called. This bridge records nothing to a ledger, and
+ * `projectToolOutputForModel` drops every asset that has no handle, so a dsh
+ * model never sees one and a `name` here could never be honoured. The honest
+ * surface is not to offer the field (never advertise what is not reachable).
+ *
+ * `producesAssets` is the whole test: a hand-written `name` on such a Pattern
+ * throws at registration, so the field present here is always the derived one.
+ * It is removed from the rendered JSON rather than with zod `.omit()`, which
+ * throws on a refined input. `references` stays: it is meaningful here (the
+ * `resolveAssets` pass reads it). Every other byte is `toJsonSchema`'s.
+ */
+function exposedParameters(pattern: Pattern, tool: ToolDescriptor) {
+  const schema = toJsonSchema(tool.inputs) as Record<string, unknown>
+  if (!producesAssets(pattern)) return schema
+
+  // Copy, then replace in place: assigning an existing key keeps its position,
+  // so the key order (and so the serialised bytes) is `toJsonSchema`'s own.
+  const out: Record<string, unknown> = { ...schema }
+  const { properties, required } = schema
+  if (typeof properties === 'object' && properties !== null) {
+    const { name: _name, ...others } = properties as Record<string, unknown>
+    out.properties = others
+  }
+  if (Array.isArray(required)) {
+    out.required = required.filter((key) => key !== 'name')
+  }
+  return out
+}
+
+/**
  * Select the Patterns a dsh agent may call and project each into a tool
  * descriptor.
  *
@@ -130,7 +169,7 @@ export function buildPatternToolDescriptors(
       name: toToolName(opts.toolNamePrefix, pattern.id),
       patternId: pattern.id,
       description: tool.description,
-      parameters: toJsonSchema(tool.inputs) as Record<string, unknown>,
+      parameters: exposedParameters(pattern, tool),
     })
   }
   return out

@@ -21,7 +21,7 @@
 // Run `pnpm smoke:dist` (builds first) or `node scripts/smoke-dist.mjs` against
 // an already-built tree (CI reuses the api-surface build).
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire, register } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -104,6 +104,29 @@ export async function resolve(specifier, context, nextResolve) {
 `
 register(`data:text/javascript,${encodeURIComponent(hookSource)}`, import.meta.url)
 
+/**
+ * Every bare specifier (`zod`, `@orchestral/…`) a built entry reaches through
+ * its relative chunk imports. Reads the bundler's own top-level `import … from`
+ * / `export … from` statements; nothing is executed.
+ */
+function bareImportsReachableFrom(entryUrl) {
+  const bare = new Set()
+  const seen = new Set()
+  const queue = [entryUrl.href]
+  while (queue.length > 0) {
+    const href = queue.pop()
+    if (seen.has(href)) continue
+    seen.add(href)
+    const source = readFileSync(new URL(href), 'utf8')
+    for (const m of source.matchAll(/^(?:import|export)\b[^'";]*?\bfrom\s*["']([^"']+)["']|^import\s*["']([^"']+)["']/gm)) {
+      const specifier = m[1] ?? m[2]
+      if (specifier.startsWith('.')) queue.push(new URL(specifier, href).href)
+      else bare.add(specifier)
+    }
+  }
+  return bare
+}
+
 // ── assertions ─────────────────────────────────────────────────────────────
 let failures = 0
 function check(pkg, label, ok) {
@@ -141,6 +164,15 @@ check('@orchestral/core/memory', 'exports exactly the three in-memory stores', O
 check('@orchestral/core/routing', 'exports the router and its two errors', Object.keys(coreRouting).sort().join(',') === 'ModelExcludedError,NoModelForCapabilityError,createDefaultCapabilityRouter')
 check('@orchestral/core/routing', 'createDefaultCapabilityRouter is a function', typeof coreRouting.createDefaultCapabilityRouter === 'function')
 check('@orchestral/core', 'the barrel no longer answers for either', core.InMemoryJobStore === undefined && core.createDefaultCapabilityRouter === undefined)
+// The stores implement contracts that live beside them and import nothing new
+// (src/memory.ts), so the /memory entry's chunk graph reaches nothing outside
+// core. Walked statically, chunk by chunk, because every import above shares
+// one module graph: the root barrel loads zod, so "is zod loaded" cannot tell
+// whether /memory did. A bare specifier here means a schema module reached a
+// chunk the stores share — the ledger reading a product name from the module
+// that builds the name field did exactly that.
+const memoryBare = bareImportsReachableFrom(entryUrlFor('orchestral-core', 'memory'))
+check('@orchestral/core/memory', `loads nothing outside core (bare imports: ${[...memoryBare].join(', ') || 'none'})`, memoryBare.size === 0)
 check('@orchestral/patterns', 'createTextToImagePattern is a function', typeof patterns.createTextToImagePattern === 'function')
 check('@orchestral/patterns', 'TEXT_TO_IMAGE_PATTERN_ID === "text-to-image"', patterns.TEXT_TO_IMAGE_PATTERN_ID === 'text-to-image')
 check('@orchestral/patterns', 'TextToImageOutputSchema.parse is a function', typeof patterns.TextToImageOutputSchema?.parse === 'function')

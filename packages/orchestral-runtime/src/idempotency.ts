@@ -34,7 +34,10 @@ export interface DeriveIdempotencyKeyInput {
  * JobSpec. Two dispatches dedupe iff they agree on **what work to do**:
  *
  *   • `patternId` — which Pattern runs
- *   • `input` — the Pattern's own arguments
+ *   • `input` — the Pattern's own arguments, the derived `references` and
+ *     `name` included. A product's name is part of what the caller asked
+ *     for: the same prompt under two names is two products, and a retry
+ *     repeats the name, so it still dedupes
  *   • `assets` — the resolution pass output, so the same literal input over
  *     different resolved assets dedupes apart
  *   • `sessionId` — dedup never crosses a session boundary

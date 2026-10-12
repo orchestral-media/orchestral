@@ -26,6 +26,7 @@
 // to the single/array value mapping here must be reflected there.
 import { z } from 'zod'
 import type { AssetNeed } from './asset-index.types'
+import { markDerived } from './derived-fields'
 
 // The field's own copy, frozen as above: handles, keyed by slot, picked from
 // the context's asset list. What each slot says is below.
@@ -55,9 +56,16 @@ function slotDescribe(need: AssetNeed): string {
  * undefined when the Pattern declares no asset slots (no field is injected —
  * text-generation etc. keep a references-free schema).
  *
- * @alpha Test seam — production code reaches this through
- * `extendInputsWithReferences`; this raw form is exported so invariant
- * tests can byte-compare the derived schema. Not a stable public API.
+ * Production code reaches it through registration (`completeToolInputs`, run
+ * on every Pattern `register()` stores) and through
+ * `extendInputsWithReferences`. A host may also place its result under
+ * `references` itself, unwrapped: the instance is recorded as derived, so
+ * registration recognises it and re-derives it from the Pattern's own
+ * assetNeeds — where a wrapped one (`.describe()`, `.optional()` again) is a
+ * new instance and reads as hand-written.
+ *
+ * @alpha The raw form, exported for that placement and so invariant tests can
+ * byte-compare the derived schema. Not a stable public API.
  */
 export function deriveReferencesSchema(
   assetNeeds: ReadonlyArray<AssetNeed> | undefined,
@@ -78,5 +86,7 @@ export function deriveReferencesSchema(
         : z.union([z.string(), z.array(z.string())])
     shape[need.slot] = value.optional().describe(slotDescribe(need))
   }
-  return z.strictObject(shape).describe(REFERENCES_DESCRIBE).optional()
+  // Marked at the lowest producer, so registration recognises this instance as
+  // derived however it reached a Pattern's inputs (see derived-fields.ts).
+  return markDerived(z.strictObject(shape).describe(REFERENCES_DESCRIBE).optional())
 }

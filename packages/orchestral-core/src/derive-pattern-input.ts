@@ -1,10 +1,11 @@
 // derive-pattern-input.ts — capability-driven Pattern.input lift.
 //
 // Pure function — same inputs always produce the same outputs, order-stable,
-// no side effects, NO provider knowledge and NO field names. The host stamps
-// the fields it wants surfaced with `LIFT_MARKER`; this module reads only that
-// marker, so the lift set is host-driven config, not coupling baked into this
-// package.
+// no side effects, NO provider knowledge and NO provider field names. The host
+// stamps the fields it wants surfaced with `LIFT_MARKER`; this module reads
+// only that marker, so the lift set is host-driven config, not coupling baked
+// into this package. The one set of names it knows is core's own:
+// RESERVED_INPUT_KEYS, which no lift may write.
 //
 // The function does TWO things:
 //   1. Lift marked fields from per-model `providerOptions` schema into
@@ -21,6 +22,10 @@
 // rendering order + JSON-Schema byte stability.
 
 import { z, type ZodRawShape, type ZodTypeAny } from 'zod'
+
+import { RESERVED_INPUT_KEYS } from './derived-fields'
+
+const RESERVED_KEYS: ReadonlySet<string> = new Set(RESERVED_INPUT_KEYS)
 
 /**
  * Generic, provider-agnostic marker. A field schema carrying this property is
@@ -43,8 +48,11 @@ export const ASSET_MARKER = Symbol.for('orchestral.hostAsset')
  * Does two things:
  *   1. Lift the host-marked fields from providerOptionsSchema to
  *      Pattern.input top level. A field is lifted iff it carries `LIFT_MARKER`
- *      (stamped host-side) — this module names no fields and reads only the
- *      marker, so the lift set is host config, not coupling in this package.
+ *      (stamped host-side) — this module names no provider fields and reads
+ *      only the marker, so the lift set is host config, not coupling in this
+ *      package. A marked field under a reserved input key
+ *      (RESERVED_INPUT_KEYS) is never lifted and stays under providerOptions:
+ *      registration derives those keys, and a lift must not shadow them.
  *   2. Replace Pattern.input.providerOptions (which is base
  *      `z.record(z.unknown()).optional()`) with TYPED `z.object(remaining).optional()`
  *      where `remaining` = providerOptionsSchema fields minus the lifted ones.
@@ -93,12 +101,17 @@ export function deriveLlmFacingInputSchema<T extends ZodRawShape>(
   const hasAssetMarker = (s: ZodTypeAny): boolean =>
     (s as unknown as Record<symbol, unknown>)[ASSET_MARKER] !== undefined
 
+  // A marked field under a reserved key is never lifted: `references` and
+  // `name` are derived at registration, and a lifted one would replace the
+  // derived field in the find_pattern / always-load rendering while dispatch
+  // validates the derived one. It stays under providerOptions, where it is the
+  // provider's field and nothing else's.
   const lifted: Record<string, ZodTypeAny> = {}
   const remaining: Record<string, ZodTypeAny> = {}
   for (const k of Object.keys(optShape)) {
     const field = (optShape as Record<string, ZodTypeAny>)[k]
     if (hasAssetMarker(field)) continue
-    if (hasLiftMarker(field)) lifted[k] = field
+    if (hasLiftMarker(field) && !RESERVED_KEYS.has(k)) lifted[k] = field
     else remaining[k] = field
   }
 

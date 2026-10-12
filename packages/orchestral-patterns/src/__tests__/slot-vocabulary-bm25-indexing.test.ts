@@ -18,6 +18,7 @@ import {
   createImageToVideoPattern,
   createTextToSpeechPattern,
   createTextGenerationPattern,
+  ImageToVideoPrimaryInputSchema,
 } from '../index'
 
 function freshIndex(patterns: readonly Pattern[]): PatternSearchIndex {
@@ -134,6 +135,12 @@ describe('assetNeeds slot vocabulary is indexed (SSOT successor to capabilities 
     // assetNeeds. Stripping assetNeeds must de-rank the pattern.
     const i2vWithout = createImageToVideoPattern() as unknown as Pattern
     ;(i2vWithout as { assetNeeds?: unknown }).assetNeeds = undefined
+    // The factory derived `references` into the inputs from the needs just
+    // stripped. Registration refuses a derived field the declaration no longer
+    // produces (INPUT_RESERVED_KEY, undeclared), so the inputs go back to the
+    // base schema too — the Pattern must be consistent, not merely needs-less.
+    ;(i2vWithout.primary as { tool: { inputs: unknown } }).tool.inputs =
+      ImageToVideoPrimaryInputSchema
     const index = freshIndex([
       i2vWithout,
       createTextGenerationPattern() as unknown as Pattern,

@@ -24,7 +24,6 @@ export interface AddFromManifestResult {
 export const AGENT_BASE_INPUT_SCHEMA: z.ZodObject<{
     description: z.ZodString;
     prompt: z.ZodString;
-    references: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
 }, z.core.$strip>;
 
 // @public
@@ -57,14 +56,12 @@ export interface AgentFinishSpec<TFinish = unknown, TOut = unknown> {
 }
 
 // @public
-export function agentInputSchema<TExtra extends z.ZodRawShape>(extra: TExtra): z.ZodObject<(("description" | "references" | "prompt") & keyof TExtra extends never ? {
+export function agentInputSchema<TExtra extends z.ZodRawShape>(extra: TExtra): z.ZodObject<(("description" | "prompt") & keyof TExtra extends never ? {
     description: z.ZodString;
     prompt: z.ZodString;
-    references: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
 } & { -readonly [P in keyof TExtra]: TExtra[P]; } : ({
     description: z.ZodString;
     prompt: z.ZodString;
-    references: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodArray<z.ZodString>]>>>;
 } extends infer T_1 extends z.core.util.SomeObject ? { [K in keyof T_1 as K extends keyof TExtra ? never : K]: T_1[K]; } : never) & { [K_1 in keyof { -readonly [P in keyof TExtra]: TExtra[P]; }]: { -readonly [P in keyof TExtra]: TExtra[P]; }[K_1]; }) extends infer T ? { [k in keyof T]: T[k]; } : never, z.core.$strip>;
 
 // @public
@@ -462,6 +459,13 @@ export type AssetResolutionError = {
         declaredSlots: string[];
         available: HandleSnapshot[];
     };
+} | {
+    code: 'HANDLE_TAKEN';
+    handle: string;
+    meta: {
+        boundTo: HandleSnapshot;
+        available: HandleSnapshot[];
+    };
 };
 
 // @alpha
@@ -632,6 +636,9 @@ export type DerivedReferences<N extends readonly AssetNeed[]> = {
 
 // @public
 export function deriveLlmFacingInputSchema<T extends ZodRawShape>(baseSchema: z.ZodObject<T>, providerOptionsSchema: z.ZodObject<ZodRawShape> | undefined): z.ZodObject<ZodRawShape>;
+
+// @public
+export function deriveNamedHandles(name: string, count: number): string[];
 
 // @alpha
 export function deriveReferencesSchema(assetNeeds: ReadonlyArray<AssetNeed> | undefined): z.ZodOptional<z.ZodObject<z.ZodRawShape>> | undefined;
@@ -1078,6 +1085,19 @@ export type MetaPatternId = `meta_${string}`;
 export function mintHandle(modality: AssetKind, priorCountOfModality: number): string;
 
 // @public
+export function mintNext(args: {
+    priorCount: number;
+    modality: AssetKind;
+    assetId: string;
+    supplied: string | undefined;
+    boundAssetIdOf?: (handle: string) => string | undefined;
+}): {
+    handle: string;
+    seq: number;
+    nextCount: number;
+};
+
+// @public
 export type Modality = 'text' | 'image' | 'audio' | 'video' | 'embedding';
 
 // @public
@@ -1242,6 +1262,9 @@ export interface ParallelFn {
 }
 
 // @public
+export function parseMintedHandle(handle: string, modality: AssetKind): number | undefined;
+
+// @public
 export type Pattern<I = unknown, O = unknown> = AtomicPattern<I, O> | MetaPattern<I, O> | AgentPattern<I, O>;
 
 // @public
@@ -1390,6 +1413,12 @@ export function producedAssetShape<M extends ProducedAssetModality>(modality: M)
 };
 
 // @public
+export function producesAssets(pattern: Pattern): boolean;
+
+// @public
+export function productNameOf(input: unknown): string | undefined;
+
+// @public
 export function projectAssetsForModel(assets: ReadonlyArray<AssetLedgerEntry>): ReadonlyArray<ModelFacingAsset>;
 
 // @public
@@ -1430,8 +1459,15 @@ export interface RegistryEntry {
 }
 
 // @public
+export const RESERVED_INPUT_KEYS: readonly ["references", "name"];
+
+// @public
+export type ReservedInputKey = (typeof RESERVED_INPUT_KEYS)[number];
+
+// @public
 export function resolveAssetReferences(inputs: {
     references?: AssetReferences;
+    name?: string;
 } | null | undefined, assetNeeds: ReadonlyArray<AssetNeed>, index: AssetIndex): {
     ok: true;
     assets: ReadonlyArray<ResolvedAssetRef>;

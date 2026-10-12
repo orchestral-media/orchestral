@@ -5,6 +5,7 @@ import type { Unsubscribe } from './job-store'
 import type { NamespaceId } from './catalog'
 import { resolveNamespace } from './catalog'
 import { DEFAULT_AGENT_FINISH_SPEC, defaultAgentFinishOutputs } from './agent-finish'
+import { completeToolInputs } from './extend-inputs-with-references'
 import { idCarriesKind, ManifestError, OrchestralManifestSchema } from './manifest'
 import { auditOutputsSchema } from './output-fields'
 import { consoleDiagnosticsLogger, type DiagnosticsLogger } from './logger'
@@ -175,6 +176,12 @@ export class PatternRegistry {
         } as unknown as typeof pattern
       }
     }
+    // The reserved input keys, derived on a shallow copy: `references` from the
+    // Pattern's own assetNeeds, `name` when its outputs carry assets[]. After
+    // the agent backfill, so an agent's outputs are known; before the audit
+    // and before any map write, so a refused Pattern leaves the registry as it
+    // was. Semantics on completeToolInputs.
+    pattern = completeToolInputs(pattern as Pattern) as typeof pattern
     // Registration-time authoring lint (warn-only): flag any unbounded
     // z.string() in this pattern's outputs schema so authors adopt the bounded
     // vocabulary (output-fields.ts) and raw blobs stay out of model context.
@@ -226,6 +233,8 @@ export class PatternRegistry {
     }
     // Stored whole and type-erased: whatever the Pattern carries rides along,
     // provenance (`origin`) included, and nothing here reads it back.
+    // Whole, with its tool inputs completed: completeToolInputs derives the
+    // reserved keys on a shallow copy; nothing else is rewritten.
     // DESIGN: registry-stores-pattern-whole
     this.byId.set(pattern.id, pattern as Pattern)
     this.byShortName.set(dn, pattern.id)

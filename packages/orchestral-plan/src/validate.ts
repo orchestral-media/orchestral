@@ -37,7 +37,7 @@ import type {
   PatternId,
   PatternRegistry,
 } from '@orchestral/core'
-import { resolveExposure } from '@orchestral/core'
+import { productNameOf, resolveExposure } from '@orchestral/core'
 
 import {
   PLAN_ASSET_REF_RE,
@@ -90,6 +90,7 @@ export type PlanProblemCode =
   | 'PLAN_SLOT_DUAL_SOURCE'
   | 'PLAN_SLOT_REQUIRED_UNBOUND'
   | 'PLAN_STEP_INPUT_INVALID'
+  | 'PLAN_STEP_NAME_NOT_ALLOWED'
   | 'PLAN_STEP_UNUSED'
   | 'PLAN_OUTPUT_LABEL_DUPLICATE'
   | 'PLAN_INPUT_NOT_SERIALISABLE'
@@ -360,6 +361,9 @@ class PlanWalk {
   }
 
   private walkStep(step: StepView): void {
+    // Rule 28 reads the step alone, so it runs before the target is resolved:
+    // a name is refused whatever the step names, registered or not.
+    this.ruleStepName(step)
     const target = this.ruleTargetPattern(step)
     // The grammar rules run whatever the target is: they are about the shape of
     // the graph, and an unresolvable pattern must not hide a forward reference.
@@ -1081,13 +1085,22 @@ class PlanWalk {
   // error the model can act on here. What it does catch is a mistyped literal
   // — `"temperature": "0.7"` — before the step it belongs to has any upstream
   // spend.
+  //
+  // Issues at `name` are dropped when rule 28 has refused the name: the
+  // target's derived `name` field judges the same value (`image_3` fails its
+  // grammar), and the remedy is rule 28's — remove it — not a better name. Only
+  // then: a name productNameOf cannot read (a number, say) is no name to rule
+  // 28, so its type issue stays here, where layer 2 would raise it anyway.
   private ruleStepInput(step: StepView, target: Pattern): void {
     const schema = inputSchemaOf(target)
     if (schema === undefined) return
     const result = passthroughOf(schema).safeParse(step.input)
     if (result.success) return
+    const nameRefused = productNameOf(step.input) !== undefined
     const issues = result.error.issues.filter(
-      (issue) => !pathLandsOnRef(step.input, issue.path),
+      (issue) =>
+        !(nameRefused && issue.path[0] === 'name') &&
+        !pathLandsOnRef(step.input, issue.path),
     )
     if (issues.length === 0) return
     this.add({
@@ -1100,6 +1113,27 @@ class PlanWalk {
           .map((i) => `${i.path.map(String).join('.') || '(root)'}: ${i.message}`)
           .join('; '),
       details: { stepId: step.id, pattern: step.pattern, issues },
+    })
+  }
+
+  // Rule 28 — a name in a step's input. Registration derives `name` onto every
+  // asset producer's inputs, so rule 21 would accept one, and then nothing
+  // would honour it: a sub-step's products are recorded as non-referenceable,
+  // never under a name. A field the schema accepts and nothing honours is
+  // refused here rather than ignored at run time. Read through productNameOf,
+  // the one reader of the name: a blank one is absent, as everywhere, and a
+  // `$ref` string is a name like any other. `input.references` is not this
+  // rule's business — a step may bind slots through it, and rules 19 and 20
+  // read it.
+  private ruleStepName(step: StepView): void {
+    if (productNameOf(step.input) === undefined) return
+    const stepId = step.id
+    this.add({
+      code: 'PLAN_STEP_NAME_NOT_ALLOWED',
+      path: ['steps', step.index, 'input', 'name'],
+      stepId,
+      message: `Step "${stepId}": a name inside a plan step is never recorded — a step's products are not addressable by name. Remove it; name the plan's own product instead, and list what should be addressable in output.assets.`,
+      details: { stepId },
     })
   }
 

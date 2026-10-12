@@ -375,3 +375,43 @@ describe('handleFindPattern — BM25 regression', () => {
     expect(res.diagnostic?.suggestion).toContain('No Patterns matched')
   })
 })
+
+describe('handleFindPattern — outputs summary', () => {
+  function withOutputs(id: string, outputs: unknown): Pattern {
+    return { ...atomic(id), outputs } as unknown as Pattern
+  }
+
+  function summaryOf(patterns: Pattern[]) {
+    const res = handleFindPattern(buildIndex(patterns), {
+      query: `select:${patterns.map((p) => p.id).join(',')}`,
+    })
+    return new Map(res.matches.map((m) => [m.patternId, m.outputs]))
+  }
+
+  it('producesAssets is false for a non-object outputs root and true for an assets field', () => {
+    // The summary carries core's producesAssets(pattern). That it agrees with
+    // the `name` field registration derives, over the whole shipped catalog,
+    // is pinned in @orchestral/patterns (registered-name-field.test.ts).
+    const summary = summaryOf([
+      // A non-object outputs root: nothing to read a field from.
+      withOutputs('non-object-root', z.boolean()),
+      // An `assets` field on the outputs shape.
+      withOutputs(
+        'with-assets',
+        z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
+      ),
+    ])
+    expect(summary.get('non-object-root')?.producesAssets).toBe(false)
+    expect(summary.get('with-assets')?.producesAssets).toBe(true)
+  })
+
+  it('modality is still read from pattern.outputs', () => {
+    const summary = summaryOf([
+      withOutputs(
+        'img-assets',
+        z.object({ modality: z.literal('image'), assets: z.array(z.string()) }),
+      ),
+    ])
+    expect(summary.get('img-assets')).toEqual({ modality: 'image', producesAssets: true })
+  })
+})
