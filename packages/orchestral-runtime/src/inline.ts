@@ -85,6 +85,7 @@ import type {
 import {
   abortableSleep,
   buildMetaExecutionContext,
+  makeComposeFence,
   makeFreshState,
   nextRetryDelayMs,
   type MetaSharedState,
@@ -684,8 +685,8 @@ export class InlineRuntime implements Runtime {
    * Internal submitJob with ancestor chain — recursion bookkeeping kept
    * off the public surface (JobSpec stays caller-clean).
    *
-   * `metaSharedState` threads the idempotency cache + step counter + stepId-
-   * uniqueness set from a parent meta into a nested meta dispatch.
+   * `metaSharedState` threads the compute cache, the ask counter and the
+   * stepId-uniqueness set from a parent meta into a nested meta dispatch.
    * `undefined` (the default) means "start a fresh state" — used by public
    * `submitJob`, by `ctx.submitJob` escape hatch, and by alternative dispatch.
    *
@@ -748,10 +749,8 @@ export class InlineRuntime implements Runtime {
         input: spec.input,
         assets: spec.assets,
         sessionId: spec.sessionId,
-        stepIndex: spec.stepIndex,
-        // Absent on every spec whose step did not opt out of positional
-        // identity, and conditionally spread inside the derivation, so this
-        // forwarding leaves existing keys untouched.
+        // The step's path: set on every ctx.step child, absent on a direct
+        // submit, which the derivation hashes as null.
         stepKey: spec.stepKey,
       })
 
@@ -1619,6 +1618,8 @@ export class InlineRuntime implements Runtime {
           }
         : undefined
 
+    // What this compose's steps have started; closed below if compose fails.
+    const fence = makeComposeFence()
     const ctx = buildMetaExecutionContext(
       {
         submitChild: <TIn2, TOut2>(
@@ -1657,6 +1658,7 @@ export class InlineRuntime implements Runtime {
         // answers). Absent when the runtime was built without one → ctx.askUser
         // throws ASK_USER_NOT_SUPPORTED.
         ...(this.askUser ? { askUser: this.askUser } : {}),
+        fence,
       },
       meta.id,
       jobId,
@@ -1672,16 +1674,37 @@ export class InlineRuntime implements Runtime {
       spec.stepIdNamespace,
     )
 
-    const output = await meta.compose(
-      { input: spec.input },
-      ctx,
-    )
-    // Gated, then returned as compose built it — no projection, no copy. A
-    // parent meta's ctx.step hands the same value, unprojected, to its own
-    // compose: as the child's stored output, after any afterDispatch rewrite.
-    // DESIGN: meta-output-returned-raw
-    this.assertOutputConforms(pattern, output)
-    return output as TOut
+    // A compose that rejects can leave branches running: `parallel` rejects
+    // at the first failure and leaves its siblings to settle — and one that
+    // resolves can too (`Promise.race`, an un-awaited step), which matters
+    // when the gate then refuses its output. Failing the row there would hand
+    // a retry of the step that launched this meta a subtree still moving — a
+    // dedupe onto a row still running, whose null output the retried compose
+    // reads, or an id a straggler registers under this meta's path after the
+    // retry released them, which the retried compose then meets as
+    // DUPLICATE_STEP_ID. So on any throw out of here the ctx is fenced first —
+    // a later ctx.step, ctx.submitJob or ctx.askUser on it is refused before
+    // it claims anything — and the steps and submits it had already started
+    // are waited for, each nested meta among them settling its own subtree
+    // the same way. The row fails once the subtree is quiet, with the original
+    // error. The cost: a failing meta takes as long as its slowest in-flight
+    // step, the trade a plan makes for its independent branches. A park open
+    // at the failure in this compose is not waited for; one inside a step
+    // still in flight is. (An `afterDispatch` failure comes after this
+    // returns, so it is not fenced.)
+    // DESIGN: failed-compose-settles-its-steps
+    try {
+      const output = await meta.compose({ input: spec.input }, ctx)
+      // Gated, then returned as compose built it — no projection, no copy. A
+      // parent meta's ctx.step hands the same value, unprojected, to its own
+      // compose: as the child's stored output, after any afterDispatch rewrite.
+      // DESIGN: meta-output-returned-raw
+      this.assertOutputConforms(pattern, output)
+      return output as TOut
+    } catch (err) {
+      await fence.closeAndSettle()
+      throw err
+    }
   }
 
 

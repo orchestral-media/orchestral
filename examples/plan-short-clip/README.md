@@ -57,9 +57,8 @@ Three runs in one session, one `InMemoryJobStore`:
 3. **Run 3 — the plan revised, a `caption` step inserted second.** All three
    original steps still hit. **One model call for one new step.**
 
-Run 3 is the part a hand-written meta does not get. Every plan step dispatches
-with `identity: 'id'`
-([`StepOptions.identity`](../../packages/orchestral-core/src/execution-context.ts)),
+Run 3 is what naming every step buys. Every plan step dispatches under its DAG
+id ([`StepOptions.stepId`](../../packages/orchestral-core/src/execution-context.ts)),
 so its durable row is keyed by the step's **name** rather than by its position
 in the compose run:
 
@@ -67,11 +66,11 @@ in the compose run:
 key = sha256({ patternId, input, assets, sessionId, stepKey: 'render' })
 ```
 
-Under the positional default, inserting `caption` second would move `render`
-from index 1 to 2 and `animate` from 2 to 3 — a new key for each, and two paid
-re-runs of work whose inputs did not change. That is the cost
-`examples/incremental-rerun/src/pattern.ts` names in its own comments, and it is
-the cost a model-edited pipeline would pay on **every** revision.
+Keyed by position, inserting `caption` second would move `render` from index 1
+to 2 and `animate` from 2 to 3 — a new key for each, and two paid re-runs of
+work whose inputs did not change, on **every** revision a model makes. The
+hand-written twin in `examples/incremental-rerun` names its three steps too, so
+it gets the same.
 
 ## Run it
 

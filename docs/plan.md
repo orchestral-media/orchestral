@@ -193,10 +193,10 @@ single, image (`packages/orchestral-patterns/src/atomic/image-to-video.ts` (DESI
 `text-to-image`'s assets element declares `modality: 'image'`
 (`packages/orchestral-patterns/src/atomic/text-to-image.ts` (DESIGN: text-to-image-assets)), so the
 modalities agree; every ref points backward; `describe`, `render` and
-`animate` are each consumed. What the example's own comment says about
-identity (`examples/incremental-rerun/src/pattern.ts` (DESIGN: explicit-step-id-not-in-key): explicit
-ids are *not* in the key, the positional `stepIndex` is) is what "Step identity"
-below changes for plans.
+`animate` are each consumed. The example's own comment says what keys each of
+its rows — the explicit id
+(`examples/incremental-rerun/src/pattern.ts` (DESIGN: explicit-step-id-is-the-key)) — and a
+plan's steps are keyed the same way ("Step identity").
 
 ### Worked example 2 — three takes, a judge, and a winner
 
@@ -385,25 +385,15 @@ carries.
 2. **Levels.** `level(step) = 1 + max(level(dep))` over the backward refs,
    computed once. For each level in order, in listed order,
    `ctx.step.withMeta({ patternId, input, assets }, { stepId: step.id,
-   identity: 'id', retry: step.retry })` is *called* synchronously inside a
-   `map`, and the level is awaited through `parallel.limit(thunks,
-   opts.concurrency ?? Infinity)`. The call order matters: the
-   tree-shared counter advances at call time
+   retry: step.retry })` is *called* synchronously inside a `map`, and the
+   level is awaited through `parallel.limit(thunks, opts.concurrency ??
+   Infinity)`. Nothing about keys depends on that order: every plan step is
+   named, and a nested meta numbers its unnamed steps within its own compose
    (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional)),
-   and that counter is the durable key of every *positional* child — the
-   internals of a shipped meta called as a step (`meta_image-best-of-n`'s
-   `candidate-N` rows are keyed on `stepIndex`,
-   `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field),
-   `packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)).
-   A level loop keeps those indices identical run to run. A promise graph
-   that starts each step when its last dependency settles does not: which
-   step claims which index then depends on provider latency, and decision 7
-   fails for exactly the steps the grammar tells an author to reach for.
-   Uncapped, `parallel.limit` invokes every thunk synchronously and in list
-   order, exactly as a bare `Promise.all` over eagerly-built promises would,
-   which is what keeps that argument true at the default; a finite
-   `concurrency` gives it up by construction, since a capped task starts when an
-   earlier one settles. That cost is stated on `RunPlanOptions.concurrency`.
+   so a capped level, a sibling that dedupes, or a promise graph cannot move a
+   row. What the level loop still decides is how a failure propagates, below. A
+   finite `concurrency` bounds a level's width and costs no key
+   (`RunPlanOptions.concurrency`).
 
    **What a failure invalidates.** Exactly the failing step's transitive
    dependents — which is what the DAG the author wrote already says. A step
@@ -414,14 +404,11 @@ carries.
    resubmit" pay off for a plan that failed in one branch. The plan still fails,
    after the reachable frontier is done, and the error raised is the first
    failure in **step-list order** — not the first to settle, or the same plan
-   would blame a different step on a different day. Two costs: a failing plan
-   now takes as long as its slowest independent branch rather than failing fast,
-   and a step invalidated on one run consumes counter positions on the resubmit
-   that it did not consume before, so a surviving branch's *nested positional*
-   rows can miss where they hit (the plan's own steps are immune —
-   `identity: 'id'`). A `CANCELLED` error is the exception: `cancelJob` has
-   already torn the tree down, so it is rethrown immediately rather than
-   collected, because there is no frontier left to finish.
+   would blame a different step on a different day. The cost: a failing plan
+   now takes as long as its slowest independent branch rather than failing fast.
+   A `CANCELLED` error is the exception: `cancelJob` has already torn the tree
+   down, so it is rethrown immediately rather than collected, because there is
+   no frontier left to finish.
 3. **Substitute.** Deep-walk `step.input`; replace every whole-string value
    ref by the value at that path in the producer's stored output (or in
    `input` for `$input`); a path that resolves to `undefined` throws
@@ -451,9 +438,9 @@ carries.
 4. **Gate.** Layer 2 parse on the substituted input.
 5. **Dispatch.** The key each child lands on, exactly:
    `sha256(JSON.stringify({ patternId, input: canonicalise(substitutedInput),
-   assets: canonicalise(mergedAssets) | null, sessionId | null, stepIndex: 0,
-   stepKey: effectiveStepId }))` — the existing allowlist
-   (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)) plus the one field "Step identity" adds — unless
+   assets: canonicalise(mergedAssets) | null, sessionId | null,
+   stepKey: effectiveStepId }))` — the allowlist
+   (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)) — unless
    `RunPlanOptions.idempotencyKeyFor` returned a string for this step, in which
    case that string IS the key and none of the above is hashed.
 6. **Null guard.** A dedup hit on a queued or running row returns that row
@@ -521,75 +508,41 @@ add.
 
 **Cost.** Spend decisions stay with the host: `preflightPlan` before submit,
 `beforeDispatch` counting per `rootJobId` for a cap (DESIGN.md, "We don't impose concurrency caps, timeouts, or TTLs"). The
-interpreter never calls `ctx.askUser` — it parks without replay and consumes
-the same counter as `ctx.step`
-(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: ask-user-consumes-step-counter)), shifting
-every positional key after it — and never calls `ctx.submitJob`, which starts
-a fresh shared state and emits no `job:step`
+interpreter never calls `ctx.askUser` — it parks without replay — and never
+calls `ctx.submitJob`, which starts a fresh shared state and emits no `job:step`
 (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: submit-job-escape-hatch)).
 
 ## Step identity
 
-Today the durable key is the counter position, not the id: `ctx.step` passes
-`stepIndex: idx` on the child spec
-(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field)),
-`deriveIdempotencyKey` hashes it
-(`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)), and
-`stepIdNamespace` — the only place the author's id reaches the spec — is
-excluded on purpose, by that same allowlist
-(`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)).
-`ctx.step` does not use the in-run
-`stepCache` at all (`useCache = false`,
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: ctx-step-skips-step-cache)); resume is
-entirely `insertIfAbsent`. So
-decision 6 cannot be met by "pass the id through": inserting a step ahead of
-`render` moves its index from 1 to 2, a new key for unchanged work
-(`examples/incremental-rerun/src/pattern.ts` (DESIGN: explicit-step-id-not-in-key)
-says exactly this). The opt-in is a key-derivation change, kept additive:
+A plan step is keyed by its name. `runPlan` passes `step.id` as
+`options.stepId`, and `ctx.step` keys every child row on the step's path —
+`stepKey`, the ids of the steps that launched the compose followed by this
+one's — not on when the call happened
+(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field),
+`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)).
+A plan is usually a root compose, so its keys are the bare ids: `describe`,
+`render`, `animate`. `ctx.step` does not use the in-run `stepCache` at all
+(`useCache = false`,
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: ctx-step-skips-step-cache));
+resume is entirely `insertIfAbsent`.
 
-```ts
-// packages/orchestral-core/src/execution-context.ts — StepOptions
-/** 'index' (default): the tree-wide counter position keys the JobStore row.
- *  'id': the namespaced stepId keys it instead. Requires an explicit stepId. */
-identity?: 'index' | 'id'
+What an unnamed step is keyed by matters for the shipped metas a plan calls as
+steps: `${patternId}#${n}` (a `/` in the pattern id is written `%2F`), where n
+counts the unnamed calls to the same pattern earlier in the same compose
+(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional)).
+The number is local, so a nested meta's rows do not depend on its siblings — a
+sibling that dedupes, or a capped level that starts it later, takes nothing
+from it. `createPatternFn` forwards options untouched
+(`packages/orchestral-core/src/create-pattern-fn.ts` (DESIGN: pattern-fn-forwards-step-options)),
+so a typed wrapper names a step the same way.
 
-// `packages/orchestral-core/src/job.ts` (DESIGN: jobspec-identity-vs-routing) — IDENTITY group, doc updated
-/** Set by ctx.step under identity:'id': the namespaced effective step id.
- *  Replaces stepIndex in the idempotency derivation when present. */
-stepKey?: string
-
-// packages/orchestral-runtime/src/idempotency.ts
-stepIndex: args.stepIndex ?? 0,
-...(args.stepKey !== undefined ? { stepKey: args.stepKey } : {}),
-```
-
-In `ctx.step`: `identity === 'id'` without `options.stepId` throws
-`STEP_IDENTITY_REQUIRES_STEP_ID` (the default id embeds the counter, which
-would defeat the point); the child spec then carries `stepKey:
-effectiveStepId` and omits `stepIndex`. The counter still advances (default
-ids, nested namespaces and events are unchanged). `createPatternFn` forwards
-options untouched (`packages/orchestral-core/src/create-pattern-fn.ts` (DESIGN: pattern-fn-forwards-step-options)), so typed wrappers get it
-for free.
-
-Why positional stays the default. Every shipped meta is write-once and its
-author owns the order (DESIGN.md, "We don't content-hash step ids"); none of
-them sets `identity`, so no
-`stepKey` reaches their hash, the stringified object is byte-identical, and
-the pinned snapshot (`packages/orchestral-runtime/src/__tests__/idempotency-stability.test.ts` ("hash is stable for a fixed input"))
-stays green. The
-conditional spread is what makes the warning in
-`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)
-("adding a field changes dedup for every existing row") not apply — the field
-is absent unless asked for. A plan opts in because its step list is edited
-between runs by a model; that is the one population for which reordering is
-routine rather than a code change.
-
-Why the namespaced id. Two plan steps each calling `meta_image-best-of-n`
-produce `a/candidate-0` and `b/candidate-0`; if that meta ever opts in they
-must not collide. The rationale in `packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)
-for excluding the
-namespace ("an identical sub-step in two subtrees would fail to dedupe") is
-already vacuous: the tree-shared counter makes their `stepIndex` differ today.
+Why the path and not the bare id. Two plan steps each calling
+`meta_image-best-of-n` produce `a/candidate-0` and `b/candidate-0`; keyed on the
+bare id they would share a row. The namespace is what makes an effective id
+unique in the tree, default ids included, since those are numbered per compose.
+`stepIdNamespace` is still routing — the field is not hashed; the path it
+carries is, as the child's `stepKey`
+(`packages/orchestral-core/src/job.ts` (DESIGN: jobspec-identity-vs-routing)).
 
 The insert-a-step trace. Run 1: `describe` (key K1 = text-generation,
 {system, prompt}, session, `stepKey: describe`), `render` (K2 = text-to-image,
@@ -597,27 +550,25 @@ The insert-a-step trace. Run 1: `describe` (key K1 = text-generation,
 {prompt: motion}, assets [render's id], session, `animate`). Run 2 inserts
 `caption` (text-generation over `$input.prompt`, listed second, read only by
 `output.values`) — an independent branch. `describe` → K1, hit. `caption` →
-new key, runs. `render` → K2, hit: its key never saw the counter. `animate` →
-K3, hit. One model call for one new step. Under positional identity the same
-edit moves `render` from index 1 to 2 and `animate` from 2 to 3, and both
-re-run with nothing they read changed — three paid calls for one new step,
-which is the cost `examples/incremental-rerun/src/pattern.ts` (DESIGN: explicit-step-id-not-in-key)
-names and a model-edited plan pays on
-every revision. Had the insert instead fed `animate` (an `upscale` step on
+new key, runs. `render` → K2, hit: its key never saw a position. `animate` →
+K3, hit. One model call for one new step. A hand-written meta gets the same for
+every step it names
+(`examples/incremental-rerun/src/pattern.ts` (DESIGN: explicit-step-id-is-the-key));
+an unnamed step there is renumbered only by an unnamed call to its own pattern
+inserted ahead of it. Had the insert instead fed `animate` (an `upscale` step on
 `$render.assets[0]`, with `startFrame` rebound to it), `animate`'s key would
 differ in `assets` and it would re-run — correctly, because its input changed.
-Stated caveat: a shipped meta called as a step keeps positional
-internals under the shared counter, so inserting a plan step ahead of a
-`meta_storyboard` step shifts that meta's inner indices and re-runs them.
-Closing that requires the inner meta to opt in, which is its author's call.
 
-### The third bypass: the caller writes the key
+This section once described an opt-in, `StepOptions.identity: 'id'`, over a
+tree-wide positional default. When a step's identity became its path the
+opt-in had nothing left to opt out of, and it was removed.
 
-`identity` chooses between two projections of one derivation, and that
-derivation hashes `sessionId` on purpose ("dedup never crosses a session
-boundary", `idempotency.ts`). So a caller whose notion of "the same work"
-outlives the conversation the request arrived in cannot express it by choosing a
-mode at all. `StepOptions.idempotencyKey` is where it says so: the string it
+### The bypass: the caller writes the key
+
+The derivation keys a step by its path and hashes `sessionId` on purpose ("dedup
+never crosses a session boundary", `idempotency.ts`). So a caller whose notion of
+"the same work" outlives the conversation the request arrived in cannot express
+it by naming a step. `StepOptions.idempotencyKey` is where it says so: the string it
 returns IS the durable key, and `deriveIdempotencyKey` does not run.
 `RunPlanOptions.idempotencyKeyFor(step, substitutedInput, resolvedAssets)` is
 the same seam for a plan's steps, which the interpreter dispatches on the
@@ -665,7 +616,7 @@ export interface PlanToMetaOptions {
                                        // host resolves for it like any other media pattern, and derives
                                        // the `references` field onto tool.inputs
   concurrency?: number                 // cap on one level's width; default unlimited (see "Cost")
-  idempotencyKeyFor?: PlanStepIdentity // per-step durable key (see "The third bypass")
+  idempotencyKeyFor?: PlanStepIdentity // per-step durable key (see "The bypass")
 }
 ```
 
@@ -934,9 +885,11 @@ result before `submitChild`, with nothing dispatched.
 **Where it is enforced.** Today a meta dispatched by an agent inherits no
 allowlist at all: `_submitJobInternal` checks only `registry.get`
 (`packages/orchestral-runtime/src/inline.ts` (DESIGN: submit-registry-lookup)), `dispatch()`
-branches on kind, and `ctx.step` adds only `DUPLICATE_STEP_ID` and
-`CIRCULAR_META_STEP` (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: duplicate-step-id),
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: circular-meta-step)) — so any meta
+branches on kind, and none of the refusals `ctx.step` adds asks whether the
+target is allowed: the nearest, `CIRCULAR_META_STEP`
+(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: circular-meta-step)), judges only the ancestor
+chain, and `DUPLICATE_STEP_ID`
+(`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: duplicate-step-id)) only the step's id — so any meta
 in `toolPatternIds` can step into `no-tool` patterns and `agent_*` patterns,
 and the guards suite builds its ring through exactly that
 (`packages/orchestral-runtime/src/__tests__/agent-tool-guards.test.ts` ("rejects A → B → A (a pattern already on the ancestor chain)")).
@@ -1077,7 +1030,10 @@ to declare what it dispatches").
 
 ### We don't namespace `job:step` ids or mint handles for inner steps
 **Why.** Both are engine-wide changes with a one-line host workaround
-(`childJobId`) and would make a plan more visible, not more correct.
+(`childJobId`) and would make a plan more visible, not more correct. An id
+names a step within its own compose — default ids included, since
+`text-to-image#0` recurs in every compose that makes one unnamed call to it —
+so a host keying on `stepId` conflates subtrees, and `childJobId` never does.
 Intermediate lineage stays a host concern; the plan's `output.assets` is the
 model-facing surface.
 **Instead.** Key a progress UI on `childJobId`; list what should be
@@ -1088,8 +1044,7 @@ addressable in `output`.
 ### We don't gate spend inside the interpreter
 **Why.** The host decides on spend (DESIGN.md, "We don't impose concurrency caps, timeouts, or TTLs");
 compose has no router
-to show a model with, and `askUser` consumes the step counter and parks
-without replay.
+to show a model with, and `askUser` parks without replay.
 **Instead.** `preflightPlan` + the host's own `AskUserHandler` before
 `submitJob`; `beforeDispatch` for a cap.
 **Where.** "Preflight".
@@ -1144,12 +1099,12 @@ plan feature has since moved whole into `@orchestral/plan` (schema, walk,
 interpreter and preflight), so read steps 3–5 as a record of the original build
 rather than as a map of the tree.
 
-1. `packages/orchestral-core/src/execution-context.ts` — `StepOptions.identity` (+8).
+1. `packages/orchestral-core/src/execution-context.ts` — `StepOptions.identity` (+8; removed since — "Step identity").
    `packages/orchestral-core/src/job.ts` — `JobSpec.stepKey`, the IDENTITY-group doc (`packages/orchestral-core/src/job.ts` (DESIGN: jobspec-identity-vs-routing)), fix the `META_STEP_FAILED` sentence in the `job:step` doc (`packages/orchestral-core/src/job.ts` (DESIGN: job-step-event)) (+12).
    `packages/orchestral-core/src/pattern.ts` — `PatternBase.origin?`, `MetaPattern.plannedDispatches?` (+25).
-2. `packages/orchestral-runtime/src/idempotency.ts` — `DeriveIdempotencyKeyInput.stepKey`, conditional spread, doc (+12).
-   `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field) — identity branch, `STEP_IDENTITY_REQUIRES_STEP_ID` (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id)) (+25).
-   Tests: `idempotency-stability.test.ts` unchanged plus a second snapshot for a `stepKey` input; new `meta-step-identity-id.test.ts` (reorder, insert, nested namespace) (~140).
+2. `packages/orchestral-runtime/src/idempotency.ts` — `DeriveIdempotencyKeyInput.stepKey`, conditional spread, doc (+12; the spread replaced since — `stepKey ?? null` is always hashed).
+   `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field) — identity branch, `STEP_IDENTITY_REQUIRES_STEP_ID` (+25; both removed since).
+   Tests: `idempotency-stability.test.ts` unchanged plus a second snapshot for a `stepKey` input; new `meta-step-identity-id.test.ts` (reorder, insert, nested namespace) (~140; replaced since by `meta-step-identity-path.test.ts`).
 3. `packages/orchestral-core/src/plan.ts` — schema, regexes, `PlanDag`, `PlanOutputSchema` types (~150).
    `packages/orchestral-core/src/plan-validate.ts` — `validatePlan`, `assertPlanValid`, `planRefine`, `PlanProblem`, `PlanInvalidError` (~320).
    `packages/orchestral-core/src/registry.ts` — `scope()` (+20). `index.ts` exports (+15).
@@ -1159,7 +1114,7 @@ rather than as a map of the tree.
 5. `packages/orchestral-runtime/src/preflight-plan.ts` — `preflightPlan`, `formatPlanPreflight`, report types; barrel exports plus `AvailableAlternative` (~220). Test with a router that lacks `explain` and one that has it (~140).
 6. `packages/orchestral-runtime/src/agent-dispatch.ts` (DESIGN: planned-dispatches-guard) — `plannedDispatches` guard, `via` field, `job:tool-rejected` (~45). `agent-tool-guards.test.ts` — out-of-scope, blocked and circular inner steps refused as tool results (~120).
 7. `examples/plan-short-clip/` — the persisted form of the red bicycle, asserting the same dedup trace as `examples/incremental-rerun` (~90).
-8. Docs and reports. `pnpm api:update` for `packages/orchestral-core/etc/core.api.md` (`origin?`, `plannedDispatches?`, `identity?`, `stepKey?`, `scope()`, the plan exports), `packages/orchestral-runtime/etc/runtime.api.md` (`preflightPlan`, report types, `AvailableAlternative`, `DeriveIdempotencyKeyInput.stepKey`), `packages/orchestral-patterns/etc/patterns.api.md` (`planToMeta`, `createPlanMeta`, `PLAN_PATTERN_ID`, `PlanOutputSchema`); commit them with the change (`CONTRIBUTING.md` (DESIGN: api-report-with-the-change)). `DESIGN.md`: new entries from "What we deliberately do not do"; "We don't content-hash step ids" gains a paragraph naming `identity: 'id'` as the second documented bypass; `packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist) and `packages/orchestral-core/src/manifest.ts` (DESIGN: required-ops-per-pattern) docs updated. `CHANGELOG.md` in core, runtime, patterns.
+8. Docs and reports. `pnpm api:update` for `packages/orchestral-core/etc/core.api.md` (`origin?`, `plannedDispatches?`, `identity?`, `stepKey?`, `scope()`, the plan exports), `packages/orchestral-runtime/etc/runtime.api.md` (`preflightPlan`, report types, `AvailableAlternative`, `DeriveIdempotencyKeyInput.stepKey`), `packages/orchestral-patterns/etc/patterns.api.md` (`planToMeta`, `createPlanMeta`, `PLAN_PATTERN_ID`, `PlanOutputSchema`); commit them with the change (`CONTRIBUTING.md` (DESIGN: api-report-with-the-change)). `DESIGN.md`: new entries from "What we deliberately do not do"; "We don't content-hash step ids" gains a paragraph naming `identity: 'id'` as the second documented bypass (rewritten since: the entry now argues from the step's path); `packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist) and `packages/orchestral-core/src/manifest.ts` (DESIGN: required-ops-per-pattern) docs updated. `CHANGELOG.md` in core, runtime, patterns.
 
 ## Rejected alternatives
 
@@ -1169,7 +1124,7 @@ rather than as a map of the tree.
 | `{{ }}` interpolation in strings | The first rung of an expression language; concatenation is a `text-generation` step. | A, B, C (all rejected) |
 | `map` / `repeat` nodes for fan-out | Dynamic width is what the shipped metas need and what cannot be validated or drawn before a model answers; N written-out steps is the engine's own fan-out idiom. | A, B, C (all rejected) |
 | Any-order steps plus Kahn sorting | Backward-only refs make cycles unrepresentable and the list *is* the topological order the model already thinks in. | A, B, C (all rejected) |
-| Promise-graph scheduling (each step starts when its last dependency settles) | Makes the tree-shared counter timing-dependent (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional)), so nested shipped metas lose positional dedup. That is the whole of the objection now: the second half of it — "a failed plan keeps dispatching branches whose deps later fulfil" — described the *level loop's* behaviour too once the walk stopped aborting a level on the first rejection, and running independent branches after a failure is now deliberate rather than a leak. What the level loop still buys, and a promise graph cannot, is call-time determinism; what it costs is that a capped level gives that up as well (`RunPlanOptions.concurrency`). | C |
+| Promise-graph scheduling (each step starts when its last dependency settles) | **Deferred, no longer refused on keys.** The objection was that it made the tree-shared counter timing-dependent (`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional)), so nested shipped metas lost positional dedup. A step's identity is a path now and no schedule moves a key. What it still touches is failure propagation — which dependents are known unreachable, and when — which the keep-going level walk settles per level; changing that is its own decision. | C |
 | `version: z.literal(1)` on the DAG | The second version number DESIGN.md's "We don't version the manifest" refuses; the one-shot is versioned with `meta_plan`, a persisted plan by its package. | B |
 | `steps[].childJobId` in the plan output | Compose cannot obtain it (`StepMeta` is `{ stepId, attempts, durationMs }`, `packages/orchestral-core/src/execution-context.ts` (DESIGN: step-meta-no-child-job-id)); every successful run would trip the output gate. | B |
 | `checkPermissions` as a validation backstop | Its refusal is `PERMISSION_DENIED`, not `PLAN_INVALID` (`packages/orchestral-core/src/pattern.ts` (DESIGN: check-permissions-hook)), and it receives no registry. | B |
@@ -1180,8 +1135,8 @@ rather than as a map of the tree.
 | `$$` escape for a literal `$` | Rewrites any literal containing `$$` (LaTeX, currency tables) and so changes the child's idempotency input; letter-initial ids make the escape unnecessary. | A |
 | No execution-time input parse | The stated reason (defaults would rewrite the input) is false for a gate that dispatches the original value; the gap it leaves — a wrong-typed ref failing in the adapter after upstream spend — is real. | A |
 | `renderPlanMermaid` in core | A host/UI concern in the contract package (DESIGN.md, "We don't keep retrieval or the agent patterns in core"). | A |
-| `StepOptions.idempotencyKey` from `ctx.step` as **the** identity mechanism | **Rejected, and still rejected as *the* mechanism.** It puts the hash recipe in pattern code and lets an author forget `assets`; the allowlist in `deriveIdempotencyKey` stays the one place, and `identity: 'id'` is what a plan uses by default. **Shipped as a third bypass since**, because the objection was to it *replacing* the derivation, not to it existing beside one: the derivation hashes `sessionId` by design, so reuse that outlives a session is not expressible by choosing an `identity` mode, and that is a real question the library was answering with "you cannot ask". The forgotten-field failure is bounded rather than waved away — same pattern, a stale but schema-valid result the caller owns; a key that crosses patterns is refused outright (`IDEMPOTENCY_KEY_CROSS_PATTERN`), and one that collides on a fan-out surfaces as `PLAN_STEP_IN_FLIGHT`. Opt-in per step, absent by default, and every stored key unmoved. | context option (i) |
-| Hashing `stepIdNamespace` unconditionally | Changes every existing key (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)); it is a prefix, not an identity. | — |
+| `StepOptions.idempotencyKey` from `ctx.step` as **the** identity mechanism | **Rejected, and still rejected as *the* mechanism.** It puts the hash recipe in pattern code and lets an author forget `assets`; the allowlist in `deriveIdempotencyKey` stays the one place, and a plan's steps are keyed by their names through it. **Shipped as a bypass since**, because the objection was to it *replacing* the derivation, not to it existing beside one: the derivation hashes `sessionId` by design, so reuse that outlives a session is not expressible by naming a step, and that is a real question the library was answering with "you cannot ask". The forgotten-field failure is bounded rather than waved away — same pattern, a stale but schema-valid result the caller owns; a key that crosses patterns is refused outright (`IDEMPOTENCY_KEY_CROSS_PATTERN`), and one that collides on a fan-out surfaces as `PLAN_STEP_IN_FLIGHT`. Opt-in per step, absent by default, and every stored key unmoved. | context option (i) |
+| Hashing `stepIdNamespace` as a field of its own | Its value is hashed already, once, as the head of `stepKey` (`packages/orchestral-runtime/src/idempotency.ts` (DESIGN: idempotency-identity-allowlist)); a second field would hash the same path twice. | — |
 | `$input.assets[slot=…]` as a further production | **Rejected because** it gives `$input` two meanings in the rendered grammar, one of which the one-shot can never satisfy. **Accepted since, for declaring plans only**, because both halves of that objection are now answered rather than tolerated. The two meanings are not ambiguous: `PLAN_ASSET_REF_RE` carves `input.` out of its head, so exactly one production matches any string and a parse discriminates on which — and the two fail closed by name rather than by resolving to nothing (`PLAN_INPUT_ASSET_NOT_ALLOWED`, `PLAN_INPUT_SLOT_UNKNOWN`). The unsatisfiable half **stood**, and is why the one-shot is carved out rather than argued away: `createPlanMeta` renders `planDagSchema({ inputAssets: false })`, so a plan that can never declare slots is never shown the form. What made the difference is that a plan is a MetaPattern and every other MetaPattern declares the media it takes; without this, a plan was the one pattern kind whose caller had to thread an asset id through as an untyped string. | C |
 | Moving `sumCosts` into core | Unnecessary once the interpreter lives in patterns, where `sumCosts` already is. | A, B |
 | A `confirm: true` option calling `ctx.askUser` inside compose | No router in compose to show models; parks without replay; spend is the host's decision. | A, B, C (all rejected) |

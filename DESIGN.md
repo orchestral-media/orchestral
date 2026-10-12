@@ -308,12 +308,14 @@ when the prior row succeeded.
 ### We don't hash the whole JobSpec for idempotency
 **Why.** "The field list below is a hand-picked allowlist, not a spread of the
 JobSpec. Two dispatches dedupe iff they agree on **what work to do**":
-`patternId`, `input`, resolved `assets`, `sessionId`, `stepIndex`. "Everything
+`patternId`, `input`, resolved `assets`, `sessionId`, `stepKey` — the step's
+path in its dispatch tree, `null` for a dispatch no step made. "Everything
 else on JobSpec is **routing metadata** and is excluded on purpose" —
 `providerOptions` ("folding them in would split the dedup space every time a
 host setting changes"), `assetContextId`, `resolveHints` ("a retry with a
 different model-exclusion set is the same work, routed elsewhere"),
-`stepIdNamespace`, `resumeFromRunId`, `jobKind`. Non-JSON values (Map / Date /
+`stepIdNamespace` (the field — the path it carries is hashed once, as
+`stepKey`), `resumeFromRunId`, `jobKind`. Non-JSON values (Map / Date /
 Buffer / BigInt) are rejected loudly rather than silently colliding, and failed
 rows never dedupe: "error / stale / cancelled deliberately do NOT match so the
 caller can retry after an explicit failure."
@@ -327,57 +329,93 @@ row."
 `packages/orchestral-core/src/__tests__/job-store-memory.test.ts` ("still inserts when the only same-key row is non-canonical (retry after failure)").
 
 ### We don't content-hash step ids
-**Why.** A default step id is `${patternId}#${counter}` — "a deliberately
-simple form: production Patterns are write-once, so the author owns the fact
-that reordering code invalidates resume." That sentence is the cost. The
-alternative is worse: the step cache is keyed by step id, and a key derived from
-`(patternId, input)` would make `meta_image-best-of-n` — which fans out N
-identical dispatches by design — collapse "N 'samples' into a single cached
-result". The counter is shared across nested metas so default ids are
-tree-unique; explicit ids are namespaced by the parent step, and a collision
-throws `DUPLICATE_STEP_ID` rather than silently sharing a cache entry.
-**Instead.** Pass `stepId` explicitly for fan-out (`candidate-${i}`) — "the
-documented bypass", and the stable key resume needs. Since plans there is a
-second documented bypass: `StepOptions.identity: 'id'` keys the dispatch by its
-namespaced step NAME (`JobSpec.stepKey`) instead of by position, so inserting a
-step into an edited plan re-runs one dispatch, not everything after it. It is
-opt-in per step, requires an explicit `stepId`, and positional stays the
-default — the conditional spread in `deriveIdempotencyKey` keeps every
-pre-`stepKey` payload byte-identical.
-A third bypass goes further and hands the question over entirely:
-`StepOptions.idempotencyKey` keys the row on a string the CALLER derives,
-skipping `deriveIdempotencyKey` the way `JobSpec.idempotencyKey` always has for
-a host submitting directly. This is not the refusal above being reversed — the
-library still derives no content hash of its own, and still will not decide that
-two identical dispatches are one unit of work. It is the seam for a caller whose
-notion of "the same work" the derivation cannot express, the concrete case being
-reuse that outlives a session: `sessionId` is hashed on purpose ("dedup never
-crosses a session boundary"), so no choice of `identity` mode escapes it. The
-burden moves with the key and is stated where it is declared — within one
-pattern, a key that omits something the step reads returns the earlier output
-for later work, which is a stale but schema-valid result rather than an error.
-One collision does not move with it: a key already held by a row for a
-DIFFERENT pattern is refused, `IDEMPOTENCY_KEY_CROSS_PATTERN`. That row's output
-was gated against the other pattern's `outputs` schema and never against this
-one's, so returning it is not a stale answer to the caller's question but an
-answer to a different one — and only a caller-supplied key can produce it, since
-the derivation always hashes `patternId`. `runPlan` exposes the same seam as
-`idempotencyKeyFor`, because the interpreter owns the `ctx.step` call and a
-plan's steps would otherwise be the only steps that cannot reach the option; a
-plan is also where the two ways to write the key badly show up, since one key
-function serves many steps (a key ignoring the pattern hits the refusal above,
-one ignoring the step id collapses a fan-out onto a row that has not finished —
-`PLAN_STEP_IN_FLIGHT`).
+**Why.** A step's identity is a path: the ids of the steps that launched its
+compose, then its own — `panel-0/meta_image-best-of-n#0/text-to-image#1`. A
+segment is the name an author gave (`StepOptions.stepId`) or, unnamed,
+`${patternId}#${n}` (a `/` in the pattern id is written `%2F`), the ordinal of
+the call among its compose's unnamed calls to the same pattern. The path is the step's `stepKey`, and the idempotency key
+hashes it. An id derived from content would be worse: the key already hashes
+`patternId` and `input`, so it would add nothing, and `meta_image-best-of-n` —
+which fans out N identical dispatches by design — would collapse its N samples
+into one row. The ordinal is local to its compose because "a counter shared by
+the tree is a function of timing": parallel subtrees interleave on it, and a
+sibling that dedupes skips its compose, so a step that had succeeded drew a new
+number on the resubmit and was paid for again. "Counting only unnamed calls
+means adding, removing or moving a named step never renumbers one; counting
+per pattern means a call to another pattern never does." That is the cost, and
+where it stops: unnamed steps reached from concurrent branches of one compose
+after an `await` — capped `parallel.limit` tasks, `parallel(items.map(async …))` —
+number in the order they are reached, so a resubmit can pay for them again,
+never with another step's output, since the input is in the key too. Telling
+that a call came from such a branch would take runtime machinery the library
+does not carry. An explicit id that repeats within a compose, or lands on a
+default id the same compose produces, throws `DUPLICATE_STEP_ID` rather than
+silently sharing a row. An explicit id carrying `/`, the separator between a
+path's segments, throws `STEP_ID_RESERVED_CHARACTER`: `panel-1/x` would read as
+a step under a sibling named `panel-1`, released when that sibling retries. A
+`ctx.compute` id carrying one throws the same, because its cache key is built
+like a path — a root `compute('a/b')` would share a slot with `compute('b')`
+under a step named `a` — and a default segment escapes a `/` in its pattern
+id, so every segment, however it is built, follows one rule: it contains no
+`/`. A retry is not a repeat: it is the same step executing again, so the ids its
+failed attempt's subtree registered are released first, and the retried
+subtree finds the rows that attempt banked. That holds because a meta whose
+compose fails, or whose output its gate refuses, settles only once the steps
+and `ctx.submitJob` children it had already started have settled, refusing any
+step, submit or park asked of it after (`STEP_AFTER_COMPOSE_FAILED`), so
+a failing meta takes as long as its slowest in-flight step — the trade a
+failing plan makes for its independent branches. A step still in flight that
+is itself parked on `ctx.askUser`, inside a nested meta, keeps the failing meta
+open until that park is answered or the job is cancelled. An adapter that
+ignores its `AbortSignal` holds a cancelled failing meta open until it returns:
+a deadline is the host's to impose, as "We don't impose concurrency caps,
+timeouts, or TTLs" below says. `ctx.askUser` ids are counted apart from step
+ids, so a park moves no step's key.
+**Instead.** Name a step whose position the code around it does not fix:
+fan-out (`candidate-${i}`), and anything called from concurrent branches. A
+named step survives any edit to the other steps in its compose; it moves only
+if a step that launched its compose is renumbered, so name that one too. One
+bypass goes further and hands the question over entirely: `StepOptions.idempotencyKey` keys the row
+on a string the CALLER derives, skipping `deriveIdempotencyKey` the way
+`JobSpec.idempotencyKey` always has for a host submitting directly. This is not
+the refusal above being reversed — the library still derives no content hash of
+its own, and still will not decide that two identical dispatches are one unit
+of work. It is the seam for a caller whose notion of "the same work" the
+derivation cannot express, the concrete case being reuse that outlives a
+session: `sessionId` is hashed on purpose ("dedup never crosses a session
+boundary"), so naming a step does not escape it. The burden moves with the key
+and is stated where it is declared — within one pattern, a key that omits
+something the step reads returns the earlier output for later work, which is a
+stale but schema-valid result rather than an error. One collision does not move
+with it: a key already held by a row for a DIFFERENT pattern is refused,
+`IDEMPOTENCY_KEY_CROSS_PATTERN`. That row's output was gated against the other
+pattern's `outputs` schema and never against this one's, so returning it is not
+a stale answer to the caller's question but an answer to a different one — and
+only a caller-supplied key can produce it, since the derivation always hashes
+`patternId`. `runPlan` exposes the same seam as `idempotencyKeyFor`, because
+the interpreter owns the `ctx.step` call and a plan's steps would otherwise be
+the only steps that cannot reach the option; a plan is also where the two ways
+to write the key badly show up, since one key function serves many steps (a key
+ignoring the pattern hits the refusal above, one ignoring the step id collapses
+a fan-out onto a row that has not finished — `PLAN_STEP_IN_FLIGHT`).
 **Where.** `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: default-step-id-is-positional),
-`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-requires-step-id),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-identity-field),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: ask-id-not-step-identity),
 `packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: caller-supplied-step-identity),
+`packages/orchestral-runtime/src/meta-execution-context.ts` (DESIGN: step-id-reserved-character),
+`packages/orchestral-runtime/src/inline.ts` (DESIGN: failed-compose-settles-its-steps),
 `packages/orchestral-runtime/src/inline.ts` (DESIGN: idempotency-key-cross-pattern);
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-fan-out-note),
 `packages/orchestral-patterns/src/meta/image-best-of-n/index.ts` (DESIGN: best-of-n-explicit-step-id);
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a completed step under a resubmitted sibling is not paid again when the other sibling dedupes"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a park between two steps moves neither step key"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a retried meta step finds the rows its failed attempt banked when the inner step is unnamed"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a retried meta step reads the real output of a step its failed attempt left running when the steps are unnamed"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("a retried meta step meets no DUPLICATE_STEP_ID from a step its failed attempt started late when the steps are named"),
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("an explicit step id carrying the path separator is refused before anything is registered"),
 `packages/orchestral-runtime/src/__tests__/meta-nested-stepid-namespace.test.ts` ("does not crash DUPLICATE_STEP_ID when the same child meta runs twice with fixed explicit stepIds"),
 `packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("dedupes across sessions, which the derived key cannot"),
-`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("refuses a key that collides across two patterns");
-`packages/orchestral-runtime/src/__tests__/meta-step-identity-id.test.ts`.
+`packages/orchestral-runtime/src/__tests__/meta-step-idempotency-key.test.ts` ("refuses a key that collides across two patterns").
 
 ### We don't impose concurrency caps, timeouts, or TTLs
 **Why.** "There is no concurrency limit, no per-step timeout and no job TTL.
@@ -400,17 +438,20 @@ entry assigns to the host is one the host had no way to exercise.
 `PlanToMetaOptions` and `createPlanMeta`) is where a host names a number.
 Default unlimited, and the library still picks none: this is the difference
 between refusing to impose a policy and refusing to provide the mechanism, and
-only the first was ever the argument. The cost of turning it on — a capped step
-starts when an earlier one settles, so the tree-shared counter stops handing a
-nested meta's positional rows the same indices run after run — is stated where
-the option is declared.
+only the first was ever the argument. Turning it on moves no plan step's key: a
+plan names every step it dispatches, and a nested meta numbers its unnamed steps
+within its own compose, so which task starts first decides nothing a resubmit
+looks up. What a cap does cost a hand-written compose is stated on
+`parallel.limit`, where the author makes the choice: an unnamed step called from
+a capped task takes its number in completion order — name it.
 **Where.** `packages/orchestral-core/CHANGELOG.md` (DESIGN: changelog-no-timeout-no-ttl);
 `packages/orchestral-runtime/CHANGELOG.md` (DESIGN: changelog-no-throttling-no-deadlines);
 `packages/orchestral-core/src/execution-context.ts` (DESIGN: root-job-id-not-persisted);
 `packages/orchestral-core/src/parallel.ts` (DESIGN: fan-out-cap-is-a-mechanism-not-a-policy);
 `packages/orchestral-plan/src/interpreter.ts` (DESIGN: plan-concurrency-is-the-hosts-knob);
 `packages/orchestral-runtime/src/__tests__/abort-cascade.test.ts`;
-`packages/orchestral-patterns/src/__tests__/meta-plan-seams.test.ts` ("holds a capped level to the cap, and still finishes every step").
+`packages/orchestral-patterns/src/__tests__/meta-plan-seams.test.ts` ("holds a capped level to the cap, and still finishes every step");
+`packages/orchestral-runtime/src/__tests__/meta-step-identity-path.test.ts` ("under parallel.limit with a cap of one a nested meta finds its rows on resubmit").
 
 ### We don't make `asset://` a fetch protocol
 **Why.** The URI is only "the URI writing form of an AssetLedger reference":
@@ -718,7 +759,10 @@ it names, not on what that meta declares in turn.
 
 ### We don't namespace `job:step` ids or mint handles for inner plan steps
 **Why.** Both are engine-wide changes with a one-line host workaround
-(`childJobId`) and would make a plan more visible, not more correct.
+(`childJobId`) and would make a plan more visible, not more correct. An id
+names a step within its own compose — default ids included, since
+`text-to-image#0` recurs in every compose that makes one unnamed call to it —
+so a host keying on `stepId` conflates subtrees, and `childJobId` never does.
 Intermediate lineage stays a host concern; the plan's `output.assets` is the
 model-facing surface.
 **Instead.** Key a progress UI on `childJobId`; list what should be
@@ -729,7 +773,10 @@ addressable in the plan's `output` block.
 ### We don't gate spend inside the plan interpreter
 **Why.** The host decides on spend ("We don't impose concurrency caps,
 timeouts, or TTLs"); `compose` has no router to show a model with, and an
-`askUser` step would consume the step counter and park the job without replay.
+`askUser` step would park the job without replay: a park does not survive a
+restart ("We don't resume lost jobs"). That a park once moved every later
+step's key is no longer part of the argument — ask ids are counted apart from
+step ids.
 **Instead.** `preflightPlan` routes every step and prices nothing — put its
 report in front of your own `AskUserHandler` before `submitJob`; a hard cap is
 a `beforeDispatch` middleware.

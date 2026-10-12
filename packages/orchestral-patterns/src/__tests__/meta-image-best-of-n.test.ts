@@ -92,9 +92,11 @@ describe('meta_image-best-of-n', () => {
     // 3 fan-out calls + 1 judge call.
     expect(recorded).toHaveLength(4)
 
-    // Each fan-out hits text-to-image with a unique stepId — without this
-    // override the stepCache would collapse N identical dispatches into one
-    // and we'd lose sample diversity.
+    // Each fan-out hits text-to-image with its own stepId. The N dispatches
+    // share patternId and input by design, so the name is what keys each
+    // sample's row: unnamed they would still be N rows, but numbered by
+    // position, so an unnamed `text-to-image` call added ahead of the fan-out
+    // would renumber them.
     expect(recorded[0]!.patternId).toBe('text-to-image')
     expect(recorded[0]!.stepOptions?.stepId).toBe('candidate-0')
     expect(recorded[1]!.stepOptions?.stepId).toBe('candidate-1')

@@ -130,7 +130,7 @@ describe('incremental re-run wiring', () => {
     expect(out3.frameAssetId).not.toBe(out1.frameAssetId)
   })
 
-  it('each child row carries exactly the key deriveIdempotencyKey gives for { patternId, input, assets, sessionId, stepIndex }', async () => {
+  it('each child row carries exactly the key deriveIdempotencyKey gives for { patternId, input, assets, sessionId, stepKey }', async () => {
     const host = makeHost()
     const session = 'session-key'
     const run = await host.run(RED_BIKE, session)
@@ -139,13 +139,14 @@ describe('incremental re-run wiring', () => {
       run.steps.map((s) => host.runtime.pollJob(s.childJobId)),
     )
 
-    // stepIndex is the step's ordinal in compose — 0, 1, 2 — not the stepId.
+    // The key carries each step's explicit id as stepKey — `describe`,
+    // `render`, `animate` — not where the step sits in compose.
     expect(describeRow!.idempotencyKey).toBe(
       deriveIdempotencyKey({
         patternId: 'text-generation',
         input: { system: DESCRIBE_SYSTEM, prompt: RED_BIKE.prompt },
         sessionId: session,
-        stepIndex: 0,
+        stepKey: 'describe',
       }),
     )
     expect(renderRow!.idempotencyKey).toBe(
@@ -153,7 +154,7 @@ describe('incremental re-run wiring', () => {
         patternId: 'text-to-image',
         input: { prompt: out.description },
         sessionId: session,
-        stepIndex: 1,
+        stepKey: 'render',
       }),
     )
     // The still rides in `assets`, so the same motion over a different still
@@ -164,7 +165,7 @@ describe('incremental re-run wiring', () => {
         input: { prompt: RED_BIKE.motion },
         assets: [{ slot: 'startFrame', assetId: out.frameAssetId, modality: 'image' }],
         sessionId: session,
-        stepIndex: 2,
+        stepKey: 'animate',
       }),
     )
   })

@@ -3,7 +3,7 @@
 // Model execution belongs to the host CapabilityRouter, so the only
 // host-callable escape hatch on the base context is submitJob. MetaPattern
 // composition adds ctx.step / ctx.compute on top: sub-Pattern dispatch and
-// idempotent local-fn wrapping, each with retry / abort / metadata.
+// idempotent local-fn wrapping, each with retry and abort.
 
 import type { ResolvedAssetRef } from './asset-index.types'
 import type { Job, JobSpec } from './job'
@@ -26,58 +26,42 @@ export type RetryPolicy =
   | { kind: 'fixed'; maxAttempts: number; delayMs: number }
 
 // Everything with an effect a caller can ask of one `ctx.step` beyond the
-// PatternRef: how to retry it, what to call it, which identity keys its durable
-// row, and a key of the caller's own. None of it changes what the step
-// dispatches — only how it is retried, named and deduped.
+// PatternRef: how to retry it, what to call it — which is also what keys its
+// durable row — and a key of the caller's own. None of it changes what the
+// step dispatches — only how it is retried, named and deduped.
 // DESIGN: step-options
 export interface StepOptions {
   /** Retry policy; default `{ kind: 'none' }`. */
   retry?: RetryPolicy
-  /** Free-form observability metadata flows into workflow.json. */
-  metadata?: Record<string, unknown>
   /**
-   * Override the auto-generated stepId. Default = `${patternId}#${seq}`
-   * where seq is the order of the call within this compose run. Use
-   * explicit override for fan-out (`portrait-${i}`) where deterministic
-   * order is needed for resume.
+   * Name this step. The name keys the step's durable JobStore row, prefixed by
+   * the ids of the steps that launched this compose, so adding, removing or
+   * reordering other steps in this compose never re-keys it. It moves only if
+   * a step that launched this compose is renumbered, so name that one too.
+   *
+   * Unnamed, the id is `${patternId}#${n}` (a `/` in the pattern id is
+   * written `%2F`): n counts the unnamed calls to the same pattern this
+   * compose made before this one. Inserting a named step, or
+   * an unnamed call to another pattern, leaves it alone; inserting an unnamed
+   * call to the same pattern ahead of it renumbers it, and a renumbered step
+   * runs again. N identical unnamed dispatches are still N rows.
+   *
+   * The number is taken when `ctx.step` is called. Calls made in order —
+   * sequential awaits, `parallel([...])` over calls written inline, an
+   * uncapped `parallel.limit` — number in that order. Calls reached from
+   * concurrent branches after an `await` — inside capped `parallel.limit`
+   * tasks, or `parallel(items.map(async (x) => { await …; ctx.step(…) }))` —
+   * number in the order they are reached, which can differ between runs.
+   * Name those (`candidate-${i}`), or a resubmit pays for them again — never
+   * with another step's output, since the input is in the key too.
+   *
+   * A name is unique within its compose: a repeat, or a name spelled like a
+   * default id that this compose also produces, throws `DUPLICATE_STEP_ID`.
+   * It may not contain `/`, which separates the ids in a step's path: that
+   * throws `STEP_ID_RESERVED_CHARACTER`, as a `ctx.compute` id carrying one
+   * does.
    */
   stepId?: string
-  /**
-   * What keys this step's durable JobStore row — which decides what a re-run
-   * dedupes onto.
-   *
-   * - `'index'` (default): the tree-wide counter position keys the row. The
-   *   step's ordinal within the compose run is hashed into the idempotency
-   *   key, so inserting or reordering a step re-keys it and everything after
-   *   it, even when nothing those steps read has changed.
-   * - `'id'`: the namespaced stepId keys the row instead, and the position
-   *   drops out. Steps then survive an edit elsewhere in the list. **Requires
-   *   an explicit `stepId`** — the default id embeds the counter, so leaving
-   *   it to the framework would put the position straight back into the key.
-   *   `ctx.step` throws `STEP_IDENTITY_REQUIRES_STEP_ID` rather than key a row
-   *   on `text-to-image#3`.
-   *
-   * Positional is the default because a shipped meta is write-once: its author
-   * owns the step order the same way they own the code, and a reorder is a
-   * code change they make deliberately and once (DESIGN.md's "we don't
-   * content-hash step ids"). Under that model the counter is the cheaper
-   * identity — nothing to name, nothing to keep unique, and the tree-shared
-   * counter already tells two subtrees apart for free.
-   *
-   * The population that should opt in is the one whose step list is edited
-   * *between runs by a model* rather than by a commit: an LLM-authored
-   * pipeline, re-emitted with a step inserted after the user asked for one
-   * more thing. There, reordering is routine rather than exceptional, and
-   * paying to re-run every downstream step on each revision is the whole cost
-   * of the feature. Naming the steps is also already free for such a caller —
-   * it wrote the ids into the plan.
-   *
-   * Opting in changes nothing else: the counter still advances (so default
-   * ids, nested namespaces and `job:step` events are untouched), the
-   * duplicate-id guard still applies, and a step that does not set `identity`
-   * hashes byte-identically to how it did before this option existed.
-   */
-  identity?: 'index' | 'id'
 
   /**
    * Key this step's durable row on a string the CALLER derives, bypassing
@@ -85,19 +69,20 @@ export interface StepOptions {
    * has always given a host submitting directly, reachable from inside a
    * `compose` where the framework, not the author, builds the child spec.
    *
-   * Why the two `identity` modes are not enough. Both are projections of one
-   * derivation, and that derivation hashes `sessionId` — "dedup never crosses
-   * a session boundary" is a deliberate property of it, not an oversight. So a
-   * caller whose notion of "the same work" is broader than one session cannot
-   * express it by choosing a mode: name-keying survives an edit to the step
-   * list, and still re-pays in a new session. Content-addressed reuse that
-   * outlives the conversation the request arrived in is a key question, and
-   * this is where a caller answers it.
+   * Why naming the step is not enough. The derivation hashes `sessionId` —
+   * "dedup never crosses a session boundary" is a deliberate property of it,
+   * not an oversight. So a caller whose notion of "the same work" is broader
+   * than one session cannot express it through the step's name: a named step
+   * survives an edit to the other steps in its compose (unless an unnamed
+   * step that launched the compose is renumbered), and still re-pays in a
+   * new session.
+   * Content-addressed reuse that outlives the conversation the request arrived
+   * in is a key question, and this is where a caller answers it.
    *
-   * When present, `identity` stops mattering for the durable key: position and
-   * name are both inputs to a derivation that no longer runs. Everything else
-   * `identity` governs (which id the step reports, how nested namespaces
-   * compose) is untouched, so a step may sensibly pass both.
+   * When present, the step's path stops mattering for the durable key: it is
+   * an input to a derivation that no longer runs. The name still governs
+   * everything else (which id the step reports, how a nested meta's namespace
+   * composes), so a step may sensibly pass both.
    *
    * Almost the whole burden moves with the key. The engine stops asking
    * whether the input changed, so a key that omits something the step actually
@@ -312,9 +297,6 @@ export interface ExecutionContext<S = unknown, P = unknown, W = unknown>
    * idempotency, just a plain await on a human.
    */
   askUser: AskUser
-
-  /** Position within a MetaPattern step list — folded into idempotency hash. */
-  stepIndex: number
 
   // Optional domain-specific contexts; host parameterises ExecutionContext<S, P, W>.
   workflow?: W

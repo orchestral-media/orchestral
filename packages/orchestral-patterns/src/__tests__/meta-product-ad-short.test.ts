@@ -62,7 +62,6 @@ function makeCtx(opts: {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
     askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     signal: new AbortController().signal,
-    stepIndex: 0,
     sessionId: opts.sessionId,
     step: async <T>(ref: PatternRef): Promise<T> => {
       calls.push({ patternId: ref.patternId, input: ref.input as Record<string, unknown>, assets: (ref as unknown as { assets?: unknown }).assets })
@@ -113,7 +112,6 @@ function makeCtxPick(opts: {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
     askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     signal: new AbortController().signal,
-    stepIndex: 0,
     sessionId: opts.sessionId,
     step: async <T>(ref: PatternRef): Promise<T> => {
       calls.push({ patternId: ref.patternId, input: ref.input as Record<string, unknown>, assets: (ref as unknown as { assets?: unknown }).assets })
@@ -145,7 +143,6 @@ function makeCtxAskThrows(opts: { heroPrompts: string[]; sessionId?: string }) {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
     askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     signal: new AbortController().signal,
-    stepIndex: 0,
     sessionId: opts.sessionId,
     step: async <T>(ref: PatternRef): Promise<T> => {
       calls.push({ patternId: ref.patternId, input: ref.input as Record<string, unknown> })
@@ -266,7 +263,6 @@ describe('meta_product-ad-short', () => {
       compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
       askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
       signal: new AbortController().signal,
-      stepIndex: 0,
       step: async <T>(ref: { patternId: string; input: Record<string, unknown> }): Promise<T> => {
         calls.push({ patternId: ref.patternId })
         if (ref.patternId === 'text-generation')

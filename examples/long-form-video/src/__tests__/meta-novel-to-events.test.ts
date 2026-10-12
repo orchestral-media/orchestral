@@ -94,8 +94,8 @@ describe('meta_novel-to-events', () => {
     )
     expect(textCalls).toHaveLength(3)
 
-    // stepIds are unique per iter — bypassing the stepCache so identical
-    // "system+prompt prefix" don't collapse.
+    // One stepId per round: a name repeated across rounds would throw
+    // DUPLICATE_STEP_ID, and the round number keys each round's row.
     expect(textCalls[0]!.stepOptions?.stepId).toBe('event-0')
     expect(textCalls[1]!.stepOptions?.stepId).toBe('event-1')
     expect(textCalls[2]!.stepOptions?.stepId).toBe('event-2')

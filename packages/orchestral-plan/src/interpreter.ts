@@ -157,8 +157,8 @@ export interface PlanToMetaOptions {
   assetNeeds?: readonly AssetNeed[]
   /**
    * Upper bound on how many steps of one dependency level run at once. Default
-   * unlimited, which is the whole level — see {@link RunPlanOptions.concurrency}
-   * for what a bound costs.
+   * unlimited, which is the whole level — see {@link RunPlanOptions.concurrency},
+   * including why a bound moves no step's key.
    */
   concurrency?: number
   /** Per-step durable identity; see {@link RunPlanOptions.idempotencyKeyFor}. */
@@ -476,14 +476,11 @@ export interface RunPlanOptions {
    * unlimited, and the library still picks no number.
    * DESIGN: plan-concurrency-is-the-hosts-knob
    *
-   * It is not free. `ctx.step` advances a tree-shared counter at CALL time, and
-   * that counter keys every POSITIONAL child — the internals of a nested meta
-   * run as one plan step. Uncapped, a level's steps are all called
-   * synchronously, so those inner rows land on the same indices run after run.
-   * Capped, a step starts when an earlier one settles, so which nested subtree
-   * claims which index becomes a question of provider latency, and the dedup
-   * such a meta relies on stops holding across runs. The plan's OWN steps are
-   * unaffected either way (`identity: 'id'`).
+   * A bound moves no step's key. Every step a plan dispatches is named by its
+   * id, and a nested meta numbers its unnamed steps within its own compose, so
+   * which step starts first decides nothing a resubmit looks up. (What a cap
+   * does cost elsewhere — unnamed steps called from capped tasks number in
+   * completion order — needs an unnamed step, and a plan has none.)
    */
   concurrency?: number
   /**
@@ -693,9 +690,9 @@ export async function runPlan(
       }
     }
 
-    // 5. Dispatch. `identity: 'id'` keys the durable row on the namespaced
-    //    stepId rather than the counter position, so inserting a step ahead of
-    //    this one does not re-key work whose inputs did not change.
+    // 5. Dispatch. The step's id is its name, and a named step's row is keyed
+    //    by its path (`stepKey`), so inserting a step ahead of this one does
+    //    not re-key work whose inputs did not change.
     const ref: PatternRef = {
       patternId: step.pattern as PatternId,
       input,
@@ -706,7 +703,6 @@ export async function runPlan(
     const idempotencyKey = opts.idempotencyKeyFor?.(step, input, assets)
     const { value } = await ctx.step.withMeta<StepValue>(ref, {
       stepId: step.id,
-      identity: 'id',
       ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
       ...(step.retry !== undefined ? { retry: step.retry } : {}),
     })
@@ -728,41 +724,16 @@ export async function runPlan(
 
   // 2. Levels. `level(step) = 1 + max(level(dep))` over the backward refs.
   //
-  //    Why a level loop and not a promise graph. Every `ctx.step` call advances
-  //    a counter that is SHARED across the whole meta tree, and that counter is
-  //    the durable key of every POSITIONAL child — the internals of a shipped
-  //    meta called as one plan step (`meta_image-best-of-n`'s `candidate-N`
-  //    rows are keyed on it). The counter advances at CALL time, so the level
-  //    loop below — every step of a level called synchronously inside the
-  //    `map`, before anything is awaited — hands those inner steps the same
-  //    indices run after run. A scheduler that started each step when its last
-  //    dependency settled would decide which step claims which index by
-  //    provider latency, and the dedup a plan exists for would fail for exactly
-  //    the nested metas the grammar tells an author to reach for.
-  //
-  //    "The same indices run after run" holds while every earlier step's
-  //    compose actually RUNS. Two things stop one from running, and both shift
-  //    the shared counter for everything after it:
-  //
-  //      • a step that dedupes to a cached row skips its compose, and its
-  //        subtree's counter consumption with it. Resubmitting a partly-failed
-  //        plan containing two or more nested positional metas can therefore
-  //        shift, and re-pay, the completed inner rows of the later one;
-  //      • a step INVALIDATED by an upstream failure is never attempted at all,
-  //        so on the resubmit — where the failure has been fixed and it does
-  //        run — it consumes counter positions it did not consume before, and a
-  //        surviving branch's nested positional rows can miss where they hit on
-  //        the first run. This one arrives with the keep-going walk below: under
-  //        the old fail-the-level behaviour a resubmit re-ran everything after
-  //        the failure anyway, so there was nothing banked to miss.
-  //
-  //    Both are the engine's documented cost of positional identity (DESIGN.md,
-  //    "We don't content-hash step ids"), reached here rather than introduced:
-  //    the plan's OWN steps are immune (`identity: 'id'`), and a plan adds no
-  //    new identity for other metas' internals. What the second says is that
-  //    banking more work buys strictly more than it costs — the surviving
-  //    branch's OWN row is still a hit; what can miss is an inner row of a
-  //    nested meta that keys positionally.
+  //    Every step of a level is called synchronously inside the `map`, in
+  //    list order, and the level is awaited through `parallel.limit`. That
+  //    order used to decide keys: a counter shared by the tree numbered nested
+  //    metas' unnamed steps, so which step started first decided which rows a
+  //    resubmit found. It decides none now — a plan names every step, and a
+  //    nested meta numbers its unnamed steps within its own compose — so a
+  //    capped level, a sibling that dedupes, or a step invalidated on one run
+  //    and attempted on the next moves no row. What the level loop still
+  //    decides is how a failure propagates, which the walk below settles level
+  //    by level.
   //
   //    A step's failure invalidates exactly its transitive dependents, which is
   //    what the DAG the author wrote already says. The walk used to be narrower
@@ -791,9 +762,10 @@ export async function runPlan(
     })
     if (runnable.length === 0) continue
     await parallel.limit(
-      // `runStep(step)` is called inside the thunk's SYNCHRONOUS prologue, and
-      // `parallel.limit` starts every thunk synchronously when uncapped — so
-      // the counter argument above still holds byte for byte at the default.
+      // `runStep(step)` is called inside the thunk's synchronous prologue.
+      // Uncapped, `parallel.limit` starts every thunk synchronously and in list
+      // order; capped, it starts each as an earlier one settles — which moves
+      // no key, since every step here is named.
       runnable.map((step) => async () => {
         try {
           outputs.set(step.id, await runStep(step))

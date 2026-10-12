@@ -35,10 +35,16 @@ describe('deriveIdempotencyKey', () => {
     expect(a).not.toBe(b)
   })
 
-  it('separates step indices', () => {
-    const a = deriveIdempotencyKey({ ...base, input: { x: 1 }, stepIndex: 0 })
-    const b = deriveIdempotencyKey({ ...base, input: { x: 1 }, stepIndex: 1 })
+  it('separates step keys', () => {
+    const a = deriveIdempotencyKey({ ...base, input: { x: 1 }, stepKey: 'a' })
+    const b = deriveIdempotencyKey({ ...base, input: { x: 1 }, stepKey: 'b' })
     expect(a).not.toBe(b)
+  })
+
+  it('a step key and no step key never coincide', () => {
+    const a = deriveIdempotencyKey({ ...base, input: { x: 1 }, stepKey: 'a' })
+    const none = deriveIdempotencyKey({ ...base, input: { x: 1 } })
+    expect(a).not.toBe(none)
   })
 
   it('separates sessions', () => {

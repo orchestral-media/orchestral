@@ -2,7 +2,7 @@
 //
 // The claim: `ctx.step` is content-addressed. Every sub-dispatch inside a meta
 // derives an idempotency key from { patternId, input, assets, sessionId,
-// stepIndex } (packages/orchestral-runtime/src/idempotency.ts) and goes through
+// stepKey } (packages/orchestral-runtime/src/idempotency.ts) and goes through
 // `JobStore.insertIfAbsent`; a hit returns the existing `done` row instead of
 // dispatching. So re-submit the same meta with ONE input changed, in the same
 // session, and every step whose inputs did not change comes back instantly
@@ -115,13 +115,12 @@ printRun('Run 4 — second runtime, run 1 prompt, new motion', run4, { label: 'r
 
 // 9. What made it work, and what breaks it.
 console.log(`
-What made it work: each ctx.step derives its key from { patternId, input, assets, sessionId, stepIndex }
+What made it work: each ctx.step derives its key from { patternId, input, assets, sessionId, stepKey }
   (packages/orchestral-runtime/src/idempotency.ts) and goes through JobStore.insertIfAbsent, which hands
   back the existing done row on a hit — no dispatch, same childJobId, the stored output flows downstream.
 What breaks it: a different sessionId. The key never crosses a session, so run 1's input in another
   session re-runs all three steps (pinned by the smoke test). Error / cancelled / stale rows never
-  match either — a failed step always re-runs — and stepIndex is positional, so reordering compose is a
-  new key too.`)
+  match either — a failed step always re-runs. Reordering compose is not: each step is keyed by its name.`)
 
 // ── printing ────────────────────────────────────────────────────────────────
 

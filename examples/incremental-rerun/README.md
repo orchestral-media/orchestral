@@ -81,13 +81,12 @@ Run 4 — second runtime, run 1 prompt, new motion
   rows inserted this run: meta_short-clip, image-to-video
   output: "Still of a red bicycle: centred in frame, soft morning light, shallow depth of field." → still img-1 → clip clip-4
 
-What made it work: each ctx.step derives its key from { patternId, input, assets, sessionId, stepIndex }
+What made it work: each ctx.step derives its key from { patternId, input, assets, sessionId, stepKey }
   (packages/orchestral-runtime/src/idempotency.ts) and goes through JobStore.insertIfAbsent, which hands
   back the existing done row on a hit — no dispatch, same childJobId, the stored output flows downstream.
 What breaks it: a different sessionId. The key never crosses a session, so run 1's input in another
   session re-runs all three steps (pinned by the smoke test). Error / cancelled / stale rows never
-  match either — a failed step always re-runs — and stepIndex is positional, so reordering compose is a
-  new key too.
+  match either — a failed step always re-runs. Reordering compose is not: each step is keyed by its name.
 ```
 
 Registration prints nothing: the registry's `OUTPUTS_UNBOUNDED_FIELDS`
@@ -125,7 +124,8 @@ runs the same wiring with zero mock latency and pins:
   run 3's all differ; and, via `vi.spyOn` on each mock's `call`, the models for
   steps 1–2 were called **exactly once** across runs 1–2;
 - each child row's `idempotencyKey` equals `deriveIdempotencyKey({ patternId,
-  input, assets, sessionId, stepIndex })` re-derived by hand (stepIndex 0/1/2);
+  input, assets, sessionId, stepKey })` re-derived by hand (stepKey `describe` /
+  `render` / `animate`);
 - an identical re-submit dedupes the **whole meta** — same job id, no steps;
 - a **different `sessionId`** re-runs everything (the boundary);
 - a second runtime over the same store dedupes onto the first one's rows;
@@ -142,7 +142,7 @@ derives its idempotency key in
 from a hand-picked allowlist:
 
 ```
-sha256({ patternId, input, assets, sessionId, stepIndex })
+sha256({ patternId, input, assets, sessionId, stepKey })
 ```
 
 Routing metadata (`providerOptions`, `resolveHints`, `stepIdNamespace`, …) is
@@ -161,12 +161,10 @@ Three consequences the transcript relies on:
   `animate`'s still arrives through `PatternRef.assets` (the machine-to-machine
   asset channel in [`pattern-ref.ts`](../../packages/orchestral-core/src/pattern-ref.ts))
   and is folded into `assets` in its key — a new still is new work.
-- **Explicit `stepId`s are for the host, not the key.** `describe` / `render`
-  / `animate` are what `job:step` reports, so a host can line runs up by name.
-  The key hashes `stepIndex` — the step's ordinal in `compose` — so the dedup is
-  positional as well as content-addressed: insert a step ahead of `render` and
-  `render` is a new key even with the same input. See the comment in
-  [`src/pattern.ts`](./src/pattern.ts).
+- **Explicit `stepId`s are the key.** `describe` / `render` / `animate` are
+  what `job:step` reports, so a host can line runs up by name — and the key
+  hashes them as `stepKey`, so a step inserted ahead of `render` leaves
+  `render`'s key alone. See the comment in [`src/pattern.ts`](./src/pattern.ts).
 - **Only canonical rows dedupe.** `error` / `cancelled` / `stale` rows never
   match, so a failed step always re-runs; and the key includes `sessionId`, so
   dedup never crosses a session.

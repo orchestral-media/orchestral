@@ -15,12 +15,12 @@
 //      examples/incremental-rerun shows for the hand-written twin of this
 //      pipeline.
 //
-//   2. And one thing the hand-written meta does not. Every plan step dispatches
-//      with `identity: 'id'`, so its row is keyed by the step's NAME, not by
-//      its position in the compose run. Re-author the plan with a step inserted
-//      SECOND and all three original steps still hit — one model call for one
-//      new step. Under positional identity the same edit would move `render`
-//      from index 1 to 2 and `animate` from 2 to 3 and re-run both for nothing.
+//   2. And what naming every step buys. A plan dispatches each step under its
+//      DAG id, and a named step's row is keyed by the name, not by its
+//      position. Re-author the plan with a step inserted SECOND and all three
+//      original steps still hit — one model call for one new step. A
+//      hand-written meta gets the same for the steps it names
+//      (examples/incremental-rerun names all three).
 //
 // Mocks only — no API key, no provider SDK. The three ModelCapability envelopes
 // in ./mock-models sleep for a few hundred ms each so "instant" is visible next
@@ -115,8 +115,8 @@ const run2 = await observer.run(
 printRun('Run 2 — same session, motion changed', run2, { label: 'run 1', trace: run1 })
 
 // 6. Run 3 — the plan itself, revised: a `caption` step inserted SECOND. This
-//    is the identity:'id' payoff. All three original steps keep their keys,
-//    because a key names the step rather than counting to it.
+//    is what naming every step buys. All three original steps keep their
+//    keys, because a key names the step rather than counting to it.
 const run3 = await observer.run(
   runtime,
   CAPTIONED_PATTERN_ID,
@@ -126,11 +126,10 @@ const run3 = await observer.run(
 printRun('Run 3 — a step inserted second', run3, { label: 'run 1', trace: run1 })
 
 console.log(`
-What made it work: every plan step dispatches with { stepId: <the DAG's id>, identity: 'id' }, so its
-  idempotency key is { patternId, input, assets, sessionId, stepKey } — the step's NAME, not its
-  position. Insert a step and the ones that did not change still hit; that is the one thing a plan
-  needs that a write-once hand-written meta does not (packages/orchestral-core/src/execution-context.ts,
-  StepOptions.identity).
+What made it work: every plan step dispatches with { stepId: <the DAG's id> }, so its idempotency key
+  is { patternId, input, assets, sessionId, stepKey } — the step's NAME, not its position. Insert a
+  step and the ones that did not change still hit (packages/orchestral-core/src/execution-context.ts,
+  StepOptions.stepId).
 What breaks it: a different sessionId — the key never crosses a session. Error / cancelled / stale rows
   never match either, so a failed step always re-runs. And a changed upstream asset re-keys downstream
   correctly: \`assets\` is in the key, so a re-rendered still is a new \`animate\`.`)

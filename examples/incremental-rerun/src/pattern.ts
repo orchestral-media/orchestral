@@ -85,28 +85,24 @@ export function createShortClipMeta(): MetaPattern<ShortClipInput, ShortClipOutp
       const startedAt = Date.now()
 
       // Every step carries an EXPLICIT stepId (`describe` / `render` /
-      // `animate`) rather than the default `${patternId}#${n}`. Be precise
-      // about what that buys, because it is less than it looks:
+      // `animate`) rather than the default `${patternId}#${n}`. Two things
+      // follow from it:
       //
       //   • It is the vocabulary the host sees. `job:step` carries the
       //     author-facing stepId, so a host can line up run 2's `render`
-      //     against run 1's `render` by name across runs. The default id
-      //     bakes in the step's ordinal (`text-to-image#1`), so inserting a
-      //     step ahead of it renames it.
+      //     against run 1's `render` by name.
       //
-      //   • It is NOT part of the idempotency key. The key hashes
-      //     { patternId, input, assets, sessionId, stepIndex }, and stepIndex
-      //     is the ordinal the runtime mints as compose calls ctx.step —
-      //     independent of the id you pass. So the dedup is positional as
-      //     well as content-addressed: add a step before `render` and
-      //     `render`'s stepIndex moves from 1 to 2, which is a new key even
-      //     though its input did not change. The author owns that — a
-      //     shipped meta's step order is part of its contract
-      //     (meta-execution-context.ts: "production Patterns are write-once").
-      // DESIGN: explicit-step-id-not-in-key
+      //   • It is the key. The runtime hashes { patternId, input, assets,
+      //     sessionId, stepKey }, and stepKey is the step's path — at the top
+      //     of the tree, just its name. Add a step ahead of `render` and
+      //     `render` keeps its key, because where it sits is not in it.
+      //     Unnamed, it would be `text-to-image#0`: numbered among this
+      //     compose's unnamed text-to-image calls, so only another one
+      //     inserted ahead of it would move it.
+      // DESIGN: explicit-step-id-is-the-key
 
       // 1. describe — reads only `prompt`. Its key: text-generation +
-      //    { system, prompt } + session + stepIndex 0.
+      //    { system, prompt } + session + stepKey `describe`.
       const shot = await textGeneration(
         ctx,
         { system: DESCRIBE_SYSTEM, prompt: input.prompt },

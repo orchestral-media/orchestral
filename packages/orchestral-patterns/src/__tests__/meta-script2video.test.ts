@@ -202,7 +202,6 @@ function makeCtx(opts: CtxOptions = {}) {
     compute: <T>(_id: string, fn: () => Promise<T>) => fn(),
     askUser: buildAskUserFacade(rawBridge as unknown as AskUserGeneric),
     signal: new AbortController().signal,
-    stepIndex: 0,
     step: async <T>(ref: PatternRef): Promise<T> => {
       const input = ref.input as Record<string, unknown>
       const call: Call = { patternId: ref.patternId, input, assets: ref.assets }

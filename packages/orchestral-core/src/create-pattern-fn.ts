@@ -26,11 +26,11 @@ import type {
 import type { PatternRef } from './pattern-ref'
 
 /**
- * Pattern function call options. `StepOptions` (retry / metadata / stepId)
- * plus the internal-asset channel: a meta may thread already-resolved,
- * slot-keyed assetIds it produced (e.g. a prior sub-step's output) to this
- * sub-step via `assets` — the same machine-to-machine channel as
- * `PatternRef.assets`. Ambient resolution context (projectId /
+ * Pattern function call options. `StepOptions` (retry / stepId /
+ * idempotencyKey) plus the internal-asset channel: a meta may thread
+ * already-resolved, slot-keyed assetIds it produced (e.g. a prior sub-step's
+ * output) to this sub-step via `assets` — the same machine-to-machine channel
+ * as `PatternRef.assets`. Ambient resolution context (projectId /
  * providerOptions) still flows through `ctx`, not a per-call override.
  */
 export type PatternFnOptions = StepOptions & {
@@ -63,13 +63,14 @@ export interface PatternFn<I, O> {
  *   I — sub-Pattern input type
  *   O — sub-Pattern output type
  *
- * The returned function's stepId defaults to ctx.step's auto-counter
- * (`${patternId}#${seq}`); pass `options.stepId` to override
- * for resume-stable map fan-out (`{ stepId: \`portrait-\${i}\` }`).
+ * The returned function's stepId defaults to ctx.step's positional id
+ * (`${patternId}#${n}`, n counted among this compose's unnamed calls to the
+ * pattern; a `/` in the pattern id is written `%2F`); pass `options.stepId` to name it — the name then keys its row —
+ * for fan-out (`{ stepId: \`portrait-\${i}\` }`).
  *
  * Every option but `assets` reaches `ctx.step` untouched, so a new StepOptions
- * field — `identity`, `idempotencyKey` — works through a typed wrapper the day
- * it exists, with no change here.
+ * field — `idempotencyKey` was one — works through a typed wrapper the day it
+ * exists, with no change here.
  * DESIGN: pattern-fn-forwards-step-options
  */
 export function createPatternFn<I = unknown, O = unknown>(
