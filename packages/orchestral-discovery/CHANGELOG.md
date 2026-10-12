@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [f00872f]
+- Updated dependencies [9ca4d97]
+  - @orchestral/core@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes
