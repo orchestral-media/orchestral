@@ -26,10 +26,10 @@
 #   - Examples are private and skipped by pnpm publish on their own.
 #   - `create-github-releases: false`: the action detects releases by parsing
 #     its own `changeset publish` output, which `pnpm -r publish` does not
-#     emit. The releases are not given up with it — the last two steps below
-#     cut the tag and publish notes built from the published packages'
-#     CHANGELOGs, both of which are true after a publish whatever the
-#     publisher printed.
+#     emit. The releases are not given up with it — the last three steps
+#     below find the released version on the registry, cut the tag, and
+#     publish notes built from the published packages' CHANGELOGs, all of
+#     which are true after a publish whatever the publisher printed.
 #
 # Auth: npm trusted publishing (OIDC). Each published package names this
 # repo + this workflow file as its trusted publisher (configured via
@@ -104,22 +104,64 @@ jobs:
           pr-title: 'release: version packages'
           create-github-releases: false
 
-      # One human-readable tag per release of the line (v0.1.0 set the
-      # convention), cut from core's version — the seven move together, so any
-      # of them names the line. Self-computed against the REGISTRY rather
-      # than read off the action's `published` output: that output is derived
-      # from the publish script's stdout, which `pnpm -r publish` does not
-      # format the way the action parses, and the registry is the ground
-      # truth anyway. Idempotent: an ordinary push finds the tag already
-      # present; a failed publish finds the version absent; only the push
-      # where the publish actually landed cuts a tag.
-      - name: Tag the released line
+      # Whether the version main carries is on the registry. The tag and the
+      # release below both key on this one answer, so it is asked once, here.
+      # Self-computed against the REGISTRY rather than read off the action's
+      # `published` output: that output is derived from the publish script's
+      # stdout, which `pnpm -r publish` does not format the way the action
+      # parses, and the registry is the ground truth anyway.
+      #
+      # The registry is read-after-write eventually, not immediately. At 0.5.0
+      # the publish PUT for core returned at 16:19:02 and `npm view` still
+      # answered "not found" at 16:20:06, so the run that published the line
+      # cut no tag and no release — and nothing would have until the next push
+      # to main happened to come along. So when the tag is absent, which is the
+      # only time a publish can just have happened, this polls for up to five
+      # minutes before concluding the version is not there. `--prefer-online`
+      # is load-bearing: without it npm answers every later attempt from the
+      # packument it cached on the first miss, and the loop never sees the
+      # version arrive.
+      #
+      # Costs, accepted: an ordinary push (tag present) asks the registry once
+      # and waits for nothing. A push after a FAILED publish (tag absent,
+      # version absent) waits the full five minutes, once per push, and says
+      # so — a slow registry and a failed publish look the same from here, and
+      # five minutes is what it costs to tell them apart.
+      - name: Find the released line on the registry
+        id: released
         run: |
           V=$(node -p "require('./packages/orchestral-core/package.json').version")
-          if ! npm view "@orchestral/core@$V" version >/dev/null 2>&1; then
-            echo "@orchestral/core@$V is not on the registry — nothing to tag"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$V" >/dev/null 2>&1; then
+            # Released on an earlier push; one plain look, no waiting.
+            if npm view "@orchestral/core@$V" version >/dev/null 2>&1; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "tag v$V exists but @orchestral/core@$V is not on the registry"
+              echo "published=false" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
+          for attempt in $(seq 1 30); do
+            if npm view --prefer-online "@orchestral/core@$V" version >/dev/null 2>&1; then
+              echo "@orchestral/core@$V is on the registry (attempt $attempt)"
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "@orchestral/core@$V is not on the registry after five minutes — nothing to tag or announce"
+          echo "published=false" >> "$GITHUB_OUTPUT"
+
+      # One human-readable tag per release of the line (v0.1.0 set the
+      # convention), cut from core's version — the seven move together, so any
+      # of them names the line. Idempotent: an ordinary push finds the tag
+      # already present; a failed publish is skipped by the step above; only
+      # the push where the publish actually landed cuts a tag.
+      - name: Tag the released line
+        if: steps.released.outputs.published == 'true'
+        run: |
+          V="${{ steps.released.outputs.version }}"
           if git rev-parse "v$V" >/dev/null 2>&1; then
             echo "tag v$V already exists"
             exit 0
@@ -148,14 +190,11 @@ jobs:
       # step loudly rather than publishing an empty release — see
       # scripts/release-notes.mjs, which argues that and the dedup above.
       - name: Announce the released line
+        if: steps.released.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          V=$(node -p "require('./packages/orchestral-core/package.json').version")
-          if ! npm view "@orchestral/core@$V" version >/dev/null 2>&1; then
-            echo "@orchestral/core@$V is not on the registry — nothing to announce"
-            exit 0
-          fi
+          V="${{ steps.released.outputs.version }}"
           if gh release view "v$V" >/dev/null 2>&1; then
             echo "release v$V already exists"
             exit 0
